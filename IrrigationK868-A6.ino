@@ -63,8 +63,6 @@ bool   zoneActive[Zone]         = {false};
 unsigned long zoneStartMs[Zone] = {0};
 bool pendingStart[Zone] = { false };
 
-bool   showWeatherScreen      = true;
-unsigned long lastDisplayToggle  = 0;
 unsigned long lastWeatherUpdate  = 0;
 const unsigned long weatherUpdateInterval = 3600000; // 1 hour
 String cachedWeatherData;
@@ -80,7 +78,7 @@ void loadSchedule();
 void saveSchedule();
 void updateCachedWeather();
 String fetchWeather();
-void showMainDisplay();
+void drawHomeScreen();
 void updateLCDForZone(int zone);
 bool shouldStartZone(int zone);
 bool hasDurationCompleted(int zone);
@@ -133,7 +131,8 @@ void setup() {
   loadSchedule();
 
   display.display();
-
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1);
   // Wi‑Fi Setup
   wifiManager.setTimeout(180);
   if (!wifiManager.autoConnect("ESPIrrigationAP")) {
@@ -143,6 +142,7 @@ void setup() {
     display.print("ESPIrrigation");
     display.setCursor(0,1);
     display.print("IP: 192.168.4.1");
+    display.display();  
     ESP.restart();
   }
 
@@ -156,6 +156,7 @@ void setup() {
     display.print("Connected!");
     display.setCursor(0,1);
     display.print(WiFi.localIP().toString());
+    display.display();          
     delay(3000);
   }
 
@@ -218,18 +219,16 @@ void loop() {
   bool anyActive = false;
   for (int z=0; z<Zone; z++) if (zoneActive[z]) { anyActive=true; break; }
   if (!anyActive) {
-    unsigned long m = millis();
-    if (m - lastDisplayToggle >= 10000) {
-      lastDisplayToggle = m;
-      showWeatherScreen = !showWeatherScreen;
-      if (showWeatherScreen) updateCachedWeather();
-    }
-    showMainDisplay();
+  drawHomeScreen();
   }
 
   // ——— Scheduled actions with sequential‑on‑mains logic ———
   for (int z = 0; z < Zone; ++z) {
     if (shouldStartZone(z)) {
+       if (!weatherAllowsIrrigation()) {
+    pendingStart[z] = true;   // optionally queue to try again later
+    continue;
+      }
       if (isTankLow()) {
         // Running off mains: only start immediately if no other zone is active
         bool anyActive = false;
@@ -429,45 +428,62 @@ String fetchWeather() {
   return payload;
 }
 
-void updateLCD() {
-  static bool show = true;
-  static unsigned long lastToggle = 0;
-  unsigned long m = millis();
-  if (m - lastToggle >= 10000) {
-    lastToggle = m;
-    show = !show;
+void drawHomeScreen() {
+  // 1) Refresh weather cache & parse
+  updateCachedWeather();
+  DynamicJsonDocument js(1024);
+  if (!deserializeJson(js, cachedWeatherData)) {
+    // okay
   }
+  float temp = js["main"]["temp"].as<float>();
+  int   hum  = js["main"]["humidity"].as<int>();
+
+  // 2) Read tank level
+  int raw = analogRead(TANK_PIN);
+  int pct = map(raw, 0, 1023, 0, 100);
+  bool low = raw < 150;
+  const char* src = low ? "Main" : "Tank";
+
+  // 3) Get current time & date
+  time_t now = time(nullptr);
+  struct tm* t = localtime(&now);
+  int day = t->tm_mday;
+  int mon = t->tm_mon + 1;
+
+  // 4) Draw everything
   display.clearDisplay();
-  if (show) {
-    DynamicJsonDocument js(1024);
-    if (!deserializeJson(js, cachedWeatherData)) {
-      float t = js["main"]["temp"].as<float>();
-      int h   = js["main"]["humidity"].as<int>();
-      String c= js["weather"][0]["main"].as<String>();
-      int len = (c.length() < 10) ? c.length() : 10;
-      int pos = (16 - len)/2;
-      display.setCursor(pos, 0); display.print(c.substring(0, len));
-      display.setCursor(0, 1);
-      display.print("T:"); display.print(t,1); display.print("C H:"); display.print(h); display.print("%");
-    } else {
-      display.setCursor(0,0);
-      display.print("Weather error");
-    }
-  } else {
-    time_t now   = time(nullptr);
-    struct tm *ti= localtime(&now);
-    char ts[6]; strftime(ts, sizeof(ts), "%H:%M", ti);
-    int raw = analogRead(TANK_PIN);
-    int pct = map(raw, 0, 1023, 0, 100);
-    DynamicJsonDocument js(1024);
-    float ws = 0;
-    if (!deserializeJson(js, cachedWeatherData)) {
-      ws = js["wind"]["speed"].as<float>();
-    }
-    display.setCursor(5, 0);  display.print(ts);
-    display.setCursor(0, 1);
-    display.print("Tk:"); display.print(pct); display.print("% Wi:"); display.print(ws,1); display.print("m/s");
-  }
+
+  // Line 0: time (large) + date (smaller)
+  display.setTextSize(2);
+  display.setCursor(0,  0);
+  display.printf("%02d:%02d", t->tm_hour, t->tm_min);
+
+  display.setTextSize(1);
+  display.setCursor(96, 2);           // adjust X if it overlaps
+  display.printf("%02d/%02d", day, mon);
+
+  // Line 1 (y=10): temperature & humidity
+  display.setTextSize(1);
+  display.setCursor(0,  10);
+  display.printf("T:%2.0fC   H:%02d%%", temp, hum);
+
+  // Line 2 (y=20): tank level & source
+  display.setCursor(0,  20);
+  display.printf("Tank: %3d%% (%s)", pct, src);
+
+  // Line 3 (y=30): Zone 1 & 2 status
+  display.setCursor(0,  30);
+  display.printf("Z1:%s", zoneActive[0] ? "On " : "Off");
+  display.setCursor(64, 30);
+  display.printf("Z2:%s", zoneActive[1] ? "On " : "Off");
+
+  // Line 4 (y=40): Zone 3 & 4 status
+  display.setCursor(0,  40);
+  display.printf("Z3:%s", zoneActive[2] ? "On " : "Off");
+  display.setCursor(64, 40);
+  display.printf("Z4:%s", zoneActive[3] ? "On " : "Off");
+
+  display.display();
 }
 
 void toggleBacklight() {
@@ -479,14 +495,7 @@ void toggleBacklight() {
 }
 
 void showMainDisplay() {
-  if (showWeatherScreen) {
-    updateCachedWeather();
-    updateLCD();
-  } else {
-    // (if you want a plain status screen you can expand this)
-    updateCachedWeather();
-    updateLCD();
-  }
+  drawHomeScreen();
 }
 
 void updateLCDForZone(int zone) {
@@ -506,21 +515,57 @@ void updateLCDForZone(int zone) {
   display.clearDisplay();
   display.setCursor((16 - line1.length())/2, 0);
   display.print(line1);
+  display.display();  
 
   if (elapsed < total) {
     String line2 = String(rem/60) + "m rem";
+    display.clearDisplay();
     display.setCursor((16 - line2.length())/2, 1);
     display.print(line2);
+    display.display();  
   } else {
     display.clearDisplay();
     display.setCursor(4,0);
     display.print("Complete");
+    display.display();  
     delay(2000);
   }
 }
 
 void showZoneDisplay(int zone) {
   updateLCDForZone(zone);
+}
+
+bool weatherAllowsIrrigation() {
+  // parse the last‐fetched weather JSON
+  DynamicJsonDocument js(1024);
+  if (deserializeJson(js, cachedWeatherData) || js.overflowed()) {
+    Serial.println("weather parse error – allowing irrigation");
+    return true;
+  }
+
+  // 1) Rain check (OpenWeatherMap might report rain["1h"])
+  if (rainDelayEnabled && js.containsKey("rain")) {
+    float rain1h = js["rain"]["1h"]   // mm in last hour
+                  | js["rain"]["3h"]   // fallback to 3h
+                  | 0.0f;
+    if (rain1h > 0.0f) {
+      Serial.printf("Skipping due to recent rain: %.2f mm\n", rain1h);
+      return false;
+    }
+  }
+
+  // 2) Wind check
+  if (windDelayEnabled) {
+    float ws = js["wind"]["speed"].as<float>();
+    if (ws >= windSpeedThreshold) {
+      Serial.printf("Skipping due to high wind: %.1f m/s >= %.1f\n",
+                    ws, windSpeedThreshold);
+      return false;
+    }
+  }
+
+  return true;
 }
 
 bool shouldStartZone(int zone) {
