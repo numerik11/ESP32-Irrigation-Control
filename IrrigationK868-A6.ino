@@ -459,28 +459,28 @@ void drawHomeScreen() {
   display.printf("%02d:%02d", t->tm_hour, t->tm_min);
 
   display.setTextSize(1);
-  display.setCursor(96, 2);           // adjust X if it overlaps
+  display.setCursor(75, 2);           // adjust X if it overlaps
   display.printf("%02d/%02d", day, mon);
 
   // Line 1 (y=10): temperature & humidity
   display.setTextSize(1);
-  display.setCursor(0,  10);
+  display.setCursor(0,  20);
   display.printf("T:%2.0fC   H:%02d%%", temp, hum);
 
   // Line 2 (y=20): tank level & source
-  display.setCursor(0,  20);
+  display.setCursor(0,  30);
   display.printf("Tank: %3d%% (%s)", pct, src);
 
   // Line 3 (y=30): Zone 1 & 2 status
-  display.setCursor(0,  30);
+  display.setCursor(0,  40);
   display.printf("Z1:%s", zoneActive[0] ? "On " : "Off");
-  display.setCursor(64, 30);
+  display.setCursor(64, 40);
   display.printf("Z2:%s", zoneActive[1] ? "On " : "Off");
 
   // Line 4 (y=40): Zone 3 & 4 status
-  display.setCursor(0,  40);
+  display.setCursor(0,  50);
   display.printf("Z3:%s", zoneActive[2] ? "On " : "Off");
-  display.setCursor(64, 40);
+  display.setCursor(64, 50);
   display.printf("Z4:%s", zoneActive[3] ? "On " : "Off");
 
   display.display();
