@@ -1,4 +1,4 @@
-USE THIS PCF8574 library....vvv
+USE THIS PCF8574 library
 https://www.kincony.com/forum/attachment.php?aid=1697
 
 
