@@ -1,4 +1,4 @@
-USE THIS PCF8574 library, just unzip and copy to your arduino library folder. 
+USE THIS PCF8574 library....vvv
 https://www.kincony.com/forum/attachment.php?aid=1697
 
 
