@@ -1,3 +1,8 @@
+Upload project using Arduino IDE
+
+Select ESP32 dev module board 
+
+ 
 USE THIS PCF8574 library
 https://www.kincony.com/forum/attachment.php?aid=1697
 
