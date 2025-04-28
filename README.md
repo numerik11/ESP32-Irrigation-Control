@@ -1,4 +1,4 @@
-To upload the project to the Kilcoy A6-ESP32 board using the Arduino IDE, follow these steps. I'll guide you through selecting the right board, installing the necessary libraries, and uploading the code to your ESP32.
+To upload the project to the Kilcoy A6-ESP32 board use Arduino IDE software, follow these steps. I'll guide you through selecting the right board, installing the necessary libraries, and uploading the code to your ESP32.
 
 Steps to Upload the Project to ESP32 via Arduino IDE:
 
