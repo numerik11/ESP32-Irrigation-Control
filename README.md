@@ -1,4 +1,14 @@
-This version of my irrigation controller is degsined to use a Kilcony A6 ESP32 controlled 6 relay module: https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
+This irrigation controller is degsined to use a Kilcony A6 ESP32 controlled 6 relay module: https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
+
+![image](https://github.com/user-attachments/assets/fe8432ff-ee40-48f5-b75d-dcd55b703e60)
+
+---
+
+Ground solenoids at power scorce ground, 12v to each COM on relay, and solenoids to the N.O side of the relay for each zone/tank/main...  
+
+Relays 1-4 Zones, Relay 5 - Mains, Relay 6 - Tank.
+
+N.O - COM - N.C.
 
 ---
 
