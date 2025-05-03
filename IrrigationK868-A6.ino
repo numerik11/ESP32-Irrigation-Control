@@ -201,7 +201,7 @@ void setup() {
   server.send(302, "text/plain", "");
   });
 
-server.on("/setTankFull", HTTP_POST, [](){
+ server.on("/setTankFull", HTTP_POST, [](){
   tankFullRaw = analogRead(TANK_PIN);
   saveConfig();
   server.sendHeader("Location", "/tank", true);
@@ -368,6 +368,8 @@ void saveConfig() {
 
   f.println(apiKey);
   f.println(city);
+  f.println(tankEmptyRaw);
+  f.println(tankFullRaw);
   f.println(tzOffsetHours, 2);
   f.println(rainDelayEnabled ? "1" : "0");
   f.println(windSpeedThreshold, 1);
@@ -376,7 +378,6 @@ void saveConfig() {
   f.println(justUseMains ? "1" : "0");
   f.println(tankEmptyRaw);
   f.println(tankFullRaw);
-
   f.close();
 }
 
@@ -1154,6 +1155,13 @@ void handleSubmit() {
   server.send(302, "text/plain", "");
 }
 
+String generateCheckbox(const String& id, const String& name, bool checked, const String& label) {
+  return "<div class='checkbox-row'>"
+         "<input type='checkbox' id='" + id + "' name='" + name + "'" + (checked ? " checked" : "") + ">"
+         "<label for='" + id + "'>" + label + "</label>"
+         "</div>";
+}
+
 void handleSetup() {
   String html = R"rawliteral(
   <!DOCTYPE html>
@@ -1271,30 +1279,18 @@ void handleSetup() {
 
       <label for='windSpeedThreshold'><i class='fas fa-wind'></i> Wind Threshold (m/s)</label>
       <input type='number' id='windSpeedThreshold' name='windSpeedThreshold' step='0.1' min='0' value=')rawliteral" + String(windSpeedThreshold) + R"rawliteral('>
+  )rawliteral";
 
-      <div class='checkbox-row'>
-        <input type='checkbox' id='windCancelEnabled' name='windCancelEnabled')rawliteral" + (windDelayEnabled ? " checked" : "") + R"rawliteral('>
-        <label for='windCancelEnabled'>Enable Wind Delay</label>
-      </div>
+  // Append checkboxes inside the form
+  html += generateCheckbox("windCancelEnabled", "windCancelEnabled", windDelayEnabled, "Enable Wind Delay");
+  html += generateCheckbox("rainDelay", "rainDelay", rainDelayEnabled, "Enable Rain Delay");
+  html += generateCheckbox("justUseTank", "justUseTank", justUseTank, "Only use Tank (zones sequential)");
+  html += generateCheckbox("justUseMains", "justUseMains", justUseMains, "Only use Mains (zones parallel)");
 
-      <div class='checkbox-row'>
-        <input type='checkbox' id='rainDelay' name='rainDelay')rawliteral" + (rainDelayEnabled ? " checked" : "") + R"rawliteral('>
-        <label for='rainDelay'>Enable Rain Delay</label>
-      </div>
-
-      <div class='checkbox-row'>
-        <input type='checkbox' id='justUseTank' name='justUseTank')rawliteral" + (justUseTank ? " checked" : "") + R"rawliteral('>
-        <label for='justUseTank'>Only use Tank (zones sequential)</label>
-      </div>
-
-      <div class='checkbox-row'>
-        <input type='checkbox' id='justUseMains' name='justUseMains')rawliteral" + (justUseMains ? " checked" : "") + R"rawliteral('>
-        <label for='justUseMains'>Only use Mains (zones parallel)</label>
-      </div>
-
+  html += R"rawliteral(
       <input type='submit' value='Save Settings'>
       <a href='/tank'><i class='fas fa-flask'></i> Tank Calibration Tool</a>
-      <a href='https://openweathermap.org/city/)rawliteral" + city + R"rawliteral(' target='_blank'><i class='fas fa-cloud'></i> View Weather on OpenWeatherMap</a>
+      <a href='https://openweathermap.org/city/)" + city + R"rawliteral(' target='_blank'><i class='fas fa-cloud'></i> View Weather on OpenWeatherMap</a>
     </form>
     <script>
       document.getElementById('theme-toggle').onclick = () => {
@@ -1313,10 +1309,6 @@ void handleSetup() {
   </body>
   </html>
   )rawliteral";
-
-  html += "</table>";
-  html += "<a href='/'>⬅ Back to Home</a>";
-  html += "</div></body></html>";
 
   server.send(200, "text/html", html);
 }
@@ -1451,6 +1443,10 @@ void handleConfigure() {
   justUseMains = server.hasArg("justUseMains");
 
   saveConfig();
+
+  server.sendHeader("Location", "/", true);
+  server.send(302, "text/plain", "");
+}
 
   server.sendHeader("Location", "/", true);
   server.send(302, "text/plain", "");
