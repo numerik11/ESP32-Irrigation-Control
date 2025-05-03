@@ -6,6 +6,8 @@ This irrigation controller is degsined to use a Kilcony A6 ESP32 controlled 6 re
 
 Ground solenoids at power scorce ground, 12v to each COM on relay, and solenoids to the N.O side of the relay for each zone/tank/main...  
 
+Tank level sensor to A1 3.3v only 
+
 Relays 1-4 Zones, Relay 5 - Mains, Relay 6 - Tank.
 
 N.O - COM - N.C.
