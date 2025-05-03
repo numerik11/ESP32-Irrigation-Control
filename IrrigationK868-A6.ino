@@ -49,6 +49,8 @@ String apiKey, city;
 float  tzOffsetHours      = 0.0;
 bool   rainDelayEnabled   = true;
 bool   windDelayEnabled   = false;
+bool   justUseTank        = false;
+bool   justUseMains       = false;
 float  windSpeedThreshold = 5.0f;
 
 int    startHour[Zone]   = {0};
@@ -63,9 +65,14 @@ bool   zoneActive[Zone]         = {false};
 unsigned long zoneStartMs[Zone] = {0};
 bool pendingStart[Zone] = { false };
 
+// how often to refresh the OLED (1 Hz)
+const unsigned long SCREEN_REFRESH_MS = 1000;
+unsigned long       lastScreenRefresh  = 0;
 unsigned long lastWeatherUpdate  = 0;
 const unsigned long weatherUpdateInterval = 3600000; // 1 hour
 String cachedWeatherData;
+float  lastRainAmount = 0.0f;   // mm in last checked period
+bool   rainActive     = false;  // true while we have a rain delay
 int    lastCheckedMinute[Zone] = { -1, -1, -1, -1 };
 
 // -------------------------------
@@ -181,6 +188,9 @@ void setup() {
   server.on("/submit",    HTTP_POST, handleSubmit);
   server.on("/setup",     HTTP_GET,  handleSetup);
   server.on("/configure", HTTP_POST, handleConfigure);
+  server.on("/events", HTTP_GET, handleEvents);
+  server.on("/clearevents", HTTP_POST, handleClearEvents);
+
 
   // Manual control for valves
   for (int i = 0; i < Zone; i++) {
@@ -206,73 +216,96 @@ void setup() {
 }
 
 void loop() {
+  unsigned long now = millis();
+
   ArduinoOTA.handle();
   server.handleClient();
   wifiCheck();
 
-  // Midnight reset
+  // Midnight reset of minute‑checks
   time_t nowTime = time(nullptr);
   struct tm* nowTm = localtime(&nowTime);
-  if (nowTm->tm_hour==0 && nowTm->tm_min==0) {
+  if (nowTm->tm_hour == 0 && nowTm->tm_min == 0) {
     memset(lastCheckedMinute, -1, sizeof(lastCheckedMinute));
   }
 
-  // Toggle display when no zone active
+  // — Determine if any zone is currently active (and record its index) —
   bool anyActive = false;
-  for (int z=0; z<Zone; z++) if (zoneActive[z]) { anyActive=true; break; }
-  if (!anyActive) {
-  HomeScreen();
+  int  activeZoneIndex = -1;
+  for (int z = 0; z < Zone; ++z) {
+    if (zoneActive[z]) {
+      anyActive = true;
+      activeZoneIndex = z;
+      break;
+    }
   }
 
   // ——— Scheduled actions with sequential‑on‑mains logic ———
   for (int z = 0; z < Zone; ++z) {
     if (shouldStartZone(z)) {
-       if (!weatherAllowsIrrigation()) {
-    pendingStart[z] = true;   // optionally queue to try again later
+  if (!checkWindRain()) {
+    pendingStart[z] = true;
+    // record rain‐delay event for this zone
+    logEvent(z, "RAIN_DELAY", "N/A", true);
     continue;
       }
       if (isTankLow()) {
-        // Running off mains: only start immediately if no other zone is active
-        bool anyActive = false;
+        // mains only one at a time
+        bool someone = false;
         for (int i = 0; i < Zone; ++i) {
-          if (zoneActive[i]) { anyActive = true; break; }
+          if (zoneActive[i]) { someone = true; break; }
         }
-        if (anyActive) {
+        if (someone) {
           pendingStart[z] = true;
           Serial.printf("Zone %d queued for sequential start\n", z+1);
         } else {
           turnOnZone(z);
         }
       } else {
-        // Plenty in the tank: allow parallel starts
+        // tank full: parallel starts allowed
         turnOnZone(z);
       }
     }
-    // Check for completion regardless of tank status
+    // auto‑stop when duration completes
     if (zoneActive[z] && hasDurationCompleted(z)) {
       turnOffZone(z);
     }
   }
 
-  // If no zone is currently running, fire the next queued one (if any)
+  // — If nothing is running, start the next queued zone —
   {
-    bool anyActive = false;
+    bool someone = false;
     for (int i = 0; i < Zone; ++i) {
-      if (zoneActive[i]) { anyActive = true; break; }
+      if (zoneActive[i]) { someone = true; break; }
     }
-    if (!anyActive) {
+    if (!someone) {
       for (int z = 0; z < Zone; ++z) {
         if (pendingStart[z]) {
           Serial.printf("Starting queued Zone %d\n", z+1);
           pendingStart[z] = false;
           turnOnZone(z);
-          break;  // only one at a time
+          break;
         }
       }
     }
   }
 
-  delay(50);
+  // ——— OLED refresh at 1 Hz ———
+  if (now - lastScreenRefresh >= SCREEN_REFRESH_MS) {
+  lastScreenRefresh = now;
+
+  if (rainActive) {
+    RainScreen();
+  }
+  else if (anyActive) {
+    HomeScreen();
+  }
+  else {
+    HomeScreen();
+  }
+ }
+
+  delay(500);
 }
 
 void wifiCheck() {
@@ -303,6 +336,8 @@ void loadConfig() {
   rainDelayEnabled  = (f.readStringUntil('\n').toInt() == 1);
   windSpeedThreshold= f.readStringUntil('\n').toFloat();
   windDelayEnabled  = (f.readStringUntil('\n').toInt() == 1);
+  justUseTank       = (f.readStringUntil('\n').toInt() == 1);
+  justUseMains      = (f.readStringUntil('\n').toInt() == 1);
   f.close();
 }
 
@@ -315,6 +350,8 @@ void saveConfig() {
   f.println(rainDelayEnabled ? "1" : "0");
   f.println(windSpeedThreshold, 1);
   f.println(windDelayEnabled ? "1" : "0");
+  f.println(justUseTank  ? "1" : "0");
+  f.println(justUseMains ? "1" : "0");
   f.close();
 }
 
@@ -406,6 +443,37 @@ void saveSchedule() {
   f.close();
 }
 
+void logEvent(int zone, const char* eventType, const char* source, bool rainDelayed) {
+  File f = LittleFS.open("/events.csv", "a");
+  if (!f) return;
+
+  time_t now = time(nullptr);
+  struct tm* t = localtime(&now);
+  char buf[128];
+  // Format: YYYY-MM-DD HH:MM:SS,Zone#,EVENT,SOURCE,RAIN_DELAY(Y/N)
+  sprintf(buf,
+    "%04d-%02d-%02d %02d:%02d:%02d,Zone%d,%s,%s,%s\n",
+    t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+    t->tm_hour, t->tm_min, t->tm_sec,
+    zone + 1,
+    eventType,
+    source,
+    rainDelayed ? "Y" : "N"
+  );
+  f.print(buf);
+  f.close();
+}
+
+void handleClearEvents() {
+  // Delete the file (or truncate)
+  if (LittleFS.exists("/events.csv")) {
+    LittleFS.remove("/events.csv");
+  }
+  // Redirect back to the log page
+  server.sendHeader("Location", "/events", true);
+  server.send(302, "text/plain", "");
+}
+
 void updateCachedWeather() {
   unsigned long currentMillis = millis();
   if (cachedWeatherData == "" || (currentMillis - lastWeatherUpdate >= weatherUpdateInterval)) {
@@ -455,35 +523,66 @@ void HomeScreen() {
   // 4) Draw everything
   display.clearDisplay();
 
-  // Line 0: time (large) + date (smaller)
+    // Line 1: time + date
   display.setTextSize(2);
   display.setCursor(0,  0);
   display.printf("%02d:%02d", t->tm_hour, t->tm_min);
-
-  display.setTextSize(1);
-  display.setCursor(75, 2);           // adjust X if it overlaps
+  display.setTextSize(1.9);
+  display.setCursor(75, 5);
   display.printf("%02d/%02d", day, mon);
 
-  // Line 1 (y=10): temperature & humidity
-  display.setTextSize(1);
-  display.setCursor(0,  20);
-  display.printf("T:%2.0fC   H:%02d%%", temp, hum);
+  // Line 2: temp & humidity
+  display.setCursor(0, 20);
+  display.setTextSize(1.9);
+  display.printf("Temp:%2.0fC Humidity:%02d%%", temp, hum);
 
-  // Line 2 (y=20): tank level & source
-  display.setCursor(0,  30);
-  display.printf("Tank: %3d%% (%s)", pct, src);
+  // Line 3: tank level & source
+  display.setCursor(0, 33);
+  display.setTextSize(1.9);
+  display.printf("Tank:%3d%% (%s)", pct, src);
 
-  // Line 3 (y=30): Zone 1 & 2 status
-  display.setCursor(0,  40);
-  display.printf("Z1:%s", zoneActive[0] ? "On " : "Off");
-  display.setCursor(64, 40);
-  display.printf("Z2:%s", zoneActive[1] ? "On " : "Off");
+ // Line 4 (y=40): Zones 1 & 2
+  for (int i = 0; i < 2; i++) {
+    int x = (i == 0) ? 0 : 64;
+    display.setCursor(x, 45);
+    display.setTextSize(1.5);
 
-  // Line 4 (y=40): Zone 3 & 4 status
-  display.setCursor(0,  50);
-  display.printf("Z3:%s", zoneActive[2] ? "On " : "Off");
-  display.setCursor(64, 50);
-  display.printf("Z4:%s", zoneActive[3] ? "On " : "Off");
+    if (zoneActive[i]) {
+      // compute remaining seconds
+      unsigned long elapsed = (millis() - zoneStartMs[i]) / 1000;
+      unsigned long total   = (unsigned long)durationMin[i] * 60;
+      unsigned long rem     = (elapsed < total ? total - elapsed : 0);
+
+      int remM = rem / 60;
+      int remS = rem % 60;
+      display.printf("Z%d:%02d:%02d", i+1, remM, remS);
+    } else {
+      display.print   ("Z");
+      display.print   (i+1);
+      display.print   (":Off ");
+    }
+  }
+
+  // Line 4 (y=50): Zones 3 & 4
+  for (int i = 2; i < 4; i++) {
+    int x = (i == 2) ? 0 : 64;
+    display.setTextSize(1);
+    display.setCursor(x, 55);
+
+    if (zoneActive[i]) {
+      unsigned long elapsed = (millis() - zoneStartMs[i]) / 1000;
+      unsigned long total   = (unsigned long)durationMin[i] * 60;
+      unsigned long rem     = (elapsed < total ? total - elapsed : 0);
+
+      int remM = rem / 60;
+      int remS = rem % 60;
+      display.printf("Z%d:%02d:%02d", i+1, remM, remS);
+    } else {
+      display.print   ("Z");
+      display.print   (i+1);
+      display.print   (":Off ");
+    }
+  }
 
   display.display();
 }
@@ -520,7 +619,7 @@ void updateLCDForZone(int zone) {
 
   String line2;
   if (elapsed < total) {
-    line2 = String(rem / 60) + "m rem";
+    line2 = String(rem / 60) + "m Remaining";
   } else {
     line2 = "Complete";
   }
@@ -537,10 +636,12 @@ void updateLCDForZone(int zone) {
   int16_t x2 = ((int16_t)maxCols - (int16_t)line2.length()) / 2 * charW;
 
   // line 1 at y=0px, line 2 at y=charH
-  display.setCursor(x1, 0);
+  display.setCursor(x1, 55);
+  display.setTextSize(1.9);
   display.print(line1);
 
   display.setCursor(x2, charH);
+  display.setTextSize(1.9);
   display.print(line2);
 
   display.display();
@@ -550,36 +651,61 @@ void showZoneDisplay(int zone) {
   updateLCDForZone(zone);
 }
 
-bool weatherAllowsIrrigation() {
-  // parse the last‐fetched weather JSON
+bool checkWindRain() {
   DynamicJsonDocument js(1024);
-  if (deserializeJson(js, cachedWeatherData) || js.overflowed()) {
+  if (deserializeJson(js, cachedWeatherData)) {
     Serial.println("weather parse error – allowing irrigation");
+    rainActive = false;
     return true;
   }
 
-  // 1) Rain check (OpenWeatherMap might report rain["1h"])
+  // 1) Rain check
   if (rainDelayEnabled && js.containsKey("rain")) {
-    float rain1h = js["rain"]["1h"]   // mm in last hour
-                  | js["rain"]["3h"]   // fallback to 3h
-                  | 0.0f;
+    float rain1h = js["rain"]["1h"].as<float>();
+    if (rain1h <= 0.0f) rain1h = js["rain"]["3h"].as<float>();
+
     if (rain1h > 0.0f) {
-      Serial.printf("Skipping due to recent rain: %.2f mm\n", rain1h);
+      lastRainAmount = rain1h;
+      rainActive     = true;
+      Serial.printf("Rain-delay active (%.2f mm)\n", rain1h);
       return false;
     }
   }
+  // no rain blocking
+  rainActive = false;
 
-  // 2) Wind check
-  if (windDelayEnabled) {
-    float ws = js["wind"]["speed"].as<float>();
-    if (ws >= windSpeedThreshold) {
-      Serial.printf("Skipping due to high wind: %.1f m/s >= %.1f\n",
-                    ws, windSpeedThreshold);
+  // 2) Wind check (unchanged)
+  if (windDelayEnabled && js.containsKey("wind")) {
+    float windSpd = js["wind"]["speed"].as<float>();
+    if (windSpd >= windSpeedThreshold) {
+      Serial.printf("Skipping due to high wind: %.2f m/s\n", windSpd);
       return false;
     }
   }
 
   return true;
+}
+
+void RainScreen() {
+  display.clearDisplay();
+
+  display.setTextSize(2);
+  display.setCursor(0, 0);
+  display.print("Rain Delay");
+
+  display.setTextSize(1.5);
+  display.setCursor(0, 20);
+  display.printf("Last: %.2f mm", lastRainAmount);
+
+  // Count delayed zones
+  int delayed = 0;
+  for (int i = 0; i < Zone; i++) {
+    if (pendingStart[i]) delayed++;
+  }
+  display.setCursor(0, 40);
+  display.printf("Zones delayed: %d", delayed);
+
+  display.display();
 }
 
 bool shouldStartZone(int zone) {
@@ -627,21 +753,46 @@ void turnOnZone(int z) {
   zoneStartMs[z] = millis();
   zoneActive[z] = true;
 
-  // Control water source based on tank level
-  if (isTankLow()) {
-    pcfOut.digitalWrite(mainsChannel, LOW);   // Turn ON mains
-    pcfOut.digitalWrite(tankChannel, HIGH);   // Turn OFF tank
-  } else {
-    pcfOut.digitalWrite(mainsChannel, HIGH);  // Turn OFF mains
-    pcfOut.digitalWrite(tankChannel, LOW);    // Turn ON tank
+  // ——— New: force-source overrides or fallback to tank-low logic ———
+  if (justUseTank) {
+    // Always use tank, ignore mains
+    pcfOut.digitalWrite(mainsChannel, HIGH);  // Mains OFF
+    pcfOut.digitalWrite(tankChannel, LOW);    // Tank ON
   }
+  else if (justUseMains) {
+    // Always use mains, ignore tank
+    pcfOut.digitalWrite(mainsChannel, LOW);   // Mains ON
+    pcfOut.digitalWrite(tankChannel, HIGH);   // Tank OFF
+  }
+  else if (isTankLow()) {
+    // Tank low → switch to mains
+    pcfOut.digitalWrite(mainsChannel, LOW);   // Mains ON
+    pcfOut.digitalWrite(tankChannel, HIGH);   // Tank OFF
+  }
+  else {
+    // Tank OK → use tank
+    pcfOut.digitalWrite(mainsChannel, HIGH);  // Mains OFF
+    pcfOut.digitalWrite(tankChannel, LOW);    // Tank ON
+  }
+  // ————————————————————————————————————————————————————————————
 
+  // determine actual source used
+  const char* src;
+  if (justUseTank)        src = "Tank";
+  else if (justUseMains)  src = "Mains";
+  else if (isTankLow())   src = "Mains";
+  else                    src = "Tank";
+
+  // record the start event
+  logEvent(z, "START", src, rainActive); 
+  
   Serial.printf("Zone %d activated\n", z+1);
   display.clearDisplay();
   display.setCursor(3,0);
   display.print("Zone "); display.print(z+1); display.print(" ON");
   display.display();
   delay(1500);
+  HomeScreen();
 }
 
 void turnOffZone(int z) {
@@ -650,6 +801,17 @@ void turnOffZone(int z) {
   pcfOut.digitalWrite(mainsChannel, HIGH);     // Turn OFF mains
   pcfOut.digitalWrite(tankChannel, HIGH);      // Turn OFF tank
   zoneActive[z] = false;
+
+  // determine source (same logic as ON)
+   const char* src;
+   if (justUseTank)        src = "Tank";
+   else if (justUseMains)  src = "Mains";
+   else if (isTankLow())   src = "Mains";
+   else                    src = "Tank";
+
+  // record the stop event
+  logEvent(z, "STOP", src, rainActive);
+
 
   Serial.printf("Zone %d deactivated\n", z+1);
   display.clearDisplay();
@@ -662,13 +824,26 @@ void turnOffZone(int z) {
 void turnOnValveManual(int z) {
   if (!zoneActive[z]) {
     pcfOut.digitalWrite(valveChannel[z], LOW);
-    if (isTankLow()) {
-      pcfOut.digitalWrite(mainsChannel, LOW);
-      pcfOut.digitalWrite(tankChannel, HIGH);
-    } else {
-      pcfOut.digitalWrite(mainsChannel, HIGH);
-      pcfOut.digitalWrite(tankChannel, LOW);
-    }
+  if (justUseTank) {
+    // Always use tank, ignore mains
+    pcfOut.digitalWrite(mainsChannel, HIGH);  // Mains OFF
+    pcfOut.digitalWrite(tankChannel, LOW);    // Tank ON
+  }
+  else if (justUseMains) {
+    // Always use mains, ignore tank
+    pcfOut.digitalWrite(mainsChannel, LOW);   // Mains ON
+    pcfOut.digitalWrite(tankChannel, HIGH);   // Tank OFF
+  }
+  else if (isTankLow()) {
+    // Tank low → switch to mains
+    pcfOut.digitalWrite(mainsChannel, LOW);   // Mains ON
+    pcfOut.digitalWrite(tankChannel, HIGH);   // Tank OFF
+  }
+  else {
+    // Tank OK → use tank
+    pcfOut.digitalWrite(mainsChannel, HIGH);  // Mains OFF
+    pcfOut.digitalWrite(tankChannel, LOW);    // Tank ON
+  }
     zoneActive[z]  = true;
     zoneStartMs[z] = millis();
     Serial.printf("Manual zone %d ON\n", z+1);
@@ -710,22 +885,6 @@ void handleRoot() {
   String cond    = jsonResponse["weather"][0]["main"];
   String cityName= jsonResponse["name"];
 
-  // --- OLED display update ---
-  if (WiFi.status() == WL_CONNECTED) {
-    display.clearDisplay();
-    int len = cond.substring(0, 10).length();
-    int x   = (len < 16) ? (16 - len) / 2 : 0;
-    display.setCursor(x, 0);
-    display.print(cond.substring(0, 10));
-    display.setCursor(0, 1);
-    display.print("Te:");
-    display.print(temp);
-    display.print("C Hu:");
-    display.print(int(hum));
-    display.print("%");
-    display.display();
-  }
-
   // --- Build HTML ---
   String html = "<!DOCTYPE html><html lang='en'><head>";
   html += "<meta charset='UTF-8'>";
@@ -762,7 +921,7 @@ void handleRoot() {
   html += "</style>";
   html += "</head><body>";
 
-    html += "<header><h1>Smart Irrigation System</h1></header>";
+    html += "<header><h1>A6-ESP32 Irrigation System</h1></header>";
     html += "<div class='container'>";
       // Clock & weather
       html += "<p id='clock'>Current Time: " + currentTime + "</p>";
@@ -852,32 +1011,35 @@ void handleRoot() {
       }
     html += "</div>";
 
-    // First start time + duration
-    html += "<div class='time-duration-container'>"
-              "<div class='time-input'>"
-                "<label for='startHour" + String(zone) + "'>Start 1:</label>"
-                "<input type='number' name='startHour" + String(zone) + "' min='0' max='23' value='" + String(startHour[zone]) + "' required>"
-                "<input type='number' name='startMin"  + String(zone) + "' min='0' max='59' value='" + String(startMin[zone])  + "' required>"
-              "</div>"
-              "<div class='duration-input'>"
-                "<label for='duration" + String(zone) + "'>Duration:</label>"
-                "<input type='number' name='duration" + String(zone) + "' min='0' value='" + String(durationMin[zone]) + "' required>"
-              "</div>"
-            "</div>";
+ // — Start times (1 & 2) + enable below Start 2 —
+ html += "<div class='time-duration-container' style='flex-direction:column; align-items:flex-start;'>";
+  // Start 1
+  html += "<div class='time-input'>"
+            "<label for='startHour" + String(zone) + "'>Start Time 1:</label>"
+            "<input type='number' name='startHour" + String(zone) + "' min='0' max='23' value='" + String(startHour[zone]) + "' required>"
+            "<input type='number' name='startMin"  + String(zone) + "' min='0' max='59' value='" + String(startMin[zone])  + "' required>"
+          "</div>";
+  // Start 2
+  html += "<div class='time-input'>"
+            "<label for='startHour2" + String(zone) + "'>Start Time 2:</label>"
+            "<input type='number' name='startHour2" + String(zone) + "' min='0' max='23' value='" + String(startHour2[zone]) + "'>"
+            "<input type='number' name='startMin2"  + String(zone) + "' min='0' max='59' value='" + String(startMin2[zone])  + "'>"
+          "</div>";
+  // Enable Start 2 (new row)
+  html += "<div class='enable-input'>"
+            "<input type='checkbox' id='enableStartTime2" + String(zone) + "' name='enableStartTime2" + String(zone) + "'" +
+              (enableStartTime2[zone] ? " checked" : "") + "> "
+            "<label for='enableStartTime2" + String(zone) + "'>Start 2 On/Off</label>"
+          "</div>";
+ html += "</div>";
 
-    // Optional second start time
-    html += "<div class='time-duration-container'>"
-              "<div class='time-input'>"
-                "<label for='startHour2" + String(zone) + "'>Start 2:</label>"
-                "<input type='number' name='startHour2" + String(zone) + "' min='0' max='23' value='" + String(startHour2[zone]) + "'>"
-                "<input type='number' name='startMin2"  + String(zone) + "' min='0' max='59' value='" + String(startMin2[zone]) + "'>"
-              "</div>"
-              "<div class='enable-input'>"
-                "<input type='checkbox' name='enableStartTime2" + String(zone) + "'" +
-                  (enableStartTime2[zone] ? " checked" : "") + ">"
-                "<label for='enableStartTime2" + String(zone) + "'>Enable Start 2</label>"
-              "</div>"
-            "</div>";
+ // — Duration, below the two start times + enable —
+ html += "<div class='time-duration-container' style='justify-content:center;'>"
+          "<div class='duration-input'>"
+            "<label for='duration" + String(zone) + "'>Duration (min):</label>"
+            "<input type='number' name='duration" + String(zone) + "' min='0' value='" + String(durationMin[zone]) + "' required>"
+          "</div>"
+        "</div>";
 
     // **Manual On/Off controls**  
     html += "<div class='manual-control-container'>"
@@ -892,6 +1054,7 @@ void handleRoot() {
       html += "</form>";
 
       // Footer
+      html += "<p style='text-align:center;'><a href='/events'>View Event Log</a></p>";
       html += "<p style='text-align:center;'><a href='/setup'>Setup Page</a></p>";
       html += "<p style='text-align:center;'><a href='https://openweathermap.org/city/" + cityName + "' target='_blank'>View Weather on Openweathermap.org</a></p>";
 
@@ -968,10 +1131,76 @@ void handleSetup() {
   html += "<input type='number' id='windSpeedThreshold' name='windSpeedThreshold' min='0' step='0.1' value='" + String(windSpeedThreshold) + "'>";
   html += String("<label for='windCancelEnabled'><input type='checkbox' id='windCancelEnabled' name='windCancelEnabled'") + (windDelayEnabled ? " checked" : "") + "> Enable Wind Delay</label>";
   html += "<label for='rainDelay'><input type='checkbox' id='rainDelay' name='rainDelay' " + String(rainDelayEnabled ? "checked" : "") + "> Enable Rain Delay</label>";
+  html += "<label for='justUseTank'>"
+          "<input type='checkbox' id='justUseTank' name='justUseTank'";
+  if (justUseTank) html += " checked";
+  html += "> Only use Tank (Solenoids will start sequentially if times overlap/same)</label>";
+
+  html += "<label for='justUseMains'>"
+          "<input type='checkbox' id='justUseMains' name='justUseMains'";
+  if (justUseMains) html += " checked";
+  html += "> Only use Mains (Solenoids run together if times overlap/same)</label>";
   html += "<input type='submit' value='Submit'>";
   html += "<p style='text-align: center;'><a href='https://openweathermap.org/city/" + city + "' target='_blank'>View Weather Details on OpenWeatherMap</a></p>";
   html += "</form>";
   html += "</body></html>";
+  server.send(200, "text/html", html);
+}
+
+void handleEvents() {
+  File f = LittleFS.open("/events.csv", "r");
+  if (!f) {
+    server.send(404, "text/plain", "No event log found");
+    return;
+  }
+
+  // Start HTML
+  String html = "<!DOCTYPE html><html lang='en'><head>"
+                "<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'>"
+                "<title>Event Log</title>"
+                "<style>"
+                  "body{font-family:Arial,sans-serif;padding:20px;} "
+                  "table{width:100%;border-collapse:collapse;} "
+                  "th,td{border:1px solid #ccc;padding:8px;text-align:left;} "
+                  "th{background:#f0f0f0;} "
+                "</style>"
+                "</head><body>"
+                "<h1>Irrigation Event Log</h1>"
+                "<form method='POST' action='/clearevents' style='text-align:right; margin-bottom:10px;'>"
+                "<button type='submit' onclick='return confirm(\"Clear all logs?\");'>Clear Log</button>"
+                "</form>"
+                "<table>"
+                  "<tr><th>Timestamp</th><th>Zone</th><th>Event</th><th>Source</th><th>Rain Delay</th></tr>";
+
+  // Read CSV lines
+  while (f.available()) {
+    String line = f.readStringUntil('\n');
+    if (line.length() < 5) continue;  // skip empty
+    // Split on commas
+    int idx1 = line.indexOf(',');
+    int idx2 = line.indexOf(',', idx1 + 1);
+    int idx3 = line.indexOf(',', idx2 + 1);
+    int idx4 = line.indexOf(',', idx3 + 1);
+    String ts   = line.substring(0, idx1);
+    String zone = line.substring(idx1 + 1, idx2);
+    String ev   = line.substring(idx2 + 1, idx3);
+    String src  = line.substring(idx3 + 1, idx4);
+    String rd   = line.substring(idx4 + 1);
+    rd.trim();
+
+    html += "<tr><td>" + ts + "</td>"
+            "<td>" + zone + "</td>"
+            "<td>" + ev   + "</td>"
+            "<td>" + src  + "</td>"
+            "<td>" + rd   + "</td></tr>";
+  }
+  f.close();
+
+  // Close HTML
+  html += "</table>"
+          "<p><a href='/'>Back to Home</a></p>"
+          "</body></html>";
+
   server.send(200, "text/html", html);
 }
 
@@ -982,6 +1211,8 @@ void handleConfigure() {
   rainDelayEnabled  = server.hasArg("rainDelay");
   windDelayEnabled  = server.hasArg("windCancelEnabled");
   windSpeedThreshold= server.arg("windSpeedThreshold").toFloat();
+  justUseTank  = server.hasArg("justUseTank");
+  justUseMains = server.hasArg("justUseMains");
 
   saveConfig();
 
