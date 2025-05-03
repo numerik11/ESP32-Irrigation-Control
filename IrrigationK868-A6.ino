@@ -87,7 +87,7 @@ void loadSchedule();
 void saveSchedule();
 void updateCachedWeather();
 String fetchWeather();
-void lcdHomeScreen();
+void HomeScreen();
 void updateLCDForZone(int zone);
 bool shouldStartZone(int zone);
 bool hasDurationCompleted(int zone);
@@ -98,7 +98,7 @@ void turnOnValveManual(int z);
 void turnOffValveManual(int z);
 void handleRoot();
 void handleSubmit();
-void handleSetup();
+void handleSetupPage();
 void handleConfigure();
 String getDayName(int d);
 
@@ -188,9 +188,9 @@ void setup() {
 
   server.on("/",          HTTP_GET,  handleRoot);
   server.on("/submit",    HTTP_POST, handleSubmit);
-  server.on("/setup",     HTTP_GET,  handleSetup);
+  server.on("/setup",     HTTP_GET,  handleSetupPage);
   server.on("/configure", HTTP_POST, handleConfigure);
-  server.on("/events", HTTP_GET, handleEvents);
+  server.on("/events", HTTP_GET, handleLogPage);
   server.on("/clearevents", HTTP_POST, handleClearEvents);
   server.on("/tank", HTTP_GET, handleTankCalibration);
 
@@ -201,13 +201,12 @@ void setup() {
   server.send(302, "text/plain", "");
   });
 
- server.on("/setTankFull", HTTP_POST, [](){
+  server.on("/setTankFull", HTTP_POST, [](){
   tankFullRaw = analogRead(TANK_PIN);
   saveConfig();
   server.sendHeader("Location", "/tank", true);
   server.send(302, "text/plain", "");
   });
-
 
   // Manual control for valves
   for (int i = 0; i < Zone; i++) {
@@ -315,10 +314,10 @@ void loop() {
     RainScreen();
   }
   else if (anyActive) {
-    lcdHomeScreen();
+    HomeScreen();
   }
   else {
-    lcdHomeScreen();
+    HomeScreen();
   }
  }
 
@@ -368,8 +367,6 @@ void saveConfig() {
 
   f.println(apiKey);
   f.println(city);
-  f.println(tankEmptyRaw);
-  f.println(tankFullRaw);
   f.println(tzOffsetHours, 2);
   f.println(rainDelayEnabled ? "1" : "0");
   f.println(windSpeedThreshold, 1);
@@ -378,6 +375,7 @@ void saveConfig() {
   f.println(justUseMains ? "1" : "0");
   f.println(tankEmptyRaw);
   f.println(tankFullRaw);
+
   f.close();
 }
 
@@ -524,7 +522,7 @@ String fetchWeather() {
   return payload;
 }
 
-void lcdHomeScreen() {
+void HomeScreen() {
   // 1) Refresh weather cache & parse
   updateCachedWeather();
   DynamicJsonDocument js(1024);
@@ -622,7 +620,7 @@ void toggleBacklight() {
 }
 
 void showMainDisplay() {
-  lcdHomeScreen();
+  HomeScreen();
 }
 
 void updateLCDForZone(int zone) {
@@ -773,6 +771,61 @@ bool isTankLow() {
   return raw < 150;
 }
 
+void handleTankCalibration() {
+  int raw = analogRead(TANK_PIN);
+
+  // Calculate % based on calibration range
+  int pct = map(raw, tankEmptyRaw, tankFullRaw, 0, 100);
+  pct = constrain(pct, 0, 100);
+
+  String html = "<!DOCTYPE html><html lang='en'><head>";
+  html += "<meta charset='UTF-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+  html += "<title>Tank Calibration</title>";
+  html += "<link href='https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap' rel='stylesheet'>";
+  html += "<style>";
+  html += "body { font-family: 'Roboto', sans-serif; background: #f0f4f8; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; height: 100vh; }";
+  html += ".card { background: #ffffff; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }";
+  html += "h1 { color: #007BFF; margin-bottom: 20px; }";
+  html += "p { margin: 10px 0; font-size: 1.1em; }";
+  html += "form { margin: 10px 0; }";
+  html += "button { padding: 10px 20px; border: none; border-radius: 5px; background: #007BFF; color: #ffffff; font-size: 16px; cursor: pointer; }";
+  html += "button:hover { background: #0056b3; }";
+  html += "a { display: block; margin-top: 15px; color: #007BFF; text-decoration: none; }";
+  html += "a:hover { text-decoration: underline; }";
+  html += ".alert { color: #cc0000; font-weight: bold; }";
+  html += "</style></head><body>";
+
+  html += "<div class='card'>";
+  html += "<h1>Tank Calibration</h1>";
+  html += "<p>📟 Raw Sensor Value: <strong>" + String(raw) + "</strong></p>";
+  html += "<p>🧪 Calibrated Range: <strong>" + String(tankEmptyRaw) + " (Empty)</strong> → <strong>" + String(tankFullRaw) + " (Full)</strong></p>";
+  html += "<p>🚰 Calculated Level: <strong>" + String(pct) + "%</strong></p>";
+
+  // Show warning if raw is out of expected range
+  if (raw < tankEmptyRaw || raw > tankFullRaw) {
+    html += "<p class='alert'>⚠ Outside calibration range</p>";
+  }
+
+  html += "<form method='POST' action='/setTankEmpty'>";
+  html += "<button type='submit'>Set as Empty</button>";
+  html += "</form>";
+
+  html += "<form method='POST' action='/setTankFull'>";
+  html += "<button type='submit'>Set as Full</button>";
+  html += "</form>";
+
+  html += "<a href='/setup'>⬅ Back to Setup</a>";
+  html += "<a href='/'>🏠 Home</a>";
+
+  html += "</div>";
+
+  html += "<script>setTimeout(() => location.reload(), 2000);</script>"; // auto-refresh every 2s
+  html += "</body></html>";
+
+  server.send(200, "text/html", html);
+}
+
 void turnOnZone(int z) {
   // PCF8574 outputs are active LOW
   pcfOut.digitalWrite(valveChannel[z], LOW);  // Turn ON valve
@@ -818,7 +871,7 @@ void turnOnZone(int z) {
   display.print("Zone "); display.print(z+1); display.print(" ON");
   display.display();
   delay(1500);
-  lcdHomeScreen();
+  HomeScreen();
 }
 
 void turnOffZone(int z) {
@@ -892,6 +945,7 @@ String getDayName(int d) {
 }
 
 void handleRoot() {
+  // --- Time & schedule load ---
   time_t now = time(nullptr);
   struct tm *timeinfo = localtime(&now);
   char timeStr[9];
@@ -900,219 +954,193 @@ void handleRoot() {
 
   loadSchedule();
 
+  // --- Weather parse ---
   String weatherData = cachedWeatherData;
   DynamicJsonDocument jsonResponse(1024);
   deserializeJson(jsonResponse, weatherData);
-  float temp = jsonResponse["main"]["temp"];
-  float hum = jsonResponse["main"]["humidity"];
-  float ws  = jsonResponse["wind"]["speed"];
-  String cond = jsonResponse["weather"][0]["main"];
-  String cityName = jsonResponse["name"];
+  float temp     = jsonResponse["main"]["temp"];
+  float hum      = jsonResponse["main"]["humidity"];
+  float ws       = jsonResponse["wind"]["speed"];
+  String cond    = jsonResponse["weather"][0]["main"];
+  String cityName= jsonResponse["name"];
 
-  int tankRaw = analogRead(TANK_PIN);
-  int tankPct = map(tankRaw, 0, 1023, 0, 100);
-  String tankStatus = (tankRaw < 250) ? "Low - Using Main" : "Normal - Using Tank";
+  // --- Build HTML ---
+  String html = "<!DOCTYPE html><html lang='en'><head>";
+  html += "<meta charset='UTF-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+  html += "<title>Smart Irrigation System</title>";
+  html += "<link href='https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap' rel='stylesheet'>";
+  html += "<style>";
+    // Base styles
+    html += "body { font-family: 'Roboto', sans-serif; background: linear-gradient(135deg, #e7f0f8, #ffffff); margin:0; padding:0; }";
+    html += "header { background: linear-gradient(90deg, #0073e6, #00aaff); color:#fff; padding:20px; text-align:center; box-shadow:0 2px 4px rgba(0,0,0,0.1);}";
+    html += ".container { max-width:800px; margin:20px auto; background:#fff; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,0.15); padding:20px; }";
+    html += "h1 { margin:0 0 10px; font-size:2em; }";
+    html += "p { margin:10px 0; text-align:center; }";
+    // Responsive horizontal layout
+    html += ".zones-wrapper { display:flex; flex-wrap:wrap; justify-content:center; gap:20px; margin-bottom:20px; }";
+    html += ".zone-container { background:#f9fbfd; padding:15px; border-radius:8px; border:1px solid #e0e0e0; box-sizing:border-box;"
+            "flex:1 1 calc(45% - 20px); max-width:calc(45% - 20px); }";
+    // Other existing styles
+    html += ".days-container { display:flex; flex-wrap:wrap; justify-content:center; margin-bottom:10px; }";
+    html += ".checkbox-container { margin:5px; }";
+    html += ".time-duration-container { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; margin-bottom:15px; }";
+    html += ".time-input, .duration-input { margin:0 10px 10px; }";
+    html += ".time-input label, .duration-input label { display:block; font-size:0.9em; margin-bottom:5px; }";
+    html += "input[type='number'] { padding:5px; border:1px solid #ccc; border-radius:4px; }";
+    html += ".enable-input { margin:10px; }";
+    html += ".manual-control-container { text-align:center; margin-top:10px; }";
+    html += "button { padding:10px 20px; border:none; border-radius:5px; cursor:pointer; margin:5px; transition:background 0.3s ease; }";
+    html += ".turn-on-btn { background:#4caf50; color:#fff; } .turn-on-btn:hover { background:#45a044; }";
+    html += ".turn-off-btn { background:#0073e6; color:#fff; } .turn-off-btn:hover { background:#0061c2; }";
+    html += "button[type='submit'] { background:#2196F3; color:#fff; } button[type='submit']:hover { background:#1976d2; }";
+    html += "a { color:#0073e6; text-decoration:none; } a:hover { text-decoration:underline; }";
+    // Mobile fallback
+    html += "@media (max-width:600px) { .zones-wrapper { flex-direction:column; } .zone-container { max-width:100%; } }";
+  html += "</style>";
+  html += "</head><body>";
 
-  String html = R"rawliteral(
-  <!DOCTYPE html><html lang='en'>
-  <head>
-    <meta charset='UTF-8'>
-    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-    <title>Smart Irrigation System</title>
-    <link href='https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap' rel='stylesheet'>
-    <script src='https://kit.fontawesome.com/4f508dd61b.js' crossorigin='anonymous'></script>
-    <style>
-      body {
-        font-family: 'Roboto', sans-serif;
-        margin: 0; padding: 0;
-        background: linear-gradient(135deg, #eef3f9, #ffffff);
-      }
-      header {
-        background: linear-gradient(90deg, #0073e6, #00aaff);
-        color: #fff;
-        text-align: center;
-        padding: 20px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-      }
-      .container {
-        max-width: 900px;
-        margin: 20px auto;
-        background: #fff;
-        padding: 25px;
-        border-radius: 12px;
-        box-shadow: 0 6px 15px rgba(0,0,0,0.1);
-      }
-      h1 { margin: 0; }
-      p { text-align: center; margin: 8px 0; }
-      .zones-wrapper {
-        display: flex; flex-wrap: wrap;
-        gap: 20px; justify-content: center;
-      }
-      .zone-container {
-        flex: 1 1 calc(45% - 20px);
-        background: #f9fbfd;
-        border: 1px solid #ddd;
-        border-radius: 8px;
-        padding: 15px;
-      }
-      .days-container, .time-duration-container {
-        display: flex; flex-wrap: wrap;
-        justify-content: center;
-        gap: 10px;
-        margin: 10px 0;
-      }
-      .checkbox-container {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-      }
-      input[type='number'] {
-        padding: 6px;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        width: 60px;
-      }
-      button {
-        padding: 10px 18px;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
-        margin: 5px;
-        transition: background 0.3s ease;
-      }
-      .turn-on-btn { background: #4caf50; color: #fff; }
-      .turn-off-btn { background: #f44336; color: #fff; }
-      button[type='submit'] {
-        display: block;
-        background: #2196F3;
-        color: #fff;
-        width: 100%;
-        font-weight: bold;
-        margin-top: 20px;
-      }
-      .manual-control-container {
-        text-align: center;
-        margin-top: 10px;
-      }
-      .enable-input {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-top: 8px;
-      }
-      a {
-        color: #0073e6;
-        display: block;
-        text-align: center;
-        margin-top: 12px;
-        text-decoration: none;
-      }
-      a:hover { text-decoration: underline; }
-      @media (max-width: 600px) {
-        .zone-container {
-          max-width: 100%;
-          flex: 1 1 100%;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <header><h1><i class='fas fa-seedling'></i> A6-ESP32 Irrigation System</h1></header>
-    <div class='container'>
-      <p><i class='fas fa-clock'></i> Current Time: )rawliteral" + currentTime + R"rawliteral(</p>
-      <p><i class='fas fa-map-marker-alt'></i> Location: )rawliteral" + cityName + R"rawliteral(</p>
-      <p><i class='fas fa-cloud'></i> Condition: )rawliteral" + cond + R"rawliteral(</p>
-      <p><i class='fas fa-thermometer-half'></i> Temperature: )rawliteral" + String(temp) + R"rawliteral( &#8451;</p>
-      <p><i class='fas fa-tint'></i> Humidity: )rawliteral" + String((int)hum) + R"rawliteral(%</p>
-      <p><i class='fas fa-wind'></i> Wind Speed: )rawliteral" + String(ws) + R"rawliteral( m/s</p>
-      <p><i class='fas fa-flask'></i> Tank: <progress value=')rawliteral" + String(tankPct) + R"rawliteral(' max='100'></progress> )rawliteral" + String(tankPct) + R"rawliteral(% - )rawliteral" + tankStatus + R"rawliteral(</p>
+    html += "<header><h1>🌱 A6-ESP32 Irrigation System</h1></header>";
+    html += "<div class='container'>";
+      // Clock & weather
+  html += "<p id='clock'>🕒 Current Time: " + currentTime + "</p>";
+  html += "<p>📍 Location: " + cityName + "</p>";
+  html += "<p id='weather-condition'>🌤 Condition: " + cond + "</p>";
+  html += "<p id='temperature'>🌡 Temperature: " + String(temp) + " ℃</p>";
+  html += "<p id='humidity'>💧 Humidity: " + String((int)hum) + " %</p>";
+  html += "<p id='wind-speed'>🌬 Wind Speed: " + String(ws) + " m/s</p>";
+      // Tank level
+      int tankRaw = analogRead(TANK_PIN);
+      int tankPct = map(tankRaw, 0, 1023, 0, 100);
+      String tankStatus = (tankRaw < 250) ? "Low - Using Main" : "Normal - Using Tank";
+      html += "<p>💧 Tank Level: "
+          "<progress id='tankLevel' value='" + String(tankPct) + "' max='100'></progress> "
+          + String(tankPct) + "% (" + tankStatus + ")</p>";
+      // Toggle backlight
+      html += "<div style='text-align:center; margin-top:20px;'>"
+              "<button type='button' id='toggle-backlight-btn'>Toggle Backlight</button>"
+              "</div>";
 
-      <div style='text-align:center; margin-top:20px;'>
-        <button id='toggle-backlight-btn'><i class='fas fa-lightbulb'></i> Toggle Backlight</button>
-      </div>
+      // Scripts
+      html += "<script>"
+               // Clock
+               "function updateClock(){"
+                 "const now=new Date();"
+                 "const h=now.getHours().toString().padStart(2,'0');"
+                 "const m=now.getMinutes().toString().padStart(2,'0');"
+                 "const s=now.getSeconds().toString().padStart(2,'0');"
+                 "document.getElementById('clock').textContent='Current Time: '+h+':'+m+':'+s;"
+               "}"
+               "setInterval(updateClock,1000);"
+               // Weather
+               "function fetchWeatherData(){"
+                 "fetch('/weather-data').then(r=>r.json()).then(d=>{"
+                   "document.getElementById('weather-condition').textContent='Condition: '+d.condition;"
+                   "document.getElementById('temperature').textContent='Temperature: '+d.temp+' °C';"
+                   "document.getElementById('humidity').textContent='Humidity: '+d.humidity+' %';"
+                   "document.getElementById('wind-speed').textContent='Wind Speed: '+d.windSpeed+' m/s';"
+                 "}).catch(console.error);"
+               "}"
+               "setInterval(fetchWeatherData,60000);"
+               // Backlight
+               "document.getElementById('toggle-backlight-btn').addEventListener('click',()=>{"
+                 "fetch('/toggleBacklight',{method:'POST'}).then(r=>r.text()).then(alert).catch(console.error);"
+               "});"
+               // Manual on/off
+               "document.addEventListener('DOMContentLoaded',()=>{"
+                 "document.querySelectorAll('.turn-on-btn').forEach(btn=>{"
+                   "btn.addEventListener('click',()=>{"
+                     "const z=btn.dataset.zone;"
+                     "fetch('/valve/on/'+z,{method:'POST'})"
+                       ".then(()=>{ btn.disabled=true;"
+                                  "document.querySelector('.turn-off-btn[data-zone=\"'+z+'\"').disabled=false; })"
+                       ".catch(console.error);"
+                   "});"
+                 "});"
+                 "document.querySelectorAll('.turn-off-btn').forEach(btn=>{"
+                   "btn.addEventListener('click',()=>{"
+                     "const z=btn.dataset.zone;"
+                     "fetch('/valve/off/'+z,{method:'POST'})"
+                       ".then(()=>{ btn.disabled=true;"
+                                  "document.querySelector('.turn-on-btn[data-zone=\"'+z+'\"').disabled=false; })"
+                       ".catch(console.error);"
+                   "});"
+                 "});"
+               "});"
+             "</script>";
 
-      <form action='/submit' method='POST'>
-        <div class='zones-wrapper'>
-  )rawliteral";
+      // Zones form
+      html += "<form action='/submit' method='POST'>";
+        html += "<div class='zones-wrapper'>";
+ for (int zone = 0; zone < Zone; zone++) {
+  html += "<div class='zone-container'>";
 
-  // Add all zone blocks
-  for (int zone = 0; zone < Zone; zone++) {
-    html += "<div class='zone-container'>";
-    html += "<p><strong><i class='fas fa-water'></i> Zone " + String(zone + 1) + "</strong></p>";
+    // Zone header + status
+    html += "<p><strong>Zone " + String(zone + 1) + ":</strong></p>";
     html += "<p>Status: " + String(zoneActive[zone] ? "Running" : "Off") + "</p>";
 
+    // Days of week checkboxes
     html += "<div class='days-container'>";
-    for (int d = 0; d < 7; d++) {
-      String chk = days[zone][d] ? "checked" : "";
-      html += "<div class='checkbox-container'>"
-              "<input type='checkbox' name='day" + String(zone) + "_" + d + "' id='day" + String(zone) + "_" + d + "' " + chk + ">"
-              "<label for='day" + String(zone) + "_" + d + "'>" + getDayName(d) + "</label>"
-              "</div>";
-    }
+      for (int d = 0; d < 7; d++) {
+        String chk = days[zone][d] ? "checked" : "";
+        html += "<div class='checkbox-container'>"
+                "<input type='checkbox' name='day" + String(zone) + "_" + d +
+                  "' id='day" + String(zone) + "_" + d + "' " + chk + ">"
+                "<label for='day" + String(zone) + "_" + d + "'>" + getDayName(d) + "</label>"
+                "</div>";
+      }
     html += "</div>";
 
-    html += "<div class='time-duration-container'>";
-    html += "<div><label>Start 1:</label><input type='number' name='startHour" + String(zone) + "' min='0' max='23' value='" + String(startHour[zone]) + "'> : ";
-    html += "<input type='number' name='startMin" + String(zone) + "' min='0' max='59' value='" + String(startMin[zone]) + "'></div>";
-    html += "<div><label>Start 2:</label><input type='number' name='startHour2" + String(zone) + "' min='0' max='23' value='" + String(startHour2[zone]) + "'> : ";
-    html += "<input type='number' name='startMin2" + String(zone) + "' min='0' max='59' value='" + String(startMin2[zone]) + "'></div>";
-    html += "</div>";
+ // — Start times (1 & 2) + enable below Start 2 —
+ html += "<div class='time-duration-container' style='flex-direction:column; align-items:flex-start;'>";
+  // Start 1
+  html += "<div class='time-input'>"
+            "<label for='startHour" + String(zone) + "'>Start Time 1:</label>"
+            "<input type='number' name='startHour" + String(zone) + "' min='0' max='23' value='" + String(startHour[zone]) + "' required>"
+            "<input type='number' name='startMin"  + String(zone) + "' min='0' max='59' value='" + String(startMin[zone])  + "' required>"
+          "</div>";
+  // Start 2
+  html += "<div class='time-input'>"
+            "<label for='startHour2" + String(zone) + "'>Start Time 2:</label>"
+            "<input type='number' name='startHour2" + String(zone) + "' min='0' max='23' value='" + String(startHour2[zone]) + "'>"
+            "<input type='number' name='startMin2"  + String(zone) + "' min='0' max='59' value='" + String(startMin2[zone])  + "'>"
+          "</div>";
+  // Enable Start 2 (new row)
+  html += "<div class='enable-input'>"
+            "<input type='checkbox' id='enableStartTime2" + String(zone) + "' name='enableStartTime2" + String(zone) + "'" +
+              (enableStartTime2[zone] ? " checked" : "") + "> "
+            "<label for='enableStartTime2" + String(zone) + "'>Start 2 On/Off</label>"
+          "</div>";
+ html += "</div>";
 
-    html += "<div class='enable-input'><input type='checkbox' name='enableStartTime2" + String(zone) + "'" +
-            (enableStartTime2[zone] ? " checked" : "") + "> Enable Start 2</div>";
+ // — Duration, below the two start times + enable —
+ html += "<div class='time-duration-container' style='justify-content:center;'>"
+          "<div class='duration-input'>"
+            "<label for='duration" + String(zone) + "'>Duration (min):</label>"
+            "<input type='number' name='duration" + String(zone) + "' min='0' value='" + String(durationMin[zone]) + "' required>"
+          "</div>"
+        "</div>";
 
-    html += "<div class='time-duration-container'><label>Duration (min):</label><input type='number' name='duration" + String(zone) + "' min='0' value='" + String(durationMin[zone]) + "'></div>";
-
+    // **Manual On/Off controls**  
     html += "<div class='manual-control-container'>"
-            "<button type='button' class='turn-on-btn' data-zone='" + String(zone) + "'><i class='fas fa-play'></i> Turn On</button>"
-            "<button type='button' class='turn-off-btn' data-zone='" + String(zone) + "' disabled><i class='fas fa-stop'></i> Turn Off</button>"
+              "<button type='button' class='turn-on-btn'  data-zone='" + String(zone) + "'>Turn On</button>"
+              "<button type='button' class='turn-off-btn' data-zone='" + String(zone) + "' disabled>Turn Off</button>"
             "</div>";
 
-    html += "</div>"; // close .zone-container
+  html += "</div>";  // close .zone-container
   }
+        html += "</div>";
+        html += "<button type='submit'>Update Schedule</button>";
+      html += "</form>";
 
-  html += R"rawliteral(
-        </div>
-        <button type='submit'><i class='fas fa-save'></i> Update Schedule</button>
-      </form>
+      // Footer
+      html += "<p style='text-align:center;'><a href='/events'>View Event Log</a></p>";
+      html += "<p style='text-align:center;'><a href='/tank'>Tank Calibration Tool</a></p>";
+      html += "<p style='text-align:center;'><a href='/setup'>Setup Page</a></p>";
+      html += "<p style='text-align:center;'><a href='https://openweathermap.org/city/" + cityName + "' target='_blank'>View Weather on Openweathermap.org</a></p>";
 
-      <a href='/events'><i class='fas fa-list'></i> View Event Log</a>
-      <a href='/setup'><i class='fas fa-cogs'></i> Setup Page</a>
-      <a href='https://openweathermap.org/city/)" + cityName + R"rawliteral(' target='_blank'><i class='fas fa-cloud'></i> OpenWeatherMap</a>
-    </div>
-
-    <script>
-      setInterval(() => {
-        const now = new Date();
-        document.querySelector('#clock').textContent = 'Current Time: ' + now.toLocaleTimeString();
-      }, 1000);
-
-      document.getElementById('toggle-backlight-btn').addEventListener('click', () => {
-        fetch('/toggleBacklight', {method: 'POST'}).then(res => res.text()).then(alert);
-      });
-
-      document.querySelectorAll('.turn-on-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          let zone = btn.dataset.zone;
-          fetch('/valve/on/' + zone, {method: 'POST'}).then(() => {
-            btn.disabled = true;
-            document.querySelector('.turn-off-btn[data-zone="' + zone + '"]').disabled = false;
-          });
-        });
-      });
-      document.querySelectorAll('.turn-off-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          let zone = btn.dataset.zone;
-          fetch('/valve/off/' + zone, {method: 'POST'}).then(() => {
-            btn.disabled = true;
-            document.querySelector('.turn-on-btn[data-zone="' + zone + '"]').disabled = false;
-          });
-        });
-      });
-    </script>
-  </body>
-  </html>
-  )rawliteral";
+    html += "</div>";  // .container
+  html += "</body></html>";
 
   server.send(200, "text/html", html);
 }
@@ -1155,165 +1183,60 @@ void handleSubmit() {
   server.send(302, "text/plain", "");
 }
 
-String generateCheckbox(const String& id, const String& name, bool checked, const String& label) {
-  return "<div class='checkbox-row'>"
-         "<input type='checkbox' id='" + id + "' name='" + name + "'" + (checked ? " checked" : "") + ">"
-         "<label for='" + id + "'>" + label + "</label>"
-         "</div>";
-}
+void handleSetupPage() {
+  String html = "<!DOCTYPE html><html lang='en'><head>";
+  html += "<meta charset='UTF-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+  html += "<title>Setup</title>";
+  html += "<link href='https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap' rel='stylesheet'>";
+  html += "<style>";
+  html += "body { font-family: 'Roboto', sans-serif; background: #f7f9fc; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; height: 100vh; }";
+  html += "form { background: #ffffff; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }";
+  html += "h1 { text-align: center; color: #333333; margin-bottom: 20px; }";
+  html += "label { display: block; margin-bottom: 5px; color: #555555; }";
+  html += "input[type='text'], input[type='number'], select { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #cccccc; border-radius: 5px; font-size: 14px; }";
+  html += "input[type='checkbox'] { margin-right: 10px; }";
+  html += "input[type='submit'] { width: 100%; padding: 10px; background: #007BFF; border: none; border-radius: 5px; color: #ffffff; font-size: 16px; cursor: pointer; }";
+  html += "input[type='submit']:hover { background: #0056b3; }";
+  html += "</style>";
+  html += "</head><body>";
+  html += "<form action='/configure' method='POST'>";
+  html += "<h1>Setup</h1>";
+  html += "<label for='apiKey'>API Key:</label>";
+  html += "<input type='text' id='apiKey' name='apiKey' value='" + apiKey + "'>";
+  html += "<label for='city'>City Number:</label>";
+  html += "<input type='text' id='city' name='city' value='" + city + "'>";
+  html += "<label for='timezone'>City Timezone Offset (hours):</label>";
+  html += "<input type='number' id='timezone' name='dstOffset' min='-12' max='14' step='0.50' value='" + String(tzOffsetHours, 2) + "'>";
+  html += "<label for='windSpeedThreshold'>Wind Speed Threshold (m/s):</label>";
+  html += "<input type='number' id='windSpeedThreshold' name='windSpeedThreshold' min='0' step='0.1' value='" + String(windSpeedThreshold) + "'>";
+  html += String("<label for='windCancelEnabled'><input type='checkbox' id='windCancelEnabled' name='windCancelEnabled'") + (windDelayEnabled ? " checked" : "") + "> Enable Wind Delay</label>";
+  html += "<label for='rainDelay'><input type='checkbox' id='rainDelay' name='rainDelay' " + String(rainDelayEnabled ? "checked" : "") + "> Enable Rain Delay</label>";
 
-void handleSetup() {
-  String html = R"rawliteral(
-  <!DOCTYPE html>
-  <html lang='en' data-theme='light'>
-  <head>
-    <meta charset='UTF-8'>
-    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-    <title>Setup</title>
-    <link href='https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap' rel='stylesheet'>
-    <script src='https://kit.fontawesome.com/4f508dd61b.js' crossorigin='anonymous'></script>
-    <style>
-      :root {
-        --bg: #fff; --text: #000; --card: #fefefe; --accent: #0073e6;
-      }
-      [data-theme='dark'] {
-        --bg: #121212; --text: #f0f0f0; --card: #1f1f1f; --accent: #64b5f6;
-      }
-      body {
-        font-family: 'Roboto', sans-serif;
-        background: var(--bg);
-        color: var(--text);
-        margin: 0;
-        padding: 0;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100vh;
-      }
-      form {
-        background: var(--card);
-        padding: 30px;
-        border-radius: 12px;
-        box-shadow: 0 6px 15px rgba(0,0,0,0.2);
-        width: 100%;
-        max-width: 500px;
-      }
-      h1 {
-        text-align: center;
-        margin-bottom: 25px;
-      }
-      label {
-        display: block;
-        margin: 12px 0 6px;
-        font-weight: 500;
-      }
-      input[type='text'],
-      input[type='number'],
-      select {
-        width: 100%;
-        padding: 10px;
-        border: 1px solid #ccc;
-        border-radius: 6px;
-        margin-bottom: 10px;
-      }
-      .checkbox-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin: 12px 0;
-      }
-      input[type='checkbox'] {
-        width: 18px;
-        height: 18px;
-      }
-      input[type='submit'] {
-        width: 100%;
-        padding: 12px;
-        background: var(--accent);
-        color: #fff;
-        border: none;
-        border-radius: 6px;
-        font-weight: 500;
-        cursor: pointer;
-        margin-top: 20px;
-        transition: background 0.3s ease;
-      }
-      input[type='submit']:hover {
-        background: #005bb5;
-      }
-      #theme-toggle {
-        position: absolute;
-        top: 15px;
-        right: 20px;
-        background: none;
-        border: none;
-        color: var(--text);
-        font-size: 1.3em;
-        cursor: pointer;
-      }
-      a {
-        display: block;
-        text-align: center;
-        margin-top: 15px;
-        color: var(--accent);
-        text-decoration: none;
-      }
-      a:hover {
-        text-decoration: underline;
-      }
-    </style>
-  </head>
-  <body>
-    <button id='theme-toggle'><i class='fas fa-moon'></i></button>
-    <form method='POST' action='/configure'>
-      <h1><i class='fas fa-cog'></i> Setup</h1>
+  // Tank source options
+  html += "<label for='justUseTank'>"
+          "<input type='checkbox' id='justUseTank' name='justUseTank'";
+  if (justUseTank) html += " checked";
+  html += "> Only use Tank (Solenoids will start sequentially if times overlap/same)</label>";
 
-      <label for='apiKey'><i class='fas fa-key'></i> API Key</label>
-      <input type='text' id='apiKey' name='apiKey' value=')rawliteral" + apiKey + R"rawliteral('>
+  html += "<label for='justUseMains'>"
+          "<input type='checkbox' id='justUseMains' name='justUseMains'";
+  if (justUseMains) html += " checked";
+  html += "> Only use Mains (Solenoids run together if times overlap/same)</label>";
 
-      <label for='city'><i class='fas fa-city'></i> City Number</label>
-      <input type='text' id='city' name='city' value=')rawliteral" + city + R"rawliteral('>
+  html += "<input type='submit' value='Submit'>";
 
-      <label for='dstOffset'><i class='fas fa-clock'></i> Timezone Offset (hrs)</label>
-      <input type='number' id='dstOffset' name='dstOffset' step='0.5' min='-12' max='14' value=')rawliteral" + String(tzOffsetHours, 2) + R"rawliteral('>
+  // Extra link to tank calibration tool
+  html += "<p style='text-align: center;'><a href='/tank'>Launch Tank Calibration Tool</a></p>";
 
-      <label for='windSpeedThreshold'><i class='fas fa-wind'></i> Wind Threshold (m/s)</label>
-      <input type='number' id='windSpeedThreshold' name='windSpeedThreshold' step='0.1' min='0' value=')rawliteral" + String(windSpeedThreshold) + R"rawliteral('>
-  )rawliteral";
-
-  // Append checkboxes inside the form
-  html += generateCheckbox("windCancelEnabled", "windCancelEnabled", windDelayEnabled, "Enable Wind Delay");
-  html += generateCheckbox("rainDelay", "rainDelay", rainDelayEnabled, "Enable Rain Delay");
-  html += generateCheckbox("justUseTank", "justUseTank", justUseTank, "Only use Tank (zones sequential)");
-  html += generateCheckbox("justUseMains", "justUseMains", justUseMains, "Only use Mains (zones parallel)");
-
-  html += R"rawliteral(
-      <input type='submit' value='Save Settings'>
-      <a href='/tank'><i class='fas fa-flask'></i> Tank Calibration Tool</a>
-      <a href='https://openweathermap.org/city/)" + city + R"rawliteral(' target='_blank'><i class='fas fa-cloud'></i> View Weather on OpenWeatherMap</a>
-    </form>
-    <script>
-      document.getElementById('theme-toggle').onclick = () => {
-        let r = document.documentElement;
-        let dark = r.getAttribute('data-theme') === 'dark';
-        r.setAttribute('data-theme', dark ? 'light' : 'dark');
-        localStorage.setItem('theme', dark ? 'light' : 'dark');
-        document.getElementById('theme-toggle').innerHTML = dark ? '<i class="fas fa-moon"></i>' : '<i class="fas fa-sun"></i>';
-      };
-      window.onload = () => {
-        let saved = localStorage.getItem('theme') || 'light';
-        document.documentElement.setAttribute('data-theme', saved);
-        document.getElementById('theme-toggle').innerHTML = saved === 'dark' ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
-      };
-    </script>
-  </body>
-  </html>
-  )rawliteral";
+  html += "<p style='text-align: center;'><a href='https://openweathermap.org/city/" + city + "' target='_blank'>View Weather Details on OpenWeatherMap</a></p>";
+  html += "</form>";
+  html += "</body></html>";
 
   server.send(200, "text/html", html);
 }
 
-void handleEvents() {
+void handleLogPage() {
   File f = LittleFS.open("/events.csv", "r");
   if (!f) {
     server.send(404, "text/plain", "No event log found");
@@ -1377,61 +1300,6 @@ void handleEvents() {
   server.send(200, "text/html", html);
 }
 
-void handleTankCalibration() {
-  int raw = analogRead(TANK_PIN);
-
-  // Calculate % based on calibration range
-  int pct = map(raw, tankEmptyRaw, tankFullRaw, 0, 100);
-  pct = constrain(pct, 0, 100);
-
-  String html = "<!DOCTYPE html><html lang='en'><head>";
-  html += "<meta charset='UTF-8'>";
-  html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
-  html += "<title>Tank Calibration</title>";
-  html += "<link href='https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap' rel='stylesheet'>";
-  html += "<style>";
-  html += "body { font-family: 'Roboto', sans-serif; background: #f0f4f8; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; height: 100vh; }";
-  html += ".card { background: #ffffff; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }";
-  html += "h1 { color: #007BFF; margin-bottom: 20px; }";
-  html += "p { margin: 10px 0; font-size: 1.1em; }";
-  html += "form { margin: 10px 0; }";
-  html += "button { padding: 10px 20px; border: none; border-radius: 5px; background: #007BFF; color: #ffffff; font-size: 16px; cursor: pointer; }";
-  html += "button:hover { background: #0056b3; }";
-  html += "a { display: block; margin-top: 15px; color: #007BFF; text-decoration: none; }";
-  html += "a:hover { text-decoration: underline; }";
-  html += ".alert { color: #cc0000; font-weight: bold; }";
-  html += "</style></head><body>";
-
-  html += "<div class='card'>";
-  html += "<h1>Tank Calibration</h1>";
-  html += "<p>📟 Raw Sensor Value: <strong>" + String(raw) + "</strong></p>";
-  html += "<p>🧪 Calibrated Range: <strong>" + String(tankEmptyRaw) + " (Empty)</strong> → <strong>" + String(tankFullRaw) + " (Full)</strong></p>";
-  html += "<p>🚰 Calculated Level: <strong>" + String(pct) + "%</strong></p>";
-
-  // Show warning if raw is out of expected range
-  if (raw < tankEmptyRaw || raw > tankFullRaw) {
-    html += "<p class='alert'>⚠ Outside calibration range</p>";
-  }
-
-  html += "<form method='POST' action='/setTankEmpty'>";
-  html += "<button type='submit'>Set as Empty</button>";
-  html += "</form>";
-
-  html += "<form method='POST' action='/setTankFull'>";
-  html += "<button type='submit'>Set as Full</button>";
-  html += "</form>";
-
-  html += "<a href='/setup'>⬅ Back to Setup</a>";
-  html += "<a href='/'>🏠 Home</a>";
-
-  html += "</div>";
-
-  html += "<script>setTimeout(() => location.reload(), 2000);</script>"; // auto-refresh every 2s
-  html += "</body></html>";
-
-  server.send(200, "text/html", html);
-}
-
 void handleConfigure() {
   apiKey = server.arg("apiKey");
   city   = server.arg("city");
@@ -1439,6 +1307,8 @@ void handleConfigure() {
   rainDelayEnabled  = server.hasArg("rainDelay");
   windDelayEnabled  = server.hasArg("windCancelEnabled");
   windSpeedThreshold= server.arg("windSpeedThreshold").toFloat();
+  if (server.hasArg("tankEmptyRaw")) tankEmptyRaw = server.arg("tankEmptyRaw").toInt();
+  if (server.hasArg("tankFullRaw"))  tankFullRaw  = server.arg("tankFullRaw").toInt();
   justUseTank  = server.hasArg("justUseTank");
   justUseMains = server.hasArg("justUseMains");
 
