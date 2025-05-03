@@ -1,7 +1,10 @@
+This version of my irrigation controller is degsined to use a Kilcony A6 ESP32 controlled 6 relay module: https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
+
+---
+
 To upload the project to the Kilcoy A6-ESP32 board use Arduino IDE software, follow these steps. I'll guide you through selecting the right board, installing the necessary libraries, and uploading the code to your ESP32.
 
 Steps to Upload the Project to ESP32 via Arduino IDE:
-
 
 ---
 
