@@ -4,6 +4,7 @@ This irrigation controller is degsined to use a Kilcony A6 ESP32 controlled 6 re
 
 ![Webio](https://github.com/user-attachments/assets/54be9b2d-0afc-45a5-a8e6-372c8818dddc)
 
+![setuppng](https://github.com/user-attachments/assets/da8d36a7-e759-4e1a-8728-806d3cfdf084)
 
 ---
 
