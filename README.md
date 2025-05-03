@@ -96,7 +96,7 @@ Click the Upload button in the Arduino IDE to upload the code to your ESP32 boar
 5. Check for Successful Upload
 
 After the code is successfully uploaded, open the Serial Monitor (set to 115200 baud rate) to check for any output or errors.
-You should now see "ESPIrrigationAP" in your wifi menu connect to it, the wifi manager page should load automaticly if not got Goto: https://192.168.4.1 scan select and input your wifi SSID and Password
+You should now see "ESPIrrigationAP" in your wifi menu connect to it, the wifi manager page should load automatically if not got Goto: https://192.168.4.1 scan select and input your wifi SSID and Password
 
 ---
 
