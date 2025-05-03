@@ -1447,7 +1447,3 @@ void handleConfigure() {
   server.sendHeader("Location", "/", true);
   server.send(302, "text/plain", "");
 }
-
-  server.sendHeader("Location", "/", true);
-  server.send(302, "text/plain", "");
-}
