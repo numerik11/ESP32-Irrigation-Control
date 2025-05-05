@@ -1,4 +1,4 @@
-This irrigation controller is degsined to use a Kilcony A6 ESP32 controlled 6 relay module: https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
+This irrigation controller is degsined to use ESP32 controlled 6 relay module: https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
 
 ![image](https://github.com/user-attachments/assets/fe8432ff-ee40-48f5-b75d-dcd55b703e60)
 
