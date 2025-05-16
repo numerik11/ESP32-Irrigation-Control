@@ -7,14 +7,25 @@ This irrigation controller is degsined to use ESP32 controlled 6 relay module: h
 ![setuppng](https://github.com/user-attachments/assets/da8d36a7-e759-4e1a-8728-806d3cfdf084)
 
 ---
+Materials Required
 
-Ground solenoids at power scorce ground, 12v to each COM on relay, and solenoids to the N.O side of the relay for each zone/tank/main...  
+1.) 7 Core irrigation wire to run from controller to solenoid box
 
-Tank level sensor to A1 3.3v only 
+2.) 6 MUST BE 12v DC Solenoid Valves (unless you run seperate AC12/24V power scource). 
 
-Relays 1-4 Zones, Relay 5 - Mains, Relay 6 - Tank.
+Wire all solenoid "COM" wires/grounds to power source ground.
+
+Wire 12v to all "COM" screw termials for relays, then wire solenoids to the N.O screw terminals
+
+Relays 1 - 4 = Zones 1 - 4 
+
+Relay 5 - Mains, Relay 6 - Tank.
 
 N.O - COM - N.C.
+
+Tank level sensor to A1. (3.3V MAX?)
+
+https://pt.aliexpress.com/item/1005005510454084.html?spm=a2g0o.order_list.order_list_main.35.3af2caa4dhE5B0&gatewayAdapt=glo2bra
 
 ---
 
