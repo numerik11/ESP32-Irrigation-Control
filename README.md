@@ -1,5 +1,5 @@
-This irrigation controller is degsined to use ESP32 controlled by the powerful and affordable KC868 6 relay module from aliexpress.
----
+Irrigation controller degsined to use ESP32 controlled KC868 6 relay module from aliexpress.
+
 Materials Required
 
 1.) 7 Core irrigation wire to run from controller to solenoid box
@@ -29,9 +29,6 @@ Tank level sensor to A1. (3.3V MAX?)
 ![51BA8viI0BL _SX522_](https://github.com/user-attachments/assets/3ca35811-27b2-4bfd-a91e-8748b7463eb3)
 
 ---
-![Webio](https://github.com/user-attachments/assets/54be9b2d-0afc-45a5-a8e6-372c8818dddc)
-
-![setuppng](https://github.com/user-attachments/assets/da8d36a7-e759-4e1a-8728-806d3cfdf084)
 
 To upload the project to the Kilcoy A6-ESP32 board use Arduino IDE software, follow these steps to guide you through selecting the right board
 
@@ -91,7 +88,6 @@ In Arduino IDE, go to Sketch > Include Library > Add .ZIP Library....
 
 Select the downloaded .zip file and click Open.
 
-
 This will add the PCF8574 library to your Arduino IDE.
 
 
@@ -103,10 +99,7 @@ Now that your ESP32 board is selected and the necessary libraries are installed,
 
 Copy and paste the ESP32 irrigation system code (from the project description) into Arduino IDE.
 
-Make sure that the necessary pins and configuration settings are correct (i.e., PCF8574 I/O expander and relay settings).
-
 Click the Upload button in the Arduino IDE to upload the code to your ESP32 board.
-
 
 
 ---
@@ -114,36 +107,25 @@ Click the Upload button in the Arduino IDE to upload the code to your ESP32 boar
 5. Check for Successful Upload
 
 After the code is successfully uploaded, open the Serial Monitor (set to 115200 baud rate) to check for any output or errors.
-You should now see "ESPIrrigationAP" in your wifi menu connect to it, the wifi manager page should load automatically if not got Goto: https://192.168.4.1 scan select and input your wifi SSID and Password
+You should now see "ESPIrrigationAP" in your wifi menu connect to it, the wifi manager page should load automatically if not got Goto: https://192.168.4.1 scan for your wifi router select and input your password.
 
 ---
 
-6. Check Connections
+6. Access the System
 
-Ensure that the LCD is properly connected to the ESP32 board via I2C (SDA, SCL, VCC, and GND).
+The OLED will show the IP its connected to on startup. 
 
+Type this IP into a browser to access the user interface,
 
----
-
-7. Access the System
-
-Once the ESP32 connects to your Wi-Fi, it will start communicating with Adafruit IO. You can monitor and control the system via the Adafruit IO dashboard.
-
-Use the web interface or app to control irrigation zones and monitor weather conditions.
-
-
-
----
-
-8. Test the System
-
-Test the system by activating the irrigation zones via the Adafruit IO dashboard.
-
-Verify that the relays and solenoids turn on/off as expected, and that the system reacts correctly to weather-based automation.
-
-
-
----
+enter your details into the setup page (Openweathermap.org API Key, Timezone) one saved goto main page to setup and save times, days, ect.
 
 By following these steps, your ESP32-based smart irrigation system will be successfully uploaded and configured to work with Adafruit IO and the PCF8574 I/O expander. If you encounter any issues or need further clarification, feel free to ask!
+
+![setuppng](https://github.com/user-attachments/assets/da8d36a7-e759-4e1a-8728-806d3cfdf084)
+
+![Webio](https://github.com/user-attachments/assets/54be9b2d-0afc-45a5-a8e6-372c8818dddc)
+---
+
+
+
 
