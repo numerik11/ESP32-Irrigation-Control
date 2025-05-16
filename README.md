@@ -1,4 +1,6 @@
-This irrigation controller is degsined to use ESP32 controlled 6 relay module: https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
+This irrigation controller is degsined to use ESP32 controlled by the powerful and affordable KC868 6 relay module from aliexpress.
+
+https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
 
 ![image](https://github.com/user-attachments/assets/fe8432ff-ee40-48f5-b75d-dcd55b703e60)
 
@@ -11,7 +13,11 @@ Materials Required
 
 1.) 7 Core irrigation wire to run from controller to solenoid box
 
-2.) 6 MUST BE 12v DC Solenoid Valves (unless you run seperate AC12/24V power scource). 
+2.) 6 Solenoids (optional) MUST BE 12v DC Solenoid Valves (unless you have seperate AC12/24V power scource). 
+
+3.) KC868 6 Channel relay board with case.
+
+
 
 Wire all solenoid "COM" wires/grounds to power source ground.
 
@@ -25,11 +31,14 @@ N.O - COM - N.C.
 
 Tank level sensor to A1. (3.3V MAX?)
 
-https://pt.aliexpress.com/item/1005005510454084.html?spm=a2g0o.order_list.order_list_main.35.3af2caa4dhE5B0&gatewayAdapt=glo2bra
+![51BA8viI0BL _SX522_](https://github.com/user-attachments/assets/3ca35811-27b2-4bfd-a91e-8748b7463eb3)
 
 ---
 
-To upload the project to the Kilcoy A6-ESP32 board use Arduino IDE software, follow these steps to guide you through selecting the right board, installing the necessary libraries, and uploading the code to your ESP32.
+To upload the project to the Kilcoy A6-ESP32 board use Arduino IDE software, follow these steps to guide you through selecting the right board
+
+installing the necessary libraries, and uploading the code to your ESP32.
+
 
 Steps to Upload the Project to ESP32 via Arduino IDE:
 
