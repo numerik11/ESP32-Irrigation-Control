@@ -832,7 +832,7 @@ void turnOnZone(int z) {
   zoneStartMs[z] = millis();
   zoneActive[z] = true;
 
-  // ——— New: force-source overrides or fallback to tank-low logic ———
+
   if (justUseTank) {
     // Always use tank, ignore mains
     pcfOut.digitalWrite(mainsChannel, HIGH);  // Mains OFF
