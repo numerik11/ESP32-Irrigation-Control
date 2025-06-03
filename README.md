@@ -4,7 +4,7 @@ Materials Required
 
 1.) 7 Core irrigation wire to run from controller to solenoid box
 
-2.) 6 Solenoids (optional) MUST BE 12v DC Solenoid Valves (unless you have seperate AC12/24V power scource). 
+2.) 6 Solenoids MUST BE 12v DC Solenoid Valves (unless you have seperate AC12/24V power scource). 
 
 3.) KC868 6 Channel relay board with case.
 
