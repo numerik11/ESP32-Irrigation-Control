@@ -10,13 +10,12 @@ Materials Required
 
 https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
 
-![image](https://github.com/user-attachments/assets/fe8432ff-ee40-48f5-b75d-dcd55b703e60)
+![image](https://github.com/user-attachments/assets/113cedeb-a453-42a8-809c-a522808daa87)
 
 
+Wire all solenoid wires/grounds to power source ground.
 
-Wire all solenoid "COM" wires/grounds to power source ground.
-
-Wire 12v to all "COM" screw termials for relays, then wire solenoids to the N.O screw terminals
+Wire 24/12v to all "COM" screw termials for relays, then wire solenoids to the N.O screw terminals
 
 Relays 1 - 4 = Zones 1 - 4 
 
