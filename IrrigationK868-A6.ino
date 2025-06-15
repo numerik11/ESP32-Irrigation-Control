@@ -11,6 +11,7 @@
 #include <PCF8574.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include "esp_log.h"
 
 // -------------------------------
 // Constants
@@ -18,7 +19,7 @@
 static const uint8_t Zone           = 4;
 static const unsigned long WEATHER_INTERVAL = 600000; // 10 minutes
 
-PCF8574 pcfIn(0x22, 4, 15);   //  Inputs
+PCF8574 pcfIn(0x22, 4, 15);   //  Digital Inputs (P0 - P5)
 PCF8574 pcfOut(0x24, 4, 15);  //  Relays (P0 - P5)
 
 #define SCREEN_ADDRESS 0x3C
@@ -33,60 +34,67 @@ WiFiManager wifiManager;
 WebServer   server(80);
 WiFiClient  client;
 
-// Solenoid channels (PCF8574 pins)
+// === GPIO Fallback Configuration ===
+bool useGpioFallback = false;
+// Direct GPIO pin assignments for fallback (adjust to your board)
+const uint8_t zonePins[Zone] = {16, 17, 18, 19};
+const uint8_t mainsPin      = 21;
+const uint8_t tankPin       = 22;
+
+// A6 Solenoid channels (PCF8574 pins)
 const uint8_t valveChannel[Zone] = { P0, P1, P2, P3 };
-const uint8_t mainsChannel           = P4;
-const uint8_t tankChannel            = P5;
+const uint8_t mainsChannel        = P4;
+const uint8_t tankChannel         = P5;
 
 // On‑board LED & tank sensor
 const int LED_PIN  = 2;
-const int TANK_PIN = 36;
+const int TANK_PIN = 36; // A1
 
 // -------------------------------
 // Globals
 // -------------------------------
+
 String apiKey, city;
-float  tzOffsetHours      = 0.0;
+String cachedWeatherData;
 bool   rainDelayEnabled   = true;
 bool   windDelayEnabled   = false;
 bool   justUseTank        = false;
 bool   justUseMains       = false;
+bool   enableStartTime2[Zone] = {false};
+bool   days[Zone][7]    = {{false}};
+bool   zoneActive[Zone]         = {false};
+bool   pendingStart[Zone] = { false };
+bool   rainActive     = false;
+float  tzOffsetHours      = 0.0;
 float  windSpeedThreshold = 5.0f;
-
+float  lastRainAmount = 0.0f;
 int    startHour[Zone]   = {0};
 int    startMin [Zone]   = {0};
 int    startHour2[Zone]  = {0};
 int    startMin2 [Zone]  = {0};
 int    durationMin[Zone] = {0};
-bool   enableStartTime2[Zone] = {false};
-bool   days[Zone][7]    = {{false}};
-
-bool   zoneActive[Zone]         = {false};
-unsigned long zoneStartMs[Zone] = {0};
-bool pendingStart[Zone] = { false };
-
-// how often to refresh the OLED (1 Hz)
-const unsigned long SCREEN_REFRESH_MS = 1000;
-unsigned long       lastScreenRefresh  = 0;
-unsigned long lastWeatherUpdate  = 0;
-const unsigned long weatherUpdateInterval = 3600000; // 1 hour
-String cachedWeatherData;
-float  lastRainAmount = 0.0f;   // mm in last checked period
-bool   rainActive     = false;  // true while we have a rain delay
 int    lastCheckedMinute[Zone] = { -1, -1, -1, -1 };
-int tankEmptyRaw = 100;  // default for empty tank
-int tankFullRaw  = 900;  // default for full tank
+int    tankEmptyRaw = 100;
+int    tankFullRaw  = 900;
+unsigned long zoneStartMs[Zone] = {0};
+unsigned long lastScreenRefresh  = 0;
+unsigned long lastWeatherUpdate  = 0;
+const unsigned long SCREEN_REFRESH_MS = 1000;
+const unsigned long weatherUpdateInterval = 3600000; // 1 hour
+const uint8_t expanderAddrs[] = { 0x22, 0x24 };
+const uint8_t I2C_HEALTH_DEBOUNCE = 5;  // how many bad loops before fallback
+uint8_t i2cFailCount = 0;
 
 // -------------------------------
 // Prototypes
 // -------------------------------
+
 void wifiCheck();
 void loadConfig();
 void saveConfig();
 void loadSchedule();
 void saveSchedule();
 void updateCachedWeather();
-String fetchWeather();
 void HomeScreen();
 void updateLCDForZone(int zone);
 bool shouldStartZone(int zone);
@@ -102,28 +110,47 @@ void handleSetupPage();
 void handleLogPage();
 void handleConfigure();
 String getDayName(int d);
+String fetchWeather();
 
 // -------------------------------
-void setup() {
-  Serial.begin(115200);
-  Wire.begin(4, 15); // I2C pins for KC868-A6
-  Serial.println("Initializing Smart Irrigation KC868-A6...");
 
-  for (uint8_t ch = P0; ch <= P5; ++ch) {
-    pcfOut.pinMode(ch, OUTPUT);
-    pcfOut.digitalWrite(ch, HIGH);  // OFF (active LOW)
-    pcfIn .pinMode(ch, INPUT);
-    pcfIn .digitalWrite(ch, HIGH);  // pull‑up
+void setup() {
+
+  esp_log_level_set("i2c.master", ESP_LOG_NONE);
+  esp_log_level_set("i2c",        ESP_LOG_NONE);
+
+  Serial.begin(115200);
+  Wire.begin(4, 15);
+
+ if (!LittleFS.begin()) {
+    Serial.println("⚠ LittleFS mount failed; formatting...");
+    if (LittleFS.format() && LittleFS.begin()) {
+      Serial.println("✔ LittleFS reformatted and mounted");
+    } else {
+      Serial.println("‼ LittleFS format/remount failed; halting");
+      while (true) delay(1000);
+    }
   }
-  
-    // —————— Initialize expanders ——————
-  if (!pcfIn.begin()) {
-    Serial.println("PCF8574 input init failed");
-    while (true) delay(100);
+
+  loadConfig();
+  if (!LittleFS.exists("/schedule.txt")) {
+    Serial.println("No schedule.txt found—creating default");
+    saveSchedule();    // writes zeros/default entries
   }
-  if (!pcfOut.begin()) {
-    Serial.println("PCF8574 output init failed");
-    while (true) delay(100);
+  loadSchedule();
+
+  // —— PCF8574 init or GPIO fallback ——
+  if (!pcfIn.begin() || !pcfOut.begin()) {
+    Serial.println("⚠ PCF8574 init failed. Switching to GPIO fallback.");
+    initGpioFallback();    // ← this sets all your zonePins[], mainsPin, tankPin
+  } else {
+    // Original expander setup
+    for (uint8_t ch = P0; ch <= P5; ++ch) {
+      pcfOut.pinMode(ch, OUTPUT);
+      pcfOut.digitalWrite(ch, HIGH);
+      pcfIn .pinMode(ch, INPUT);
+      pcfIn .digitalWrite(ch, HIGH);
+    }
   }
 
   pinMode(LED_PIN, OUTPUT);
@@ -135,14 +162,10 @@ void setup() {
   }
   delay(2000);
 
-  // Filesystem, config & schedule
-  LittleFS.begin();
-  loadConfig();
-  loadSchedule();
-
   display.display();
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1.5);
+
   // Wi‑Fi Setup
   wifiManager.setTimeout(180);
   if (!wifiManager.autoConnect("ESPIrrigationAP")) {
@@ -238,6 +261,10 @@ void loop() {
   ArduinoOTA.handle();
   server.handleClient();
   wifiCheck();
+  
+  if (!useGpioFallback) {
+    checkI2CHealth();
+  }
 
   // Midnight reset of minute‑checks
   time_t nowTime = time(nullptr);
@@ -336,6 +363,50 @@ void wifiCheck() {
       Serial.println("Reconnected.");
     }
   }
+}
+
+void checkI2CHealth() {
+  delay(50);
+  bool anyErr = false;
+  for (auto addr : expanderAddrs) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() != 0) {
+      anyErr = true;
+      break;
+    }
+  }
+
+  if (anyErr) {
+    i2cFailCount++;
+    if (i2cFailCount >= I2C_HEALTH_DEBOUNCE) {
+      Serial.println("⚠ Multiple I2C errors, switching to GPIO fallback");
+      useGpioFallback = true;
+      // re-init fallback pins
+      for (uint8_t i = 0; i < Zone; i++) {
+        pinMode(zonePins[i], OUTPUT);
+        digitalWrite(zonePins[i], HIGH);
+      }
+      pinMode(mainsPin, OUTPUT);   digitalWrite(mainsPin, HIGH);
+      pinMode(tankPin, OUTPUT);    digitalWrite(tankPin, HIGH);
+    }
+  } else {
+    // healthy bus → reset counter
+    i2cFailCount = 0;
+  }
+}
+
+void initGpioFallback() {
+  useGpioFallback = true;
+
+  // configure your direct-GPIO pins (these names must match your declarations!)
+  for (uint8_t i = 0; i < Zone; i++) {
+    pinMode(zonePins[i], OUTPUT);
+    digitalWrite(zonePins[i], HIGH); // OFF (active LOW)
+  }
+  pinMode(mainsPin, OUTPUT);
+  digitalWrite(mainsPin, HIGH);
+  pinMode(tankPin, OUTPUT);
+  digitalWrite(tankPin, HIGH);
 }
 
 void printCurrentTime() {
@@ -828,45 +899,53 @@ void handleTankCalibration() {
 }
 
 void turnOnZone(int z) {
-  // PCF8574 outputs are active LOW
-  pcfOut.digitalWrite(valveChannel[z], LOW);  // Turn ON valve
   zoneStartMs[z] = millis();
   zoneActive[z] = true;
 
+  if (useGpioFallback) {
+    digitalWrite(zonePins[z], LOW); // ON (active LOW)
+    // Source selection logic
+    if (justUseTank) {
+      digitalWrite(mainsPin, HIGH);
+      digitalWrite(tankPin, LOW);
+    } else if (justUseMains) {
+      digitalWrite(mainsPin, LOW);
+      digitalWrite(tankPin, HIGH);
+    } else if (isTankLow()) {
+      digitalWrite(mainsPin, LOW);
+      digitalWrite(tankPin, HIGH);
+    } else {
+      digitalWrite(mainsPin, HIGH);
+      digitalWrite(tankPin, LOW);
+    }
+  } else {
+    // PCF8574 active-low outputs
+    pcfOut.digitalWrite(valveChannel[z], LOW);
+    // Source selection
+    if (justUseTank) {
+      pcfOut.digitalWrite(mainsChannel, HIGH);
+      pcfOut.digitalWrite(tankChannel, LOW);
+    } else if (justUseMains) {
+      pcfOut.digitalWrite(mainsChannel, LOW);
+      pcfOut.digitalWrite(tankChannel, HIGH);
+    } else if (isTankLow()) {
+      pcfOut.digitalWrite(mainsChannel, LOW);
+      pcfOut.digitalWrite(tankChannel, HIGH);
+    } else {
+      pcfOut.digitalWrite(mainsChannel, HIGH);
+      pcfOut.digitalWrite(tankChannel, LOW);
+    }
+  }
 
-  if (justUseTank) {
-    // Always use tank, ignore mains
-    pcfOut.digitalWrite(mainsChannel, HIGH);  // Mains OFF
-    pcfOut.digitalWrite(tankChannel, LOW);    // Tank ON
-  }
-  else if (justUseMains) {
-    // Always use mains, ignore tank
-    pcfOut.digitalWrite(mainsChannel, LOW);   // Mains ON
-    pcfOut.digitalWrite(tankChannel, HIGH);   // Tank OFF
-  }
-  else if (isTankLow()) {
-    // Tank low → switch to mains
-    pcfOut.digitalWrite(mainsChannel, LOW);   // Mains ON
-    pcfOut.digitalWrite(tankChannel, HIGH);   // Tank OFF
-  }
-  else {
-    // Tank OK → use tank
-    pcfOut.digitalWrite(mainsChannel, HIGH);  // Mains OFF
-    pcfOut.digitalWrite(tankChannel, LOW);    // Tank ON
-  }
-  // ————————————————————————————————————————————————————————————
+  // Determine actual source
+  const char* src = justUseTank   ? "Tank"
+                     : justUseMains ? "Mains"
+                     : isTankLow()   ? "Mains"
+                                    : "Tank";
 
-  // determine actual source used
-  const char* src;
-  if (justUseTank)        src = "Tank";
-  else if (justUseMains)  src = "Mains";
-  else if (isTankLow())   src = "Mains";
-  else                    src = "Tank";
-
-  // record the start event
-  logEvent(z, "START", src, rainActive); 
-  
+  logEvent(z, "START", src, rainActive);
   Serial.printf("Zone %d activated\n", z+1);
+
   display.clearDisplay();
   display.setCursor(3,0);
   display.print("Zone "); display.print(z+1); display.print(" ON");
@@ -876,24 +955,27 @@ void turnOnZone(int z) {
 }
 
 void turnOffZone(int z) {
-  // PCF8574 outputs are active LOW
-  pcfOut.digitalWrite(valveChannel[z], HIGH);  // Turn OFF valve
-  pcfOut.digitalWrite(mainsChannel, HIGH);     // Turn OFF mains
-  pcfOut.digitalWrite(tankChannel, HIGH);      // Turn OFF tank
+  if (useGpioFallback) {
+    digitalWrite(zonePins[z], HIGH);
+    digitalWrite(mainsPin, HIGH);
+    digitalWrite(tankPin, HIGH);
+  } else {
+    pcfOut.digitalWrite(valveChannel[z], HIGH);
+    pcfOut.digitalWrite(mainsChannel, HIGH);
+    pcfOut.digitalWrite(tankChannel, HIGH);
+  }
+
   zoneActive[z] = false;
 
-  // determine source (same logic as ON)
-   const char* src;
-   if (justUseTank)        src = "Tank";
-   else if (justUseMains)  src = "Mains";
-   else if (isTankLow())   src = "Mains";
-   else                    src = "Tank";
+  // Determine source
+  const char* src = justUseTank   ? "Tank"
+                     : justUseMains ? "Mains"
+                     : isTankLow()   ? "Mains"
+                                    : "Tank";
 
-  // record the stop event
   logEvent(z, "STOP", src, rainActive);
-
-
   Serial.printf("Zone %d deactivated\n", z+1);
+
   display.clearDisplay();
   display.setCursor(4,0);
   display.print("Zone "); display.print(z+1); display.print(" OFF");
@@ -903,38 +985,57 @@ void turnOffZone(int z) {
 
 void turnOnValveManual(int z) {
   if (!zoneActive[z]) {
-    pcfOut.digitalWrite(valveChannel[z], LOW);
-  if (justUseTank) {
-    // Always use tank, ignore mains
-    pcfOut.digitalWrite(mainsChannel, HIGH);  // Mains OFF
-    pcfOut.digitalWrite(tankChannel, LOW);    // Tank ON
-  }
-  else if (justUseMains) {
-    // Always use mains, ignore tank
-    pcfOut.digitalWrite(mainsChannel, LOW);   // Mains ON
-    pcfOut.digitalWrite(tankChannel, HIGH);   // Tank OFF
-  }
-  else if (isTankLow()) {
-    // Tank low → switch to mains
-    pcfOut.digitalWrite(mainsChannel, LOW);   // Mains ON
-    pcfOut.digitalWrite(tankChannel, HIGH);   // Tank OFF
-  }
-  else {
-    // Tank OK → use tank
-    pcfOut.digitalWrite(mainsChannel, HIGH);  // Mains OFF
-    pcfOut.digitalWrite(tankChannel, LOW);    // Tank ON
-  }
-    zoneActive[z]  = true;
     zoneStartMs[z] = millis();
+    zoneActive[z]  = true;
+
+    if (useGpioFallback) {
+      digitalWrite(zonePins[z], LOW);
+      // replicate source logic from turnOnZone
+      if (justUseTank) {
+        digitalWrite(mainsPin, HIGH);
+        digitalWrite(tankPin, LOW);
+      } else if (justUseMains) {
+        digitalWrite(mainsPin, LOW);
+        digitalWrite(tankPin, HIGH);
+      } else if (isTankLow()) {
+        digitalWrite(mainsPin, LOW);
+        digitalWrite(tankPin, HIGH);
+      } else {
+        digitalWrite(mainsPin, HIGH);
+        digitalWrite(tankPin, LOW);
+      }
+    } else {
+      pcfOut.digitalWrite(valveChannel[z], LOW);
+      if (justUseTank) {
+        pcfOut.digitalWrite(mainsChannel, HIGH);
+        pcfOut.digitalWrite(tankChannel, LOW);
+      } else if (justUseMains) {
+        pcfOut.digitalWrite(mainsChannel, LOW);
+        pcfOut.digitalWrite(tankChannel, HIGH);
+      } else if (isTankLow()) {
+        pcfOut.digitalWrite(mainsChannel, LOW);
+        pcfOut.digitalWrite(tankChannel, HIGH);
+      } else {
+        pcfOut.digitalWrite(mainsChannel, HIGH);
+        pcfOut.digitalWrite(tankChannel, LOW);
+      }
+    }
+
     Serial.printf("Manual zone %d ON\n", z+1);
   }
 }
 
 void turnOffValveManual(int z) {
   if (zoneActive[z]) {
-    pcfOut.digitalWrite(valveChannel[z], HIGH);
-    pcfOut.digitalWrite(mainsChannel, HIGH);
-    pcfOut.digitalWrite(tankChannel, HIGH);
+    if (useGpioFallback) {
+      digitalWrite(zonePins[z], HIGH);
+      digitalWrite(mainsPin, HIGH);
+      digitalWrite(tankPin, HIGH);
+    } else {
+      pcfOut.digitalWrite(valveChannel[z], HIGH);
+      pcfOut.digitalWrite(mainsChannel, HIGH);
+      pcfOut.digitalWrite(tankChannel, HIGH);
+    }
     zoneActive[z] = false;
     Serial.printf("Manual zone %d OFF\n", z+1);
   }
@@ -1185,55 +1286,47 @@ void handleSubmit() {
 }
 
 void handleSetupPage() {
-  String html = "<!DOCTYPE html><html lang='en'><head>";
-  html += "<meta charset='UTF-8'>";
-  html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
-  html += "<title>Setup</title>";
-  html += "<link href='https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap' rel='stylesheet'>";
-  html += "<style>";
-  html += "body { font-family: 'Roboto', sans-serif; background: #f7f9fc; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; height: 100vh; }";
-  html += "form { background: #ffffff; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }";
-  html += "h1 { text-align: center; color: #333333; margin-bottom: 20px; }";
-  html += "label { display: block; margin-bottom: 5px; color: #555555; }";
-  html += "input[type='text'], input[type='number'], select { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #cccccc; border-radius: 5px; font-size: 14px; }";
-  html += "input[type='checkbox'] { margin-right: 10px; }";
-  html += "input[type='submit'] { width: 100%; padding: 10px; background: #007BFF; border: none; border-radius: 5px; color: #ffffff; font-size: 16px; cursor: pointer; }";
-  html += "input[type='submit']:hover { background: #0056b3; }";
-  html += "</style>";
-  html += "</head><body>";
-  html += "<form action='/configure' method='POST'>";
-  html += "<h1>Setup</h1>";
-  html += "<label for='apiKey'>API Key:</label>";
-  html += "<input type='text' id='apiKey' name='apiKey' value='" + apiKey + "'>";
-  html += "<label for='city'>City Number:</label>";
-  html += "<input type='text' id='city' name='city' value='" + city + "'>";
-  html += "<label for='timezone'>City Timezone Offset (hours):</label>";
-  html += "<input type='number' id='timezone' name='dstOffset' min='-12' max='14' step='0.50' value='" + String(tzOffsetHours, 2) + "'>";
-  html += "<label for='windSpeedThreshold'>Wind Speed Threshold (m/s):</label>";
-  html += "<input type='number' id='windSpeedThreshold' name='windSpeedThreshold' min='0' step='0.1' value='" + String(windSpeedThreshold) + "'>";
-  html += String("<label for='windCancelEnabled'><input type='checkbox' id='windCancelEnabled' name='windCancelEnabled'") + (windDelayEnabled ? " checked" : "") + "> Enable Wind Delay</label>";
-  html += "<label for='rainDelay'><input type='checkbox' id='rainDelay' name='rainDelay' " + String(rainDelayEnabled ? "checked" : "") + "> Enable Rain Delay</label>";
-
-  // Tank source options
-  html += "<label for='justUseTank'>"
-          "<input type='checkbox' id='justUseTank' name='justUseTank'";
-  if (justUseTank) html += " checked";
-  html += "> Only use Tank (Solenoids will start sequentially if times overlap/same)</label>";
-
-  html += "<label for='justUseMains'>"
-          "<input type='checkbox' id='justUseMains' name='justUseMains'";
-  if (justUseMains) html += " checked";
-  html += "> Only use Mains (Solenoids run together if times overlap/same)</label>";
-
-  html += "<input type='submit' value='Submit'>";
-
-  // Extra link to tank calibration tool
-  html += "<p style='text-align: center;'><a href='/tank'>Launch Tank Calibration Tool</a></p>";
-
-  html += "<p style='text-align: center;'><a href='https://openweathermap.org/city/" + city + "' target='_blank'>View Weather Details on OpenWeatherMap</a></p>";
-  html += "</form>";
-  html += "</body></html>";
-
+  String html = "";
+  html += "<!DOCTYPE html><html lang=\"en\"><head>";
+  html += "<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
+  html += "<title>Setup - Irrigation System</title>";
+  html += "<link href=\"https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap\" rel=\"stylesheet\">";
+  html += "<style>:root{--primary:#2E86AB;--primary-light:#379BD5;--bg:#f4f7fa;--card-bg:#fff;--text:#333;--accent:#F2994A;}";
+  html += "body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--text);display:flex;justify-content:center;align-items:center;padding:20px;}";
+  html += ".container{background:var(--card-bg);padding:30px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.1);width:100%;max-width:450px;}";
+  html += ".container h1{text-align:center;color:var(--primary);margin-bottom:20px;}";
+  html += ".form-group{margin-bottom:15px;}";
+  html += ".form-group label{display:block;margin-bottom:6px;}";
+  html += "input[type=text],input[type=number]{width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;}";
+  html += ".checkbox-group{display:flex;align-items:center;margin-bottom:12px;}";
+  html += ".checkbox-group label{margin-left:8px;}";
+  html += ".btn{width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;transition:background .3s;}";
+  html += ".btn:hover{background:var(--primary-light);}";
+  html += "</style></head><body>";
+  html += "<div class=\"container\"><h1>⚙️ System Setup</h1>";
+  html += "<form action=\"/configure\" method=\"POST\">";
+  html += "<div class=\"form-group\"><label for=\"apiKey\">API Key</label>";
+  html += "<input type=\"text\" id=\"apiKey\" name=\"apiKey\" value=\"" + apiKey + "\" required></div>";
+  html += "<div class=\"form-group\"><label for=\"city\">City ID</label>";
+  html += "<input type=\"text\" id=\"city\" name=\"city\" value=\"" + city + "\" required></div>";
+  html += "<div class=\"form-group\"><label for=\"dstOffset\">Timezone Offset (hrs)</label>";
+  html += "<input type=\"number\" id=\"dstOffset\" name=\"dstOffset\" min=\"-12\" max=\"14\" step=\"0.5\" value=\"" + String(tzOffsetHours,2) + "\" required></div>";
+  html += "<div class=\"form-group\"><label for=\"windSpeedThreshold\">Wind Speed Threshold (m/s)</label>";
+  html += "<input type=\"number\" id=\"windSpeedThreshold\" name=\"windSpeedThreshold\" min=\"0\" step=\"0.1\" value=\"" + String(windSpeedThreshold,1) + "\" required></div>";
+  html += "<div class=\"checkbox-group\">";
+  html += "<input type=\"checkbox\" id=\"windCancelEnabled\" name=\"windCancelEnabled\"" + String(windDelayEnabled ? " checked":"") + ">";
+  html += "<label for=\"windCancelEnabled\">Enable Wind Delay</label></div>";
+  html += "<div class=\"checkbox-group\">";
+  html += "<input type=\"checkbox\" id=\"rainDelay\" name=\"rainDelay\"" + String(rainDelayEnabled ? " checked":"") + ">";
+  html += "<label for=\"rainDelay\">Enable Rain Delay</label></div>";
+  html += "<div class=\"checkbox-group\">";
+  html += "<input type=\"checkbox\" id=\"justUseTank\" name=\"justUseTank\"" + String(justUseTank ? " checked":"") + ">";
+  html += "<label for=\"justUseTank\">Only Use Tank</label></div>";
+  html += "<div class=\"checkbox-group\">";
+  html += "<input type=\"checkbox\" id=\"justUseMains\" name=\"justUseMains\"" + String(justUseMains ? " checked":"") + ">";
+  html += "<label for=\"justUseMains\">Only Use Mains</label></div>";
+  html += "<button type=\"submit\" class=\"btn\">Save Settings</button>";
+  html += "</form></div></body></html>";
   server.send(200, "text/html", html);
 }
 
