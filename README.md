@@ -1,5 +1,7 @@
 Irrigation controller degsined to use KC868 6 relay module from aliexpress.
-Can also be used with any ESP32 controller with relays asign pins in setup page.
+
+
+Can be used with any ESP32 controller with 6 relays assign pins in setup page.
 
 
 
