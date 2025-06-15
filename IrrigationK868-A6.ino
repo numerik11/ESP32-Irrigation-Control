@@ -205,7 +205,7 @@ void setup() {
   while (now < 1000000000) {
   delay(500);
   now = time(nullptr);
-}
+ }
 
   // OTA & Web Server
   ArduinoOTA.begin();
@@ -1076,7 +1076,7 @@ void handleRoot() {
   String html = "<!DOCTYPE html><html lang='en'><head>";
   html += "<meta charset='UTF-8'>";
   html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
-  html += "<title>Smart Irrigation System</title>";
+  html += "<title>ESP32 Irrigation System</title>";
   html += "<link href='https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap' rel='stylesheet'>";
   html += "<style>";
     // Base styles
@@ -1108,7 +1108,7 @@ void handleRoot() {
   html += "</style>";
   html += "</head><body>";
 
-    html += "<header><h1>🌱 A6-ESP32 Irrigation System</h1></header>";
+    html += "<header><h1>💧ESP32 Irrigation System💧</h1></header>";
     html += "<div class='container'>";
       // Clock & weather
   html += "<p id='clock'>🕒 Current Time: " + currentTime + "</p>";
@@ -1121,7 +1121,7 @@ void handleRoot() {
       int tankRaw = analogRead(TANK_PIN);
       int tankPct = map(tankRaw, 0, 1023, 0, 100);
       String tankStatus = (tankRaw < 250) ? "Low - Using Main" : "Normal - Using Tank";
-      html += "<p>💧 Tank Level: "
+      html += "<p> Tank Level: "
           "<progress id='tankLevel' value='" + String(tankPct) + "' max='100'></progress> "
           + String(tankPct) + "% (" + tankStatus + ")</p>";
       // Toggle backlight
@@ -1245,7 +1245,7 @@ void handleRoot() {
       html += "<p style='text-align:center;'><a href='/events'>View Event Log</a></p>";
       html += "<p style='text-align:center;'><a href='/tank'>Tank Calibration Tool</a></p>";
       html += "<p style='text-align:center;'><a href='/setup'>Setup Page</a></p>";
-      html += "<p style='text-align:center;'><a href='https://openweathermap.org/city/" + cityName + "' target='_blank'>View Weather on Openweathermap.org</a></p>";
+      html += "<p style='text-align:center;'><a href='https://openweathermap.org/city/" + city + "' target='_blank'>View Weather on Openweathermap.org</a></p>";
 
     html += "</div>";  // .container
   html += "</body></html>";
@@ -1374,7 +1374,7 @@ void handleSetupPage() {
           "<label for=\"justUseMains\">Only Use Mains</label></div>";
 
   // Zone pin configuration (medium)
-  html += "<div class=\"form-group\"><label>Zone pins (GPIO)</label>";
+  html += "<div class=\"form-group\"><label>Zone pins (If not using A6) Tank Pin IO36(Default)</label>";
   for (uint8_t i = 0; i < Zone; i++) {
     html += "Zone " + String(i+1) + ": "
          + "<input class=\"medium-input\" type=\"number\" name=\"zonePin" + String(i) + "\" "
@@ -1402,43 +1402,65 @@ void handleSetupPage() {
 }
 
 void handleLogPage() {
+  // 1) Make sure weather data is fresh, then parse it
+  updateCachedWeather();
+  DynamicJsonDocument js(2048);
+  deserializeJson(js, cachedWeatherData);
+  float temp      = js["main"]["temp"].as<float>();
+  int   hum       = js["main"]["humidity"].as<int>();
+  float ws        = js["wind"]["speed"].as<float>();
+  String cond     = js["weather"][0]["main"].as<String>();
+  String cityName = js["name"].as<String>();
+
+  // Build a one-line weather info string
+  String weatherInfo = "T=" + String(temp,1)  + "°C, "
+                     + "H=" + String(hum)     + "%, "
+                     + "W=" + String(ws,1)    + "m/s, "
+                     + cond;
+
+  // 2) Open the log file
   File f = LittleFS.open("/events.csv", "r");
   if (!f) {
     server.send(404, "text/plain", "No event log found");
     return;
   }
 
-  String html = "<!DOCTYPE html><html lang='en'><head>";
-  html += "<meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>";
-  html += "<title>Event Log</title>";
-  html += "<link href='https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap' rel='stylesheet'>";
-  html += "<style>";
-  html += "body { font-family: 'Roboto', sans-serif; background: #f0f4f8; margin: 0; }";
-  html += "header { background:#007BFF; color:white; text-align:center; padding:20px; font-size:1.6em; font-weight:500; }";
-  html += ".container { max-width:900px; margin:20px auto; background:white; border-radius:8px; box-shadow:0 4px 8px rgba(0,0,0,0.1); padding:20px; }";
-  html += "h2 { color:#007BFF; margin-top:0; }";
-  html += "table { width:100%; border-collapse:collapse; margin-top:20px; }";
-  html += "th, td { padding:10px; border:1px solid #ccc; text-align:left; font-size:0.95em; }";
-  html += "th { background:#e0ecf7; }";
-  html += "tr:nth-child(even) { background:#f9f9f9; }";
-  html += "form { text-align:right; margin-bottom:15px; }";
-  html += "button { padding:10px 15px; background:#d9534f; color:white; border:none; border-radius:4px; cursor:pointer; }";
-  html += "button:hover { background:#c9302c; }";
-  html += "a { display:inline-block; margin-top:15px; color:#007BFF; text-decoration:none; }";
-  html += "a:hover { text-decoration:underline; }";
-  html += "</style></head><body>";
+  // 3) Emit the HTML header + table setup
+  String html = "<!DOCTYPE html><html lang='en'><head>"
+                "<meta charset='UTF-8'>"
+                "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+                "<title>Event Log</title>"
+                "<link href='https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap' rel='stylesheet'>"
+                "<style>"
+                  "body{font-family:'Roboto',sans-serif;background:#f0f4f8;margin:0;}"
+                  "header{background:#007BFF;color:#fff;text-align:center;padding:20px;font-size:1.6em;}"
+                  ".container{max-width:900px;margin:20px auto;background:#fff;border-radius:8px;"
+                             "box-shadow:0 4px 8px rgba(0,0,0,0.1);padding:20px;}"
+                  "table{width:100%;border-collapse:collapse;margin-top:20px;}"
+                  "th,td{padding:10px;border:1px solid #ccc;text-align:left;font-size:0.95em;}"
+                  "th{background:#e0ecf7;}tr:nth-child(even){background:#f9f9f9;}"
+                  "button{padding:10px 15px;background:#d9534f;color:#fff;border:none;border-radius:4px;"
+                         "cursor:pointer;}button:hover{background:#c9302c;}"
+                  "a{display:inline-block;margin-top:15px;color:#007BFF;text-decoration:none;}"
+                  "a:hover{text-decoration:underline;}"
+                "</style></head><body>"
+                "<header>📜 Irrigation Event Log</header>"
+                "<div class='container'>"
+                "<h2>Recent Events</h2>"
+                "<form method='POST' action='/clearevents'>"
+                  "<button type='submit' onclick='return confirm(\"Clear all logs?\");'>🗑 Clear Log</button>"
+                "</form>"
+                "<table>"
+                  "<tr>"
+                    "<th>Timestamp</th>"
+                    "<th>Zone</th>"
+                    "<th>Event</th>"
+                    "<th>Source</th>"
+                    "<th>Rain Delay</th>"
+                    "<th>Details</th>"
+                  "</tr>";
 
-  html += "<header>📜 Irrigation Event Log</header>";
-  html += "<div class='container'>";
-  html += "<h2>Recent Events</h2>";
-
-  html += "<form method='POST' action='/clearevents'>";
-  html += "<button type='submit' onclick='return confirm(\"Clear all logs?\");'>🗑 Clear Log</button>";
-  html += "</form>";
-
-  html += "<table>";
-  html += "<tr><th>Timestamp</th><th>Zone</th><th>Event</th><th>Source</th><th>Rain Delay</th></tr>";
-
+  // 4) Read each line, parse CSV fields + append weatherInfo in Details
   while (f.available()) {
     String line = f.readStringUntil('\n');
     if (line.length() < 5) continue;
@@ -1447,20 +1469,29 @@ void handleLogPage() {
     int idx2 = line.indexOf(',', idx1 + 1);
     int idx3 = line.indexOf(',', idx2 + 1);
     int idx4 = line.indexOf(',', idx3 + 1);
+    int idx5 = line.indexOf(',', idx4 + 1);
 
     String ts   = line.substring(0, idx1);
     String zone = line.substring(idx1 + 1, idx2);
     String ev   = line.substring(idx2 + 1, idx3);
     String src  = line.substring(idx3 + 1, idx4);
-    String rd   = line.substring(idx4 + 1); rd.trim();
+    String rd   = line.substring(idx4 + 1, idx5);
 
-    html += "<tr><td>" + ts + "</td><td>" + zone + "</td><td>" + ev + "</td><td>" + src + "</td><td>" + rd + "</td></tr>";
+    html += "<tr>"
+            "<td>" + ts         + "</td>"
+            "<td>" + zone       + "</td>"
+            "<td>" + ev         + "</td>"
+            "<td>" + src        + "</td>"
+            "<td>" + rd         + "</td>"
+            "<td>" + weatherInfo+ "</td>"
+          "</tr>";
   }
   f.close();
 
-  html += "</table>";
-  html += "<a href='/'>⬅ Back to Home</a>";
-  html += "</div></body></html>";
+  // 5) Close out
+  html += "</table>"
+          "<a href='/'>⬅ Back to Home</a>"
+          "</div></body></html>";
 
   server.send(200, "text/html", html);
 }
