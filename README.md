@@ -1,5 +1,7 @@
 Irrigation controller degsined to use ESP32 controlled KC868 6 relay module from aliexpress.
 
+Can also be used with any ESP controller with relays asign pins in setup page.
+
 Materials Required
 
 1.) 7 Core irrigation wire to run from controller to solenoid box
