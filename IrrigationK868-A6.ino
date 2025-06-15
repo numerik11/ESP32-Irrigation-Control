@@ -195,16 +195,17 @@ void setup() {
     delay(3000);
   }
 
-  // NTP setup with saved offset
-  long gmtOffsetSec     = long(tzOffsetHours * 3600);
-  long daylightOffsetSec = 0;
+  // NTP setup with precise offset handling
+  int gmtOffsetSec = round(tzOffsetHours * 3600);
+  int daylightOffsetSec = 0;
+
   configTime(gmtOffsetSec, daylightOffsetSec,
-             "pool.ntp.org", "time.nist.gov");
+           "pool.ntp.org", "time.nist.gov");
   time_t now = time(nullptr);
   while (now < 1000000000) {
-    delay(500);
-    now = time(nullptr);
-  }
+  delay(500);
+  now = time(nullptr);
+}
 
   // OTA & Web Server
   ArduinoOTA.begin();
@@ -417,7 +418,7 @@ void loadConfig() {
 
   apiKey            = f.readStringUntil('\n'); apiKey.trim();
   city              = f.readStringUntil('\n'); city.trim();
-  tzOffsetHours     = f.readStringUntil('\n').toFloat();
+  tzOffsetHours = f.readStringUntil('\n').toFloat();
   rainDelayEnabled  = (f.readStringUntil('\n').toInt() == 1);
   windSpeedThreshold= f.readStringUntil('\n').toFloat();
   windDelayEnabled  = (f.readStringUntil('\n').toInt() == 1);
@@ -453,6 +454,8 @@ void saveConfig() {
   f.println(mainsPin);
   f.println(tankPin);
   f.close();
+
+  ESP.restart();
 }
 
 void loadSchedule() {
@@ -520,7 +523,6 @@ void loadSchedule() {
       days[i][4], days[i][5], days[i][6]
     );
   }
-
   f.close();
 }
 
@@ -1281,7 +1283,6 @@ void handleSubmit() {
   if (server.hasArg("windSpeedThreshold"))
     windSpeedThreshold = server.arg("windSpeedThreshold").toFloat();
 
-  saveConfig();
   saveSchedule();
   updateCachedWeather();
 
@@ -1343,7 +1344,7 @@ void handleSetupPage() {
   html += "<div class=\"form-group\"><label for=\"dstOffset\">Timezone Offset (hrs)</label>";
   html += "<input class=\"small-input\" type=\"number\" id=\"dstOffset\" name=\"dstOffset\" "
           "min=\"-12\" max=\"14\" step=\"0.5\" "
-          "value=\"" + String(tzOffsetHours, 2) + "\" required></div>";
+          "value=\"" + String(tzOffsetHours, 1) + "\" required></div>";
 
   // Wind Speed Threshold (small)
   html += "<div class=\"form-group\"><label for=\"windSpeedThreshold\">Wind Speed Threshold (m/s)</label>";
