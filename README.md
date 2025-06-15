@@ -16,8 +16,8 @@ https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
 
 ![image](https://github.com/user-attachments/assets/113cedeb-a453-42a8-809c-a522808daa87)
 
-![download](https://github.com/user-attachments/assets/634f39fa-968c-493c-b1b5-f588702cd1ed)
-![download](https://github.com/user-attachments/assets/b3d3e541-8df6-4f3f-af2c-38f72cae96a2)
+![download](https://github.com/user-attachments/assets/634f39fa-968c-493c-b1b5-f588702cd1ed)Relays
+![download](https://github.com/user-attachments/assets/b3d3e541-8df6-4f3f-af2c-38f72cae96a2)ESP32 NodeMCU
 
 Wire all solenoid wires/grounds to power source ground.
 
