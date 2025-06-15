@@ -1310,8 +1310,13 @@ void handleSetupPage() {
           "margin-bottom:20px;}"
           ".form-group{margin-bottom:15px;}"
           ".form-group label{display:block;margin-bottom:6px;}"
-          "input[type=text],input[type=number]{width:100%;"
-          "padding:10px;border:1px solid #ccc;border-radius:6px;}"
+          "input[type=text],input[type=number]{padding:10px;"
+          "border:1px solid #ccc;border-radius:6px;}"
+          /* full-width by default */
+          "input.full-width{width:100%;}"
+          /* narrow helpers */
+          ".small-input{width:6ch;}"
+          ".medium-input{width:8ch;}"
           ".checkbox-group{display:flex;align-items:center;"
           "margin-bottom:12px;}"
           ".checkbox-group label{margin-left:8px;}"
@@ -1324,25 +1329,25 @@ void handleSetupPage() {
   html += "<div class=\"container\"><h1>⚙️ System Setup</h1>";
   html += "<form action=\"/configure\" method=\"POST\">";
 
-  // API Key
+  // API Key (full-width)
   html += "<div class=\"form-group\"><label for=\"apiKey\">API Key</label>";
-  html += "<input type=\"text\" id=\"apiKey\" name=\"apiKey\" "
+  html += "<input class=\"full-width\" type=\"text\" id=\"apiKey\" name=\"apiKey\" "
           "value=\"" + apiKey + "\" required></div>";
 
-  // City ID
+  // City ID (full-width)
   html += "<div class=\"form-group\"><label for=\"city\">City ID</label>";
-  html += "<input type=\"text\" id=\"city\" name=\"city\" "
+  html += "<input class=\"full-width\" type=\"text\" id=\"city\" name=\"city\" "
           "value=\"" + city + "\" required></div>";
 
-  // Timezone Offset
+  // Timezone Offset (small)
   html += "<div class=\"form-group\"><label for=\"dstOffset\">Timezone Offset (hrs)</label>";
-  html += "<input type=\"number\" id=\"dstOffset\" name=\"dstOffset\" "
+  html += "<input class=\"small-input\" type=\"number\" id=\"dstOffset\" name=\"dstOffset\" "
           "min=\"-12\" max=\"14\" step=\"0.5\" "
           "value=\"" + String(tzOffsetHours, 2) + "\" required></div>";
 
-  // Wind Speed Threshold
+  // Wind Speed Threshold (small)
   html += "<div class=\"form-group\"><label for=\"windSpeedThreshold\">Wind Speed Threshold (m/s)</label>";
-  html += "<input type=\"number\" id=\"windSpeedThreshold\" name=\"windSpeedThreshold\" "
+  html += "<input class=\"small-input\" type=\"number\" id=\"windSpeedThreshold\" name=\"windSpeedThreshold\" "
           "min=\"0\" step=\"0.1\" "
           "value=\"" + String(windSpeedThreshold, 1) + "\" required></div>";
 
@@ -1350,43 +1355,39 @@ void handleSetupPage() {
   html += "<div class=\"checkbox-group\">"
           "<input type=\"checkbox\" id=\"windCancelEnabled\" name=\"windCancelEnabled\""
           + String(windDelayEnabled ? " checked" : "") + ">"
-          "<label for=\"windCancelEnabled\">Enable Wind Delay</label>"
-          "</div>";
+          "<label for=\"windCancelEnabled\">Enable Wind Delay</label></div>";
 
   html += "<div class=\"checkbox-group\">"
           "<input type=\"checkbox\" id=\"rainDelay\" name=\"rainDelay\""
           + String(rainDelayEnabled ? " checked" : "") + ">"
-          "<label for=\"rainDelay\">Enable Rain Delay</label>"
-          "</div>";
+          "<label for=\"rainDelay\">Enable Rain Delay</label></div>";
 
   html += "<div class=\"checkbox-group\">"
           "<input type=\"checkbox\" id=\"justUseTank\" name=\"justUseTank\""
           + String(justUseTank ? " checked" : "") + ">"
-          "<label for=\"justUseTank\">Only Use Tank</label>"
-          "</div>";
+          "<label for=\"justUseTank\">Only Use Tank</label></div>";
 
   html += "<div class=\"checkbox-group\">"
           "<input type=\"checkbox\" id=\"justUseMains\" name=\"justUseMains\""
           + String(justUseMains ? " checked" : "") + ">"
-          "<label for=\"justUseMains\">Only Use Mains</label>"
-          "</div>";
+          "<label for=\"justUseMains\">Only Use Mains</label></div>";
 
-  // Zone pin configuration
+  // Zone pin configuration (medium)
   html += "<div class=\"form-group\"><label>Zone pins (GPIO)</label>";
   for (uint8_t i = 0; i < Zone; i++) {
     html += "Zone " + String(i+1) + ": "
-         + "<input type=\"number\" name=\"zonePin" + String(i) + "\" "
+         + "<input class=\"medium-input\" type=\"number\" name=\"zonePin" + String(i) + "\" "
          + "min=\"0\" max=\"39\" value=\"" + String(zonePins[i]) + "\"><br>";
   }
   html += "</div>";
 
-  // Mains & Tank pins
+  // Mains & Tank pins (medium)
   html += "<div class=\"form-group\"><label for=\"mainsPin\">Mains-source pin (GPIO)</label>";
-  html += "<input type=\"number\" id=\"mainsPin\" name=\"mainsPin\" "
+  html += "<input class=\"medium-input\" type=\"number\" id=\"mainsPin\" name=\"mainsPin\" "
           "min=\"0\" max=\"39\" value=\"" + String(mainsPin) + "\"></div>";
 
   html += "<div class=\"form-group\"><label for=\"tankPin\">Tank-source pin (GPIO)</label>";
-  html += "<input type=\"number\" id=\"tankPin\" name=\"tankPin\" "
+  html += "<input class=\"medium-input\" type=\"number\" id=\"tankPin\" name=\"tankPin\" "
           "min=\"0\" max=\"39\" value=\"" + String(tankPin) + "\"></div>";
 
   // Submit button
