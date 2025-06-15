@@ -14,11 +14,15 @@ Can be used with any ESP32 controller with 6 relays assign pins in setup page.
 
 3.) KC868 6 Channel relay board with case. Or ESP32 Controller with 6 Relay Module
 
-https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
+4.) If other ESP32 is used it will detect the absent i2c conrollers on the A6 board and use GPIO programmed in settings. 
 
+IO36 Default Analog pin for Tank Level Sensor on A6 and with ESP32 Boards.
+
+https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
 ![image](https://github.com/user-attachments/assets/113cedeb-a453-42a8-809c-a522808daa87)
 
 ![download](https://github.com/user-attachments/assets/634f39fa-968c-493c-b1b5-f588702cd1ed)Relays
+
 ![download](https://github.com/user-attachments/assets/b3d3e541-8df6-4f3f-af2c-38f72cae96a2)ESP32 NodeMCU
 
 Wire all solenoid wires/grounds to power source ground.
