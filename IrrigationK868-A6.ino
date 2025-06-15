@@ -209,7 +209,7 @@ void setup() {
 
   // OTA & Web Server
   ArduinoOTA.begin();
-  ArduinoOTA.setHostname("A6-Irrigation");
+  ArduinoOTA.setHostname("ESP32 Irrigation");
 
   server.on("/",          HTTP_GET,  handleRoot);
   server.on("/submit",    HTTP_POST, handleSubmit);
@@ -455,7 +455,6 @@ void saveConfig() {
   f.println(tankPin);
   f.close();
 
-  ESP.restart();
 }
 
 void loadSchedule() {
@@ -465,7 +464,7 @@ void loadSchedule() {
     return;
   }
 
-  Serial.println("Loaded schedule:");
+  Serial.println("Watering Schedule:");
   for (int i = 0; i < Zone; i++) {
     String line = f.readStringUntil('\n');
     if (line.length() == 0) continue;
@@ -1497,25 +1496,45 @@ void handleLogPage() {
 }
 
 void handleConfigure() {
-  apiKey = server.arg("apiKey");
-  city   = server.arg("city");
-  tzOffsetHours = server.arg("dstOffset").toFloat();
-  rainDelayEnabled  = server.hasArg("rainDelay");
-  windDelayEnabled  = server.hasArg("windCancelEnabled");
-  windSpeedThreshold= server.arg("windSpeedThreshold").toFloat();
-  if (server.hasArg("tankEmptyRaw")) tankEmptyRaw = server.arg("tankEmptyRaw").toInt();
-  if (server.hasArg("tankFullRaw"))  tankFullRaw  = server.arg("tankFullRaw").toInt();
-  justUseTank  = server.hasArg("justUseTank");
-  justUseMains = server.hasArg("justUseMains");
-   for (int i = 0; i < Zone; i++) {
+  // 1) Parse POSTed fields
+  apiKey             = server.arg("apiKey");
+  city               = server.arg("city");
+  tzOffsetHours      = server.arg("dstOffset").toFloat();
+  rainDelayEnabled   = server.hasArg("rainDelay");
+  windDelayEnabled   = server.hasArg("windCancelEnabled");
+  windSpeedThreshold = server.arg("windSpeedThreshold").toFloat();
+  justUseTank        = server.hasArg("justUseTank");
+  justUseMains       = server.hasArg("justUseMains");
+  for (int i = 0; i < Zone; i++) {
     if (server.hasArg("zonePin" + String(i)))
       zonePins[i] = server.arg("zonePin" + String(i)).toInt();
   }
   if (server.hasArg("mainsPin")) mainsPin = server.arg("mainsPin").toInt();
-  if (server.hasArg("tankPin" )) tankPin  = server.arg("tankPin" ).toInt();
+  if (server.hasArg("tankPin"))  tankPin  = server.arg("tankPin").toInt();
 
+  // 2) Save to SPIFFS (no restart in saveConfig anymore)
   saveConfig();
 
-  server.sendHeader("Location", "/", true);
-  server.send(302, "text/plain", "");
+  // 3) Build a confirmation page with a 5-second redirect back to "/"
+  String html = "<!DOCTYPE html><html lang=\"en\"><head>"
+              "<meta charset=\"UTF-8\">"
+              "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
+              "<meta http-equiv=\"refresh\" content=\"5;url=/\" />"
+              "<title>Settings Saved</title>"
+              "<style>"
+                "body{font-family:Arial,sans-serif;text-align:center;padding:40px;}"
+                "h1{color:#2E86AB;}p{font-size:1.1em;}"
+              "</style>"
+              "</head><body>"
+              "<h1>✅ Settings Saved</h1>"
+              "<p>Restarting… You’ll be returned to the home page shortly.</p>"
+              "</body></html>";
+
+  server.send(200, "text/html", html);
+
+  // 4) Give the browser a moment to receive the page
+  delay(500);
+
+  // 5) Then reboot
+  ESP.restart();
 }
