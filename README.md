@@ -3,6 +3,12 @@ Irrigation controller degsined to use KC868 6 relay module from aliexpress.
 
 Can be used with any ESP32 controller with 6 relays assign pins in setup page.
 
+If other ESP32 is used it will detect the absent i2c conrollers on the A6 board and use GPIO programmed in settings. 
+
+IO36 Default Analog pin for Tank Level Sensor on A6 and with ESP32 Boards.
+
+
+---
 
 
 -Materials Required-
@@ -10,45 +16,49 @@ Can be used with any ESP32 controller with 6 relays assign pins in setup page.
 
 1.) 7 Core irrigation wire to run from controller to solenoid box
 
-2.) 6 Solenoids MUST BE 12v DC Solenoid Valves (unless you have seperate AC12/24V power scource). 
+2.) 6 Solenoids (MUST BE 12v DC Solenoid Valves (unless you have seperate AC12/24V power scource). 
 
 3.) KC868 6 Channel relay board with case. Or ESP32 Controller with 6 Relay Module
 
-4.) If other ESP32 is used it will detect the absent i2c conrollers on the A6 board and use GPIO programmed in settings. 
-
-IO36 Default Analog pin for Tank Level Sensor on A6 and with ESP32 Boards.
+----
 
 https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
 ![image](https://github.com/user-attachments/assets/113cedeb-a453-42a8-809c-a522808daa87)
+
+----
 
 ![download](https://github.com/user-attachments/assets/634f39fa-968c-493c-b1b5-f588702cd1ed)Relays
 
 ![download](https://github.com/user-attachments/assets/b3d3e541-8df6-4f3f-af2c-38f72cae96a2)ESP32 NodeMCU
 
-Wire all solenoid wires/grounds to power source ground.
+----
 
-Wire 24/12v to all "COM" screw termials for relays, then wire solenoids to the N.O screw terminals
+- Wire all solenoid wires/grounds to power source ground.
 
-Relays 1 - 4 = Zones 1 - 4 
+- Wire 24/12v to all "COM" screw termials for relays, then wire solenoids to the N.O screw terminals
 
-Relay 5 - Mains, Relay 6 - Tank.
+- Relays 1 - 4 = Zones 1 - 4 
 
-N.O - COM - N.C.
+- Relay 5 - Mains, Relay 6 - Tank.
 
-Tank level sensor to A1. (3.3V MAX?)
+- N.O - COM - N.C.
+
+- Tank level sensor to A1. (3.3V MAX?)
+
+----
 
 ![51BA8viI0BL _SX522_](https://github.com/user-attachments/assets/3ca35811-27b2-4bfd-a91e-8748b7463eb3)
 
----
+----
 
-To upload the project to the Kilcoy A6-ESP32 board use Arduino IDE software, follow these steps to guide you through selecting the right board
-
-installing the necessary libraries, and uploading the code to your ESP32.
+- Flashing Code to Controller - 
 
 
-Steps to Upload the Project to ESP32 via Arduino IDE:
+To upload the project to the Kilcoy A6 or ESP32 board use Arduino IDE software, follow these steps.
 
----
+
+----
+
 
 1. Install/Add the ESP32 Board in Arduino IDE
 
