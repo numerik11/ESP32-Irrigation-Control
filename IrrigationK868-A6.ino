@@ -99,6 +99,7 @@ void turnOffValveManual(int z);
 void handleRoot();
 void handleSubmit();
 void handleSetupPage();
+void handleLogPage();
 void handleConfigure();
 String getDayName(int d);
 
