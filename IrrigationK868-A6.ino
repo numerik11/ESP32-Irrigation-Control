@@ -37,9 +37,9 @@ WiFiClient  client;
 // === GPIO Fallback Configuration ===
 bool useGpioFallback = false;
 // Direct GPIO pin assignments for fallback (adjust to your board)
-const uint8_t zonePins[Zone] = {16, 17, 18, 19};
-const uint8_t mainsPin      = 21;
-const uint8_t tankPin       = 22;
+uint8_t zonePins[Zone] = {16, 17, 18, 19};
+uint8_t mainsPin       = 21;
+uint8_t tankPin        = 22;
 
 // A6 Solenoid channels (PCF8574 pins)
 const uint8_t valveChannel[Zone] = { P0, P1, P2, P3 };
@@ -397,16 +397,12 @@ void checkI2CHealth() {
 
 void initGpioFallback() {
   useGpioFallback = true;
-
-  // configure your direct-GPIO pins (these names must match your declarations!)
   for (uint8_t i = 0; i < Zone; i++) {
     pinMode(zonePins[i], OUTPUT);
-    digitalWrite(zonePins[i], HIGH); // OFF (active LOW)
+    digitalWrite(zonePins[i], HIGH);
   }
-  pinMode(mainsPin, OUTPUT);
-  digitalWrite(mainsPin, HIGH);
-  pinMode(tankPin, OUTPUT);
-  digitalWrite(tankPin, HIGH);
+  pinMode(mainsPin, OUTPUT);  digitalWrite(mainsPin, HIGH);
+  pinMode(tankPin, OUTPUT);   digitalWrite(tankPin, HIGH);
 }
 
 void printCurrentTime() {
@@ -429,7 +425,11 @@ void loadConfig() {
   justUseMains      = (f.readStringUntil('\n').toInt() == 1);
   tankEmptyRaw      = f.readStringUntil('\n').toInt();
   tankFullRaw       = f.readStringUntil('\n').toInt();
-  
+   for (int i = 0; i < Zone; i++) {
+    zonePins[i] = f.readStringUntil('\n').toInt();
+  }
+  mainsPin = f.readStringUntil('\n').toInt();
+  tankPin  = f.readStringUntil('\n').toInt();
   f.close();
 }
 
@@ -447,7 +447,11 @@ void saveConfig() {
   f.println(justUseMains ? "1" : "0");
   f.println(tankEmptyRaw);
   f.println(tankFullRaw);
-
+  for (int i = 0; i < Zone; i++) {
+    f.println(zonePins[i]);
+  }
+  f.println(mainsPin);
+  f.println(tankPin);
   f.close();
 }
 
@@ -1287,46 +1291,111 @@ void handleSubmit() {
 
 void handleSetupPage() {
   String html = "";
+
+  // — START HTML —
   html += "<!DOCTYPE html><html lang=\"en\"><head>";
   html += "<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
   html += "<title>Setup - Irrigation System</title>";
   html += "<link href=\"https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap\" rel=\"stylesheet\">";
-  html += "<style>:root{--primary:#2E86AB;--primary-light:#379BD5;--bg:#f4f7fa;--card-bg:#fff;--text:#333;--accent:#F2994A;}";
-  html += "body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--text);display:flex;justify-content:center;align-items:center;padding:20px;}";
-  html += ".container{background:var(--card-bg);padding:30px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.1);width:100%;max-width:450px;}";
-  html += ".container h1{text-align:center;color:var(--primary);margin-bottom:20px;}";
-  html += ".form-group{margin-bottom:15px;}";
-  html += ".form-group label{display:block;margin-bottom:6px;}";
-  html += "input[type=text],input[type=number]{width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;}";
-  html += ".checkbox-group{display:flex;align-items:center;margin-bottom:12px;}";
-  html += ".checkbox-group label{margin-left:8px;}";
-  html += ".btn{width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;transition:background .3s;}";
-  html += ".btn:hover{background:var(--primary-light);}";
-  html += "</style></head><body>";
+  html += "<style>"
+          ":root{--primary:#2E86AB;--primary-light:#379BD5;--bg:#f4f7fa;"
+          "--card-bg:#fff;--text:#333;--accent:#F2994A;}"
+          "body{font-family:'Roboto',sans-serif;background:var(--bg);"
+          "color:var(--text);display:flex;justify-content:center;"
+          "align-items:center;padding:20px;}"
+          ".container{background:var(--card-bg);padding:30px;"
+          "border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.1);"
+          "width:100%;max-width:450px;}"
+          ".container h1{text-align:center;color:var(--primary);"
+          "margin-bottom:20px;}"
+          ".form-group{margin-bottom:15px;}"
+          ".form-group label{display:block;margin-bottom:6px;}"
+          "input[type=text],input[type=number]{width:100%;"
+          "padding:10px;border:1px solid #ccc;border-radius:6px;}"
+          ".checkbox-group{display:flex;align-items:center;"
+          "margin-bottom:12px;}"
+          ".checkbox-group label{margin-left:8px;}"
+          ".btn{width:100%;padding:12px;background:var(--primary);"
+          "color:#fff;border:none;border-radius:6px;cursor:pointer;"
+          "transition:background .3s;}"
+          ".btn:hover{background:var(--primary-light);}"
+          "</style></head><body>";
+
   html += "<div class=\"container\"><h1>⚙️ System Setup</h1>";
   html += "<form action=\"/configure\" method=\"POST\">";
+
+  // API Key
   html += "<div class=\"form-group\"><label for=\"apiKey\">API Key</label>";
-  html += "<input type=\"text\" id=\"apiKey\" name=\"apiKey\" value=\"" + apiKey + "\" required></div>";
+  html += "<input type=\"text\" id=\"apiKey\" name=\"apiKey\" "
+          "value=\"" + apiKey + "\" required></div>";
+
+  // City ID
   html += "<div class=\"form-group\"><label for=\"city\">City ID</label>";
-  html += "<input type=\"text\" id=\"city\" name=\"city\" value=\"" + city + "\" required></div>";
+  html += "<input type=\"text\" id=\"city\" name=\"city\" "
+          "value=\"" + city + "\" required></div>";
+
+  // Timezone Offset
   html += "<div class=\"form-group\"><label for=\"dstOffset\">Timezone Offset (hrs)</label>";
-  html += "<input type=\"number\" id=\"dstOffset\" name=\"dstOffset\" min=\"-12\" max=\"14\" step=\"0.5\" value=\"" + String(tzOffsetHours,2) + "\" required></div>";
+  html += "<input type=\"number\" id=\"dstOffset\" name=\"dstOffset\" "
+          "min=\"-12\" max=\"14\" step=\"0.5\" "
+          "value=\"" + String(tzOffsetHours, 2) + "\" required></div>";
+
+  // Wind Speed Threshold
   html += "<div class=\"form-group\"><label for=\"windSpeedThreshold\">Wind Speed Threshold (m/s)</label>";
-  html += "<input type=\"number\" id=\"windSpeedThreshold\" name=\"windSpeedThreshold\" min=\"0\" step=\"0.1\" value=\"" + String(windSpeedThreshold,1) + "\" required></div>";
-  html += "<div class=\"checkbox-group\">";
-  html += "<input type=\"checkbox\" id=\"windCancelEnabled\" name=\"windCancelEnabled\"" + String(windDelayEnabled ? " checked":"") + ">";
-  html += "<label for=\"windCancelEnabled\">Enable Wind Delay</label></div>";
-  html += "<div class=\"checkbox-group\">";
-  html += "<input type=\"checkbox\" id=\"rainDelay\" name=\"rainDelay\"" + String(rainDelayEnabled ? " checked":"") + ">";
-  html += "<label for=\"rainDelay\">Enable Rain Delay</label></div>";
-  html += "<div class=\"checkbox-group\">";
-  html += "<input type=\"checkbox\" id=\"justUseTank\" name=\"justUseTank\"" + String(justUseTank ? " checked":"") + ">";
-  html += "<label for=\"justUseTank\">Only Use Tank</label></div>";
-  html += "<div class=\"checkbox-group\">";
-  html += "<input type=\"checkbox\" id=\"justUseMains\" name=\"justUseMains\"" + String(justUseMains ? " checked":"") + ">";
-  html += "<label for=\"justUseMains\">Only Use Mains</label></div>";
+  html += "<input type=\"number\" id=\"windSpeedThreshold\" name=\"windSpeedThreshold\" "
+          "min=\"0\" step=\"0.1\" "
+          "value=\"" + String(windSpeedThreshold, 1) + "\" required></div>";
+
+  // Checkboxes
+  html += "<div class=\"checkbox-group\">"
+          "<input type=\"checkbox\" id=\"windCancelEnabled\" name=\"windCancelEnabled\""
+          + String(windDelayEnabled ? " checked" : "") + ">"
+          "<label for=\"windCancelEnabled\">Enable Wind Delay</label>"
+          "</div>";
+
+  html += "<div class=\"checkbox-group\">"
+          "<input type=\"checkbox\" id=\"rainDelay\" name=\"rainDelay\""
+          + String(rainDelayEnabled ? " checked" : "") + ">"
+          "<label for=\"rainDelay\">Enable Rain Delay</label>"
+          "</div>";
+
+  html += "<div class=\"checkbox-group\">"
+          "<input type=\"checkbox\" id=\"justUseTank\" name=\"justUseTank\""
+          + String(justUseTank ? " checked" : "") + ">"
+          "<label for=\"justUseTank\">Only Use Tank</label>"
+          "</div>";
+
+  html += "<div class=\"checkbox-group\">"
+          "<input type=\"checkbox\" id=\"justUseMains\" name=\"justUseMains\""
+          + String(justUseMains ? " checked" : "") + ">"
+          "<label for=\"justUseMains\">Only Use Mains</label>"
+          "</div>";
+
+  // Zone pin configuration
+  html += "<div class=\"form-group\"><label>Zone pins (GPIO)</label>";
+  for (uint8_t i = 0; i < Zone; i++) {
+    html += "Zone " + String(i+1) + ": "
+         + "<input type=\"number\" name=\"zonePin" + String(i) + "\" "
+         + "min=\"0\" max=\"39\" value=\"" + String(zonePins[i]) + "\"><br>";
+  }
+  html += "</div>";
+
+  // Mains & Tank pins
+  html += "<div class=\"form-group\"><label for=\"mainsPin\">Mains-source pin (GPIO)</label>";
+  html += "<input type=\"number\" id=\"mainsPin\" name=\"mainsPin\" "
+          "min=\"0\" max=\"39\" value=\"" + String(mainsPin) + "\"></div>";
+
+  html += "<div class=\"form-group\"><label for=\"tankPin\">Tank-source pin (GPIO)</label>";
+  html += "<input type=\"number\" id=\"tankPin\" name=\"tankPin\" "
+          "min=\"0\" max=\"39\" value=\"" + String(tankPin) + "\"></div>";
+
+  // Submit button
   html += "<button type=\"submit\" class=\"btn\">Save Settings</button>";
+
+  // Close out
   html += "</form></div></body></html>";
+  // — END HTML —
+
   server.send(200, "text/html", html);
 }
 
@@ -1405,6 +1474,12 @@ void handleConfigure() {
   if (server.hasArg("tankFullRaw"))  tankFullRaw  = server.arg("tankFullRaw").toInt();
   justUseTank  = server.hasArg("justUseTank");
   justUseMains = server.hasArg("justUseMains");
+   for (int i = 0; i < Zone; i++) {
+    if (server.hasArg("zonePin" + String(i)))
+      zonePins[i] = server.arg("zonePin" + String(i)).toInt();
+  }
+  if (server.hasArg("mainsPin")) mainsPin = server.arg("mainsPin").toInt();
+  if (server.hasArg("tankPin" )) tankPin  = server.arg("tankPin" ).toInt();
 
   saveConfig();
 
