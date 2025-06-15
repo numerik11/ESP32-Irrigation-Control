@@ -27,9 +27,9 @@ https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
 
 ----
 
-![download](https://github.com/user-attachments/assets/634f39fa-968c-493c-b1b5-f588702cd1ed)Relays
+![download](https://github.com/user-attachments/assets/634f39fa-968c-493c-b1b5-f588702cd1ed)    Relays
 
-![download](https://github.com/user-attachments/assets/b3d3e541-8df6-4f3f-af2c-38f72cae96a2)ESP32 NodeMCU
+![download](https://github.com/user-attachments/assets/b3d3e541-8df6-4f3f-af2c-38f72cae96a2)    ESP32 NodeMCU
 
 ----
 
