@@ -753,6 +753,9 @@ void showZoneDisplay(int zone) {
 }
 
 bool checkWindRain() {
+  
+    updateCachedWeather();
+
   DynamicJsonDocument js(1024);
   if (deserializeJson(js, cachedWeatherData)) {
     Serial.println("weather parse error – allowing irrigation");
@@ -764,7 +767,6 @@ bool checkWindRain() {
   if (rainDelayEnabled && js.containsKey("rain")) {
     float rain1h = js["rain"]["1h"].as<float>();
     if (rain1h <= 0.0f) rain1h = js["rain"]["3h"].as<float>();
-
     if (rain1h > 0.0f) {
       lastRainAmount = rain1h;
       rainActive     = true;
@@ -772,10 +774,9 @@ bool checkWindRain() {
       return false;
     }
   }
-  // no rain blocking
   rainActive = false;
 
-  // 2) Wind check (unchanged)
+  // 2) Wind check
   if (windDelayEnabled && js.containsKey("wind")) {
     float windSpd = js["wind"]["speed"].as<float>();
     if (windSpd >= windSpeedThreshold) {
@@ -1273,21 +1274,12 @@ void handleSubmit() {
     enableStartTime2[z] = server.hasArg("enableStartTime2"+String(z));
   }
 
-  // Config fields?
-  if (server.hasArg("apiKey"))    apiKey            = server.arg("apiKey");
-  if (server.hasArg("city"))      city              = server.arg("city");
-  if (server.hasArg("dstOffset")) tzOffsetHours     = server.arg("dstOffset").toFloat();
-  rainDelayEnabled  = server.hasArg("rainDelay");
-  windDelayEnabled  = server.hasArg("windCancelEnabled");
-  if (server.hasArg("windSpeedThreshold"))
-    windSpeedThreshold = server.arg("windSpeedThreshold").toFloat();
-
   saveSchedule();
-  updateCachedWeather();
-
+  updateCachedWeather();  // (optional, to prime the cache)
   server.sendHeader("Location", "/", true);
   server.send(302, "text/plain", "");
 }
+
 
 void handleSetupPage() {
   String html = "";
@@ -1538,3 +1530,5 @@ void handleConfigure() {
   // 5) Then reboot
   ESP.restart();
 }
+
+
