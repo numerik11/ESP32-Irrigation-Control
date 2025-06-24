@@ -267,6 +267,19 @@ void loop() {
     checkI2CHealth();
   }
 
+   // — Immediately stop all running zones if rainDelay is active —
+  if (rainActive) {
+    for (int z = 0; z < Zone; ++z) {
+      if (zoneActive[z]) {
+        turnOffZone(z);
+        Serial.printf("Zone %d forcibly stopped due to rain\n", z+1);
+      }
+    }
+    // Skip scheduling logic until rain clears
+    delay(1000);
+    return;
+  }
+
   // Midnight reset of minute‑checks
   time_t nowTime = time(nullptr);
   struct tm* nowTm = localtime(&nowTime);
@@ -765,15 +778,11 @@ bool checkWindRain() {
 
   // 1) Rain check
   if (rainDelayEnabled && js.containsKey("rain")) {
-    float rain1h = js["rain"]["1h"].as<float>();
-    if (rain1h <= 0.0f) rain1h = js["rain"]["3h"].as<float>();
-    if (rain1h > 0.0f) {
-      lastRainAmount = rain1h;
-      rainActive     = true;
-      Serial.printf("Rain-delay active (%.2f mm)\n", rain1h);
-      return false;
+  rainActive = true;
+  Serial.println("Rain-delay active");
+  return false;
     }
-  }
+
   rainActive = false;
 
   // 2) Wind check
@@ -907,6 +916,7 @@ void handleTankCalibration() {
 void turnOnZone(int z) {
   zoneStartMs[z] = millis();
   zoneActive[z] = true;
+  checkWindRain(); 
 
   if (useGpioFallback) {
     digitalWrite(zonePins[z], LOW); // ON (active LOW)
@@ -990,11 +1000,17 @@ void turnOffZone(int z) {
 }
 
 void turnOnValveManual(int z) {
+  checkWindRain();
+  if (rainActive) {
+    Serial.printf("Manual start of Zone %d blocked by rain delay\n", z+1);
+    return;
+  }
+
   if (!zoneActive[z]) {
     zoneStartMs[z] = millis();
     zoneActive[z]  = true;
 
-    if (useGpioFallback) {
+   if (useGpioFallback) {
       digitalWrite(zonePins[z], LOW);
       // replicate source logic from turnOnZone
       if (justUseTank) {
@@ -1280,7 +1296,6 @@ void handleSubmit() {
   server.send(302, "text/plain", "");
 }
 
-
 void handleSetupPage() {
   String html = "";
 
@@ -1529,6 +1544,9 @@ void handleConfigure() {
 
   // 5) Then reboot
   ESP.restart();
+}
+
+
 }
 
 
