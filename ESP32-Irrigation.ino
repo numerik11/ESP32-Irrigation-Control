@@ -413,10 +413,10 @@ void initGpioFallback() {
   useGpioFallback = true;
   for (uint8_t i = 0; i < Zone; i++) {
     pinMode(zonePins[i], OUTPUT);
-    digitalWrite(zonePins[i], HIGH);
+    digitalWrite(zonePins[i], LOW);
   }
-  pinMode(mainsPin, OUTPUT);  digitalWrite(mainsPin, HIGH);
-  pinMode(tankPin, OUTPUT);   digitalWrite(tankPin, HIGH);
+  pinMode(mainsPin, OUTPUT);  digitalWrite(mainsPin, LOW);
+  pinMode(tankPin, OUTPUT);   digitalWrite(tankPin, LOW);
 }
 
 void printCurrentTime() {
