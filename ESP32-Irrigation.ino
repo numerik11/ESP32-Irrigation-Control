@@ -1317,11 +1317,6 @@ void handleRoot() {
             "</div>";
   html += "</div>";
 
-  // ===== Backlight Button =====
-  html += "<div style='text-align:center; margin:20px 0 0 0;'>"
-          "<button type='button' id='toggle-backlight-btn'>Toggle Backlight</button>"
-          "</div>";
-
   // ===== Scripts =====
   html += "<script>"
          "function updateClockAndDate(){"
@@ -1437,7 +1432,10 @@ void handleRoot() {
   }
   html += "</div>"; // end .zones-wrapper
   html += "<button type='submit'>Update Schedule</button>";
-  html += "</form>";
+  html += "</form>";   
+  html += "<div style='text-align:center; margin:20px 0 0 0;'>"
+        "<button type='button' id='toggle-backlight-btn'>Toggle LCD Backlight</button>"
+        "</div>";
 
   // ===== Footer Links =====
   html += "<div style='text-align:center; margin:22px 0 0 0;'>";
