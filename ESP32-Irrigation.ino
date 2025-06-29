@@ -304,7 +304,7 @@ void loop() {
   if (!checkWindRain()) {
     pendingStart[z] = true;
     // record rain‐delay event for this zone
-    logEvent(z, "RAIN_DELAY", "N/A", true);
+    logEvent(z, "RAIN DELAY", "N/A", true);
     continue;
       }
       if (isTankLow()) {
@@ -584,7 +584,7 @@ void logEvent(int zone, const char* eventType, const char* source, bool rainDela
     zone + 1,
     eventType,
     source,
-    rainDelayed ? "Y" : "N",
+    rainDelayed ? "Active" : "Disabled",
     temp,
     hum,
     wind,
@@ -1091,18 +1091,19 @@ void handleRoot() {
   String weatherData = cachedWeatherData;
   DynamicJsonDocument jsonResponse(1024);
   deserializeJson(jsonResponse, weatherData);
-  float temp     = jsonResponse["main"]["temp"];
-  float hum      = jsonResponse["main"]["humidity"];
-  float ws       = jsonResponse["wind"]["speed"];
-  String cond    = jsonResponse["weather"][0]["main"];
-  String cityName= jsonResponse["name"];
+  float temp      = jsonResponse["main"]["temp"];
+  float hum       = jsonResponse["main"]["humidity"];
+  float ws        = jsonResponse["wind"]["speed"];
+  String cond     = jsonResponse["weather"][0]["main"];
+  String cityName = jsonResponse["name"];
 
   // --- Tank sensor ---
   int tankRaw = analogRead(TANK_PIN);
   int tankPct = map(tankRaw, 0, 1023, 0, 100);
   bool tankLow = tankRaw < 250;
-  String tankStatusStr = tankLow ? "<span class='tank-status-low'>Low — Using Main</span>" 
-                                 : "<span class='tank-status-normal'>Normal — Using Tank</span>";
+  String tankStatusStr = tankLow
+    ? "<span class='tank-status-low'>Low — Using Main</span>"
+    : "<span class='tank-status-normal'>Normal — Using Tank</span>";
 
   // --- Build HTML ---
   String html = "<!DOCTYPE html><html lang='en'><head>";
@@ -1114,175 +1115,39 @@ void handleRoot() {
   // ===== Modernized CSS =====
   html += "<style>";
   html += R"rawliteral(
-    body {
-      font-family: 'Roboto', sans-serif; 
-      background: linear-gradient(135deg, #eaf6fb 0%, #d8ecff 100%);
-      margin: 0; padding: 0; min-height: 100vh;
-    }
-    header {
-      background: linear-gradient(90deg, #0059b2 0%, #48c6ef 100%);
-      color: #fff; 
-      padding: 24px 0 18px; 
-      text-align: center; 
-      box-shadow: 0 2px 10px rgba(0,60,120,0.08);
-      letter-spacing: 0.5px;
-      font-size: 1.8em;
-      border-bottom-left-radius: 18px;
-      border-bottom-right-radius: 18px;
-    }
-    .container {
-      max-width: 930px; 
-      margin: 36px auto 24px; 
-      background: #fff; 
-      border-radius: 18px; 
-      box-shadow: 0 6px 32px rgba(0,0,0,0.08); 
-      padding: 34px 30px 24px 30px;
-      min-height: 60vh;
-    }
-    .summary-row {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      margin-bottom: 18px;
-      gap: 12px;
-      border-bottom: 1px solid #e2e6ea;
-      padding-bottom: 18px;
-    }
-    .summary-block {
-      background: #f2f7fb;
-      border-radius: 10px;
-      flex: 1 1 170px;
-      margin: 0 6px;
-      text-align: center;
-      padding: 12px 0;
-      min-width: 150px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.04);
-      font-size: 1.06em;
-    }
-    .zones-wrapper {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 22px;
-      margin: 28px 0 24px 0;
-    }
-    .zone-container {
-      background: #eaf6fb;
-      border: 1.8px solid #b7e1fa;
-      border-radius: 15px;
-      box-shadow: 0 2px 16px rgba(120,180,240,0.09);
-      padding: 20px 16px 16px 16px;
-      transition: box-shadow .2s;
-      display: flex;
-      flex-direction: column;
-      min-width: 240px;
-    }
-    .zone-container strong {
-      color: #137fff;
-      font-size: 1.09em;
-    }
+    body { font-family: 'Roboto', sans-serif; background: linear-gradient(135deg, #eaf6fb 0%, #d8ecff 100%); margin: 0; padding: 0; min-height: 100vh; }
+    header { background: linear-gradient(90deg, #0059b2 0%, #48c6ef 100%); color: #fff; padding: 24px 0 18px; text-align: center; box-shadow: 0 2px 10px rgba(0,60,120,0.08); letter-spacing: 0.5px; font-size: 1.8em; border-bottom-left-radius: 18px; border-bottom-right-radius: 18px; }
+    .container { max-width: 930px; margin: 36px auto 24px; background: #fff; border-radius: 18px; box-shadow: 0 6px 32px rgba(0,0,0,0.08); padding: 34px 30px 24px 30px; min-height: 60vh; }
+    .summary-row { display: flex; flex-wrap: wrap; justify-content: space-between; margin-bottom: 18px; gap: 12px; border-bottom: 1px solid #e2e6ea; padding-bottom: 18px; }
+    .summary-block { background: #f2f7fb; border-radius: 10px; flex: 1 1 170px; margin: 0 6px; text-align: center; padding: 12px 0; min-width: 150px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); font-size: 1.06em; }
+    .zones-wrapper { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 22px; margin: 28px 0 24px 0; }
+    .zone-container { background: #eaf6fb; border: 1.8px solid #b7e1fa; border-radius: 15px; box-shadow: 0 2px 16px rgba(120,180,240,0.09); padding: 20px 16px 16px 16px; transition: box-shadow .2s; display: flex; flex-direction: column; min-width: 240px; }
+    .zone-container strong { color: #137fff; font-size: 1.09em; }
     .zone-status-on { color: #43a047; font-weight: 500; }
     .zone-status-off { color: #888; font-weight: 400; }
-    .days-container {
-      display: flex; 
-      flex-wrap: wrap; 
-      justify-content: center; 
-      margin: 0 0 10px 0;
-      gap: 2px;
-    }
-    .checkbox-container {
-      margin: 3px 6px;
-    }
-    .checkbox-container input[type=checkbox] {
-      accent-color: #0d84c6;
-      width: 16px; height: 16px;
-    }
-    .time-duration-container {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      margin-bottom: 10px;
-      gap: 10px;
-    }
-    .time-input, .duration-input {
-      margin: 4px 10px 8px 0;
-      display: flex; 
-      flex-direction: column;
-    }
-    .time-input label, .duration-input label, .enable-input label {
-      font-size: 0.92em;
-      margin-bottom: 2px;
-    }
-    input[type='number'] {
-      padding: 6px 8px; 
-      border: 1.2px solid #b5d0ed; 
-      border-radius: 5px; 
-      font-size: 1.02em;
-      background: #f5fcff;
-      width: 64px;
-      margin-bottom: 3px;
-    }
-    .enable-input {
-      margin: 6px 0 8px 0;
-      font-size: 0.95em;
-      display: flex; align-items: center;
-      gap: 5px;
-    }
-    .manual-control-container {
-      text-align: center; 
-      margin: 16px 0 0 0;
-      display: flex;
-      gap: 9px;
-      justify-content: center;
-    }
-    .turn-on-btn, .turn-off-btn {
-      padding: 8px 20px; 
-      border: none; 
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 1em;
-      transition: background .18s, filter .18s;
-      margin: 0 2px;
-      box-shadow: 0 2px 10px rgba(80,160,255,0.06);
-    }
+    .days-container { display: flex; flex-wrap: wrap; justify-content: center; margin: 0 0 10px 0; gap: 2px; }
+    .checkbox-container { margin: 3px 6px; }
+    .checkbox-container input[type=checkbox] { accent-color: #0d84c6; width: 16px; height: 16px; }
+    .time-duration-container { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 10px; gap: 10px; }
+    .time-input, .duration-input { margin: 4px 10px 8px 0; display: flex; flex-direction: column; }
+    .time-input label, .duration-input label, .enable-input label { font-size: 0.92em; margin-bottom: 2px; }
+    input[type='number'] { padding: 6px 8px; border: 1.2px solid #b5d0ed; border-radius: 5px; font-size: 1.02em; background: #f5fcff; width: 64px; margin-bottom: 3px; }
+    .enable-input { margin: 6px 0 8px 0; font-size: 0.95em; display: flex; align-items: center; gap: 5px; }
+    .manual-control-container { text-align: center; margin: 16px 0 0 0; display: flex; gap: 9px; justify-content: center; }
+    .turn-on-btn, .turn-off-btn { padding: 8px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 1em; transition: background .18s, filter .18s; margin: 0 2px; box-shadow: 0 2px 10px rgba(80,160,255,0.06); }
     .turn-on-btn { background: #43a047; color: #fff; }
     .turn-on-btn:hover { background: #3a9243; filter: brightness(1.08);}
     .turn-off-btn { background: #e53935; color: #fff; }
     .turn-off-btn:hover { background: #a82121; }
-    button[type='submit'] {
-      background: #1976d2; color: #fff; 
-      padding: 12px 36px; 
-      border-radius: 24px; 
-      font-size: 1.08em;
-      font-weight: 500;
-      margin: 20px auto 10px auto;
-      display: block;
-      box-shadow: 0 2px 8px rgba(50,110,220,0.06);
-      transition: background .2s;
-    }
+    button[type='submit'] { background: #1976d2; color: #fff; padding: 12px 36px; border-radius: 24px; font-size: 1.08em; font-weight: 500; margin: 20px auto 10px auto; display: block; box-shadow: 0 2px 8px rgba(50,110,220,0.06); transition: background .2s; }
     button[type='submit']:hover { background: #1250ad; }
     a { color: #1976d2; text-decoration: none; }
     a:hover { text-decoration: underline; }
-    /* Tank progress bar */
-    #tankLevel {
-      width: 180px;
-      height: 14px;
-      accent-color: #21b6fc;
-      border-radius: 8px;
-      margin: 0 7px -3px 7px;
-      background: #e1f5fe;
-    }
-    .tank-row {
-      display: flex; align-items: center; justify-content: center;
-      gap: 12px; margin: 8px 0 0 0;
-      font-size: 1.07em;
-    }
+    #tankLevel { width: 180px; height: 14px; accent-color: #21b6fc; border-radius: 8px; margin: 0 7px -3px 7px; background: #e1f5fe; }
+    .tank-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 8px 0 0 0; font-size: 1.07em; }
     .tank-status-low { color: #e53935; font-weight: 600; }
     .tank-status-normal { color: #388e3c; }
-    @media (max-width: 700px) {
-      .container { padding: 13px 2vw 11px 2vw; }
-      .zones-wrapper { grid-template-columns: 1fr; }
-      .summary-row { flex-direction: column; gap: 7px; }
-    }
+    @media (max-width: 700px) { .container { padding: 13px 2vw 11px 2vw; } .zones-wrapper { grid-template-columns: 1fr; } .summary-row { flex-direction: column; gap: 7px; } }
   )rawliteral";
   html += "</style>";
 
@@ -1304,7 +1169,7 @@ void handleRoot() {
 
   // ===== Summary Row =====
   html += "<div class='summary-row'>";
-   html += "<div class='summary-block'><span title='Location'>📍</span><br>" + cityName + "</div>";
+  html += "<div class='summary-block'><span title='Location'>📍</span><br>" + cityName + "</div>";
   html += "<div class='summary-block'><span title='Weather'>🌤</span><br><span id='weather-condition'>" + cond + "</span></div>";
   html += "<div class='summary-block'><span title='Temp'>🌡</span><br><span id='temperature'>" + String(temp,1) + " ℃</span></div>";
   html += "<div class='summary-block'><span title='Humidity'>💧</span><br><span id='humidity'>" + String((int)hum) + " %</span></div>";
@@ -1318,64 +1183,66 @@ void handleRoot() {
   html += "</div>";
 
   // ===== Scripts =====
-  html += "<script>"
-         "function updateClockAndDate(){"
-           "const now=new Date();"
-           "const h=now.getHours().toString().padStart(2,'0');"
-           "const m=now.getMinutes().toString().padStart(2,'0');"
-           "const s=now.getSeconds().toString().padStart(2,'0');"
-           "document.getElementById('clock').textContent=h+':'+m+':'+s;"
-           // Date rollover
-           "const d=now.getDate().toString().padStart(2,'0');"
-           "const mo=(now.getMonth()+1).toString().padStart(2,'0');"
-           "const y=now.getFullYear();"
-           "document.getElementById('date').textContent=d+'/'+mo+'/'+y;"
-         "}"
-         "setInterval(updateClockAndDate,1000);"
-             // Weather
-             "function fetchWeatherData(){"
-               "fetch('/weather-data').then(r=>r.json()).then(d=>{"
-                 "document.getElementById('weather-condition').textContent=d.condition;"
-                 "document.getElementById('temperature').textContent=d.temp+' °C';"
-                 "document.getElementById('humidity').textContent=d.humidity+' %';"
-                 "document.getElementById('wind-speed').textContent=d.windSpeed+' m/s';"
-               "}).catch(console.error);"
-             "}"
-             "setInterval(fetchWeatherData,60000);"
-             // Backlight
-             "document.getElementById('toggle-backlight-btn').addEventListener('click',()=>{"
-               "fetch('/toggleBacklight',{method:'POST'}).then(r=>r.text()).then(alert).catch(console.error);"
-             "});"
-             // Manual on/off
-             "document.addEventListener('DOMContentLoaded',()=>{"
-               "document.querySelectorAll('.turn-on-btn').forEach(btn=>{"
-                 "btn.addEventListener('click',()=>{"
-                   "const z=btn.dataset.zone;"
-                   "fetch('/valve/on/'+z,{method:'POST'})"
-                     ".then(()=>{ btn.disabled=true;"
-                                "document.querySelector('.turn-off-btn[data-zone=\"'+z+'\"').disabled=false; })"
-                     ".catch(console.error);"
-                 "});"
-               "});"
-               "document.querySelectorAll('.turn-off-btn').forEach(btn=>{"
-                 "btn.addEventListener('click',()=>{"
-                   "const z=btn.dataset.zone;"
-                   "fetch('/valve/off/'+z,{method:'POST'})"
-                     ".then(()=>{ btn.disabled=true;"
-                                "document.querySelector('.turn-on-btn[data-zone=\"'+z+'\"').disabled=false; })"
-                     ".catch(console.error);"
-                 "});"
-               "});"
-             "});"
-           "</script>";
+ html += "<script>"
+ // 1) Clock updater
+     "function updateClockAndDate(){"
+       "const now=new Date();"
+       "const h=now.getHours().toString().padStart(2,'0');"
+       "const m=now.getMinutes().toString().padStart(2,'0');"
+       "const s=now.getSeconds().toString().padStart(2,'0');"
+       "document.getElementById('clock').textContent=h+':'+m+':'+s;"
+       "const d=now.getDate().toString().padStart(2,'0');"
+       "const mo=(now.getMonth()+1).toString().padStart(2,'0');"
+       "const y=now.getFullYear();"
+       "document.getElementById('date').textContent=d+'/'+mo+'/'+y;"
+     "}"
+     "setInterval(updateClockAndDate,1000);"
+
+ // 2) Weather refresher
+     "function fetchWeatherData(){"
+       "fetch('/weather-data').then(r=>r.json()).then(d=>{"
+         "document.getElementById('weather-condition').textContent=d.condition;"
+         "document.getElementById('temperature').textContent=d.temp+' °C';"
+         "document.getElementById('humidity').textContent=d.humidity+' %';"
+         "document.getElementById('wind-speed').textContent=d.windSpeed+' m/s';"
+       "}).catch(console.error);"
+     "}"
+     "setInterval(fetchWeatherData,60000);"
+
+ // 3) All button wiring once DOM is ready
+     "document.addEventListener('DOMContentLoaded',()=>{"
+       // backlight toggle
+       "const tb=document.getElementById('toggle-backlight-btn');"
+       "if(tb){"
+         "tb.addEventListener('click',()=>{"
+           "fetch('/toggleBacklight',{method:'POST'})"
+             ".then(r=>r.text()).then(alert).catch(console.error);"
+         "});"
+       "}"
+       // manual on buttons
+       "document.querySelectorAll('.turn-on-btn').forEach(btn=>{"
+         "btn.addEventListener('click',()=>{"
+           "const z=btn.dataset.zone;"
+           "fetch('/valve/on/'+z,{method:'POST'})"
+             ".then(()=>location.reload()).catch(console.error);"
+         "});"
+       "});"
+       // manual off buttons
+       "document.querySelectorAll('.turn-off-btn').forEach(btn=>{"
+         "btn.addEventListener('click',()=>{"
+           "const z=btn.dataset.zone;"
+           "fetch('/valve/off/'+z,{method:'POST'})"
+             ".then(()=>location.reload()).catch(console.error);"
+         "});"
+       "});"
+     "});"
+     "</script>";
 
   // ===== Zones Form =====
   html += "<form action='/submit' method='POST'>";
   html += "<div class='zones-wrapper'>";
   for (int zone = 0; zone < Zone; zone++) {
     html += "<div class='zone-container'>";
-
-    // Zone header + status
     html += "<p><strong>Zone " + String(zone + 1) + ":</strong></p>";
     html += "<p>Status: <span class='" + String(zoneActive[zone] ? "zone-status-on" : "zone-status-off") + "'>" +
               String(zoneActive[zone] ? "Running" : "Off") + "</span></p>";
@@ -1394,19 +1261,16 @@ void handleRoot() {
 
     // Start times (1 & 2) + enable below Start 2
     html += "<div class='time-duration-container' style='flex-direction:column; align-items:flex-start;'>";
-    // Start 1
     html += "<div class='time-input'>"
               "<label for='startHour" + String(zone) + "'>Start Time 1:</label>"
               "<input type='number' name='startHour" + String(zone) + "' min='0' max='23' value='" + String(startHour[zone]) + "' required>"
               "<input type='number' name='startMin"  + String(zone) + "' min='0' max='59' value='" + String(startMin[zone])  + "' required>"
             "</div>";
-    // Start 2
     html += "<div class='time-input'>"
               "<label for='startHour2" + String(zone) + "'>Start Time 2:</label>"
               "<input type='number' name='startHour2" + String(zone) + "' min='0' max='23' value='" + String(startHour2[zone]) + "'>"
               "<input type='number' name='startMin2"  + String(zone) + "' min='0' max='59' value='" + String(startMin2[zone])  + "'>"
             "</div>";
-    // Enable Start 2
     html += "<div class='enable-input'>"
               "<input type='checkbox' id='enableStartTime2" + String(zone) + "' name='enableStartTime2" + String(zone) + "'" +
                 (enableStartTime2[zone] ? " checked" : "") + "> "
@@ -1422,17 +1286,24 @@ void handleRoot() {
             "</div>"
           "</div>";
 
-    // Manual On/Off controls with icons
-    html += "<div class='manual-control-container'>"
-            "<button type='button' class='turn-on-btn'  data-zone='" + String(zone) + "'>▶️ On</button>"
-            "<button type='button' class='turn-off-btn' data-zone='" + String(zone) + "' disabled>⏹ Off</button>"
-            "</div>";
+    // Manual On/Off controls with correct state
+    html += "<div class='manual-control-container'>";
+    if (zoneActive[zone]) {
+      html += "<button type='button' class='turn-on-btn'  data-zone='" + String(zone) + "' disabled>▶️ On</button>";
+      html += "<button type='button' class='turn-off-btn' data-zone='" + String(zone) + "'>⏹ Off</button>";
+    } else {
+      html += "<button type='button' class='turn-on-btn'  data-zone='" + String(zone) + "'>▶️ On</button>";
+      html += "<button type='button' class='turn-off-btn' data-zone='" + String(zone) + "' disabled>⏹ Off</button>";
+    }
+    html += "</div>";  // close .manual-control-container
 
     html += "</div>";  // close .zone-container
   }
   html += "</div>"; // end .zones-wrapper
   html += "<button type='submit'>Update Schedule</button>";
-  html += "</form>";   
+  html += "</form>";
+
+  // LCD Backlight toggle button, after the form
   html += "<div style='text-align:center; margin:20px 0 0 0;'>"
         "<button type='button' id='toggle-backlight-btn'>Toggle LCD Backlight</button>"
         "</div>";
