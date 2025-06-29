@@ -65,6 +65,7 @@ bool   days[Zone][7]    = {{false}};
 bool   zoneActive[Zone]         = {false};
 bool   pendingStart[Zone] = { false };
 bool   rainActive     = false;
+bool   windActive = false;   // ← new
 float  tzOffsetHours      = 0.0;
 float  windSpeedThreshold = 5.0f;
 float  lastRainAmount = 0.0f;
@@ -74,7 +75,6 @@ int    startHour2[Zone]  = {0};
 int    startMin2 [Zone]  = {0};
 int    durationMin[Zone] = {0};
 int    durationSec[Zone] = {0};   // ← new: seconds for each zone
-
 int    lastCheckedMinute[Zone] = { -1, -1, -1, -1 };
 int    tankEmptyRaw = 100;
 int    tankFullRaw  = 900;
@@ -220,6 +220,28 @@ void setup() {
   server.on("/events", HTTP_GET, handleLogPage);
   server.on("/clearevents", HTTP_POST, handleClearEvents);
   server.on("/tank", HTTP_GET, handleTankCalibration);
+  server.on("/status", HTTP_GET, [](){
+  DynamicJsonDocument doc(256);
+  doc["rainDelayActive"] = rainActive;
+  doc["windDelayActive"] = windActive;     // ← new
+
+  JsonArray zones = doc.createNestedArray("zones");
+  for (int i = 0; i < Zone; i++) {
+    JsonObject z = zones.createNestedObject();
+    z["active"]    = zoneActive[i];
+    unsigned long rem = 0;
+    if (zoneActive[i]) {
+      unsigned long elapsed = (millis() - zoneStartMs[i]) / 1000;
+      unsigned long total   = (unsigned long)durationMin[i]*60 + durationSec[i];
+      rem = (elapsed < total ? total - elapsed : 0);
+    }
+    z["remaining"] = rem;
+  }
+
+  String out;
+  serializeJson(doc, out);
+  server.send(200, "application/json", out);
+  });
 
   server.on("/setTankEmpty", HTTP_POST, [](){
   tankEmptyRaw = analogRead(TANK_PIN);
@@ -269,17 +291,18 @@ void loop() {
     checkI2CHealth();
   }
 
-   // — Immediately stop all running zones if rainDelay is active —
-  if (rainActive) {
-    for (int z = 0; z < Zone; ++z) {
-      if (zoneActive[z]) {
-        turnOffZone(z);
-        Serial.printf("Zone %d forcibly stopped due to rain\n", z+1);
-      }
+  if (rainActive || windActive) {
+  for (int z = 0; z < Zone; ++z) {
+    if (zoneActive[z]) {
+      turnOffZone(z);
+      Serial.printf("Zone %d forcibly stopped due to %s\n",
+                    z+1,
+                    rainActive ? "rain" : "wind");
     }
-    // Skip scheduling logic until rain clears
-    delay(1000);
-    return;
+  }
+  // Skip scheduling logic until clear
+  delay(1000);
+  return;
   }
 
   // Midnight reset of minute‑checks
@@ -593,7 +616,7 @@ void logEvent(int zone, const char* eventType, const char* source, bool rainDela
     zone + 1,
     eventType,
     source,
-    rainDelayed ? "Active" : "Disabled",
+    rainDelayed ? "Active" : "Off",
     temp,
     hum,
     wind,
@@ -792,34 +815,32 @@ void showZoneDisplay(int zone) {
 }
 
 bool checkWindRain() {
-  
-    updateCachedWeather();
+  updateCachedWeather();
 
   DynamicJsonDocument js(1024);
   if (deserializeJson(js, cachedWeatherData)) {
-    Serial.println("weather parse error – allowing irrigation");
     rainActive = false;
+    windActive = false;
     return true;
   }
 
   // 1) Rain check
   if (rainDelayEnabled && js.containsKey("rain")) {
-  rainActive = true;
-  Serial.println("Rain-delay active");
-  return false;
-    }
-
+    rainActive = true;
+    Serial.println("Rain-delay active");
+    return false;
+  }
   rainActive = false;
 
   // 2) Wind check
   if (windDelayEnabled && js.containsKey("wind")) {
     float windSpd = js["wind"]["speed"].as<float>();
     if (windSpd >= windSpeedThreshold) {
-      Serial.printf("Skipping due to high wind: %.2f m/s\n", windSpd);
+      windActive = true;
+      Serial.printf("Wind-delay active (%.2f m/s)\n", windSpd);
       return false;
     }
   }
-
   return true;
 }
 
@@ -942,13 +963,32 @@ void handleTankCalibration() {
 }
 
 void turnOnZone(int z) {
-  zoneStartMs[z] = millis();
-  zoneActive[z] = true;
-  checkWindRain(); 
+  // 1) Refresh rain/wind flags immediately
+  checkWindRain();
 
+  // 2) If rain‐delay is active, queue and abort
+  if (rainActive) {
+    pendingStart[z] = true;
+    logEvent(z, "RAIN DELAY", "N/A", true);
+    Serial.printf("Zone %d delayed by rain\n", z + 1);
+    return;
+  }
+
+  // 3) If wind‐delay is active, queue and abort
+  if (windActive) {
+    pendingStart[z] = true;
+    logEvent(z, "WIND DELAY", "N/A", false);
+    Serial.printf("Zone %d delayed by wind\n", z + 1);
+    return;
+  }
+
+  // 4) No delays → actually start
+  zoneStartMs[z] = millis();
+  zoneActive[z]  = true;
+
+  // 5) Open valve and select source
   if (useGpioFallback) {
-    digitalWrite(zonePins[z], LOW); // ON (active LOW)
-    // Source selection logic
+    digitalWrite(zonePins[z], LOW);
     if (justUseTank) {
       digitalWrite(mainsPin, HIGH);
       digitalWrite(tankPin, LOW);
@@ -963,9 +1003,7 @@ void turnOnZone(int z) {
       digitalWrite(tankPin, LOW);
     }
   } else {
-    // PCF8574 active-low outputs
     pcfOut.digitalWrite(valveChannel[z], LOW);
-    // Source selection
     if (justUseTank) {
       pcfOut.digitalWrite(mainsChannel, HIGH);
       pcfOut.digitalWrite(tankChannel, LOW);
@@ -981,47 +1019,59 @@ void turnOnZone(int z) {
     }
   }
 
-  // Determine actual source
+  // 6) Log the START event
   const char* src = justUseTank   ? "Tank"
                      : justUseMains ? "Mains"
                      : isTankLow()   ? "Mains"
                                     : "Tank";
+  logEvent(z, "START", src, false);
+  Serial.printf("Zone %d activated\n", z + 1);
 
-  logEvent(z, "START", src, rainActive);
-  Serial.printf("Zone %d activated\n", z+1);
-
+  // 7) OLED confirmation then back to Home
   display.clearDisplay();
-  display.setCursor(3,0);
-  display.print("Zone "); display.print(z+1); display.print(" ON");
+  display.setCursor(3, 0);
+  display.print("Zone "); display.print(z + 1); display.print(" ON");
   display.display();
   delay(1500);
   HomeScreen();
 }
 
 void turnOffZone(int z) {
-    const char* src = justUseTank   ? "Tank"
-                     : justUseMains ? "Mains"
-                     : isTankLow()   ? "Mains"
-                                    : "Tank";
+  // 1) Figure out the water source as before
+  const char* src = justUseTank   ? "Tank"
+                   : justUseMains ? "Mains"
+                   : isTankLow()   ? "Mains"
+                                  : "Tank";
 
-  logEvent(z, "STOP", src, rainActive);
-  Serial.printf("Zone %d deactivated\n", z+1);
+  // 2) Detect if this stop was caused by a delay (rain or wind)
+  bool wasDelayed = rainActive || windActive;
 
+  // 3) Log STOP, passing wasDelayed as the 'rainDelayed' field
+  logEvent(z, "RainDelayOn", src, wasDelayed);
+
+  // 4) Print a clearer Serial message
+  if      (rainActive) Serial.printf("Zone %d stopped due to rain\n", z+1);
+  else if (windActive) Serial.printf("Zone %d stopped due to wind\n", z+1);
+  else                 Serial.printf("Zone %d deactivated\n", z+1);
+
+  // 5) Physically turn everything off
   if (useGpioFallback) {
     digitalWrite(zonePins[z], HIGH);
-    digitalWrite(mainsPin, HIGH);
-    digitalWrite(tankPin, HIGH);
+    digitalWrite(mainsPin,   HIGH);
+    digitalWrite(tankPin,    HIGH);
   } else {
     pcfOut.digitalWrite(valveChannel[z], HIGH);
-    pcfOut.digitalWrite(mainsChannel, HIGH);
-    pcfOut.digitalWrite(tankChannel, HIGH);
+    pcfOut.digitalWrite(mainsChannel,    HIGH);
+    pcfOut.digitalWrite(tankChannel,     HIGH);
   }
 
   zoneActive[z] = false;
 
+  // 6) Optional OLED feedback
   display.clearDisplay();
   display.setCursor(4,0);
-  display.print("Zone "); display.print(z+1); display.print(" OFF");
+  display.print("Zone "); display.print(z+1);
+  display.print(wasDelayed ? " STOP" : " OFF");
   display.display();
   delay(1500);
 }
@@ -1177,22 +1227,30 @@ void handleRoot() {
   html +=   "</span>";
   html += "</header>";
 
+    // ← NEW: Rain-Delay status
+  html += "<div class='summary-block'><span title='Rain Delay'>🌧</span><br>" 
+           + String(rainActive ? "Active" : "Off") + "</div>";
+
+  // ← NEW: Wind-Delay status
+  html += "<div class='summary-block'><span title='Wind Delay'>💨</span><br>" 
+           + String(windActive ? "Active" : "Off") + "</div>";
+  html += "</div>";  // end .summary-row
+
   html += "<div class='container'>";
 
-  // ===== Summary Row =====
-  html += "<div class='summary-row'>";
-  html += "<div class='summary-block'><span title='Location'>📍</span><br>" + cityName + "</div>";
-  html += "<div class='summary-block'><span title='Weather'>🌤</span><br><span id='weather-condition'>" + cond + "</span></div>";
-  html += "<div class='summary-block'><span title='Temp'>🌡</span><br><span id='temperature'>" + String(temp,1) + " ℃</span></div>";
-  html += "<div class='summary-block'><span title='Humidity'>💧</span><br><span id='humidity'>" + String((int)hum) + " %</span></div>";
-  html += "<div class='summary-block'><span title='Wind'>🌬</span><br><span id='wind-speed'>" + String(ws,1) + " m/s</span></div>";
-  html += "<div class='summary-block tank-row'>"
-              "<span title='Tank Level'>🚰</span>"
-              "<progress id='tankLevel' value='" + String(tankPct) + "' max='100'></progress>"
-              + String(tankPct) + "%<br>"
-              + tankStatusStr +
-            "</div>";
-  html += "</div>";
+  // start summary-row
+  html += "<div class='container'><div class='summary-row'>";
+    // Location
+    html += "<div class='summary-block'>📍<br>" + cityName + "</div>";
+    html += "<div class='summary-block'>🌬<br>" + String(ws,1) + " m/s</div>";   // Condition
+    html += "<div class='summary-block'>🌡<br>" + String(temp,1) + " ℃</div>";
+    html += "<div class='summary-block'>💧<br>" + String(hum) + " %</div>";
+    html += "<div class='summary-block'>🌤<br>" + cond + "</div>";
+    // Tank Level
+    html += "<div class='summary-block tank-row'>🚰<progress value='"
+         + String(tankPct) + "' max='100'></progress>" 
+         + String(tankPct) + "%<br>" + tankStatusStr + "</div>";
+    html += "</div>";  
 
   // ===== Scripts =====
  html += "<script>"
