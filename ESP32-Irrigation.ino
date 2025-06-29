@@ -73,6 +73,8 @@ int    startMin [Zone]   = {0};
 int    startHour2[Zone]  = {0};
 int    startMin2 [Zone]  = {0};
 int    durationMin[Zone] = {0};
+int    durationSec[Zone] = {0};   // ← new: seconds for each zone
+
 int    lastCheckedMinute[Zone] = { -1, -1, -1, -1 };
 int    tankEmptyRaw = 100;
 int    tankFullRaw  = 900;
@@ -510,6 +512,11 @@ void loadSchedule() {
     durationMin[i]   = line.substring(index, nextComma).toInt();
     index            = nextComma + 1;
 
+    //  durationSec:
+    nextComma       = line.indexOf(',', index);
+    durationSec[i]  = line.substring(index, nextComma).toInt();
+    index           = nextComma + 1;
+
     // 6) enableStartTime2
     nextComma            = line.indexOf(',', index);
     enableStartTime2[i]  = (line.substring(index, nextComma).toInt() == 1);
@@ -531,6 +538,7 @@ void loadSchedule() {
       startHour[i],  startMin[i],
       startHour2[i], startMin2[i],
       durationMin[i],
+      durationSec[i],
       days[i][0], days[i][1], days[i][2], days[i][3],
       days[i][4], days[i][5], days[i][6]
     );
@@ -547,6 +555,7 @@ void saveSchedule() {
     f.print(startHour2[i]);  f.print(',');
     f.print(startMin2 [i]);  f.print(',');
     f.print(durationMin[i]); f.print(',');
+    f.print(durationSec[i]); f.print(',');
     f.print(enableStartTime2[i] ? '1' : '0');
     for (int d = 0; d < 7; d++) {
       f.print(',');
@@ -680,7 +689,8 @@ void HomeScreen() {
     if (zoneActive[i]) {
       // compute remaining seconds
       unsigned long elapsed = (millis() - zoneStartMs[i]) / 1000;
-      unsigned long total   = (unsigned long)durationMin[i] * 60;
+      unsigned long total = (unsigned long)durationMin[i] * 60
+                          + (unsigned long)durationSec[i];
       unsigned long rem     = (elapsed < total ? total - elapsed : 0);
 
       int remM = rem / 60;
@@ -866,7 +876,9 @@ bool shouldStartZone(int zone) {
 
 bool hasDurationCompleted(int zone) {
   unsigned long elapsed = (millis() - zoneStartMs[zone]) / 1000;
-  return (elapsed >= (unsigned long)durationMin[zone] * 60);
+  unsigned long total   = (unsigned long)durationMin[zone] * 60
+                         + (unsigned long)durationSec[zone];
+  return (elapsed >= total);
 }
 
 bool isTankLow() {
@@ -1279,13 +1291,19 @@ void handleRoot() {
             "</div>";
     html += "</div>";
 
-    // Duration, below the two start times + enable
-    html += "<div class='time-duration-container' style='justify-content:center;'>"
-            "<div class='duration-input'>"
-              "<label for='duration" + String(zone) + "'>Duration (min):</label>"
-              "<input type='number' name='duration" + String(zone) + "' min='0' value='" + String(durationMin[zone]) + "' required>"
-            "</div>"
-          "</div>";
+    // new (minutes + seconds):
+    html += "<div style='display:flex; align-items:center; justify-content:center; gap:6px;'>"
+        "<div>"
+          "<label>Run Time - Min:</label>"
+          "<input type='number' name='durationMin"  + String(zone) +
+                "' min='0' value='" + String(durationMin[zone]) + "' required>"
+        "</div>"
+        "<div>"
+          "<label>Sec:</label>"
+          "<input type='number' name='durationSec"  + String(zone) +
+                "' min='0' max='59' value='" + String(durationSec[zone]) + "' required>"
+        "</div>"
+      "</div>";
 
     // Manual On/Off controls with correct state
     html += "<div class='manual-control-container'>";
@@ -1323,6 +1341,146 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
+void handleSubmit() {
+  for (int z = 0; z < Zone; z++) {
+    for (int d = 0; d < 7; d++) {
+      days[z][d] = server.hasArg("day" + String(z) + "_" + String(d));
+    }
+    if (server.hasArg("startHour"+String(z)))
+      startHour[z] = server.arg("startHour"+String(z)).toInt();
+    if (server.hasArg("startMin"+String(z)))
+      startMin[z]  = server.arg("startMin"+String(z)).toInt();
+
+    if (server.hasArg("startHour2"+String(z)))
+      startHour2[z] = server.arg("startHour2"+String(z)).toInt();
+    if (server.hasArg("startMin2"+String(z)))
+      startMin2[z]  = server.arg("startMin2"+String(z)).toInt();
+
+    if (server.hasArg("durationMin"+String(z)))
+  durationMin[z] = server.arg("durationMin"+String(z)).toInt();
+    
+    if (server.hasArg("durationSec"+String(z)))
+  durationSec[z] = server.arg("durationSec"+String(z)).toInt();
+
+    enableStartTime2[z] = server.hasArg("enableStartTime2"+String(z));
+  }
+
+  saveSchedule();
+  updateCachedWeather();  // (optional, to prime the cache)
+  server.sendHeader("Location", "/", true);
+  server.send(302, "text/plain", "");
+}
+
+void handleSetupPage() {
+  String html = "";
+
+  // — START HTML —
+  html += "<!DOCTYPE html><html lang=\"en\"><head>";
+  html += "<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
+  html += "<title>Setup - Irrigation System</title>";
+  html += "<link href=\"https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap\" rel=\"stylesheet\">";
+  html += "<style>"
+          ":root{--primary:#2E86AB;--primary-light:#379BD5;--bg:#f4f7fa;"
+          "--card-bg:#fff;--text:#333;--accent:#F2994A;}"
+          "body{font-family:'Roboto',sans-serif;background:var(--bg);"
+          "color:var(--text);display:flex;justify-content:center;"
+          "align-items:center;padding:20px;}"
+          ".container{background:var(--card-bg);padding:30px;"
+          "border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.1);"
+          "width:100%;max-width:450px;}"
+          ".container h1{text-align:center;color:var(--primary);"
+          "margin-bottom:20px;}"
+          ".form-group{margin-bottom:15px;}"
+          ".form-group label{display:block;margin-bottom:6px;}"
+          "input[type=text],input[type=number]{padding:10px;"
+          "border:1px solid #ccc;border-radius:6px;}"
+          /* full-width by default */
+          "input.full-width{width:100%;}"
+          /* narrow helpers */
+          ".small-input{width:6ch;}"
+          ".medium-input{width:8ch;}"
+          ".checkbox-group{display:flex;align-items:center;"
+          "margin-bottom:12px;}"
+          ".checkbox-group label{margin-left:8px;}"
+          ".btn{width:100%;padding:12px;background:var(--primary);"
+          "color:#fff;border:none;border-radius:6px;cursor:pointer;"
+          "transition:background .3s;}"
+          ".btn:hover{background:var(--primary-light);}"
+          "</style></head><body>";
+
+  html += "<div class=\"container\"><h1>⚙️ System Setup</h1>";
+  html += "<form action=\"/configure\" method=\"POST\">";
+
+  // API Key (full-width)
+  html += "<div class=\"form-group\"><label for=\"apiKey\">API Key</label>";
+  html += "<input class=\"full-width\" type=\"text\" id=\"apiKey\" name=\"apiKey\" "
+          "value=\"" + apiKey + "\" required></div>";
+
+  // City ID (full-width)
+  html += "<div class=\"form-group\"><label for=\"city\">City ID</label>";
+  html += "<input class=\"full-width\" type=\"text\" id=\"city\" name=\"city\" "
+          "value=\"" + city + "\" required></div>";
+
+  // Timezone Offset (small)
+  html += "<div class=\"form-group\"><label for=\"dstOffset\">Timezone Offset (hrs)</label>";
+  html += "<input class=\"small-input\" type=\"number\" id=\"dstOffset\" name=\"dstOffset\" "
+          "min=\"-12\" max=\"14\" step=\"0.5\" "
+          "value=\"" + String(tzOffsetHours, 1) + "\" required></div>";
+
+  // Wind Speed Threshold (small)
+  html += "<div class=\"form-group\"><label for=\"windSpeedThreshold\">Wind Speed Threshold (m/s)</label>";
+  html += "<input class=\"small-input\" type=\"number\" id=\"windSpeedThreshold\" name=\"windSpeedThreshold\" "
+          "min=\"0\" step=\"0.1\" "
+          "value=\"" + String(windSpeedThreshold, 1) + "\" required></div>";
+
+  // Checkboxes
+  html += "<div class=\"checkbox-group\">"
+          "<input type=\"checkbox\" id=\"windCancelEnabled\" name=\"windCancelEnabled\""
+          + String(windDelayEnabled ? " checked" : "") + ">"
+          "<label for=\"windCancelEnabled\">Enable Wind Delay</label></div>";
+
+  html += "<div class=\"checkbox-group\">"
+          "<input type=\"checkbox\" id=\"rainDelay\" name=\"rainDelay\""
+          + String(rainDelayEnabled ? " checked" : "") + ">"
+          "<label for=\"rainDelay\">Enable Rain Delay</label></div>";
+
+  html += "<div class=\"checkbox-group\">"
+          "<input type=\"checkbox\" id=\"justUseTank\" name=\"justUseTank\""
+          + String(justUseTank ? " checked" : "") + ">"
+          "<label for=\"justUseTank\">Only Use Tank</label></div>";
+
+  html += "<div class=\"checkbox-group\">"
+          "<input type=\"checkbox\" id=\"justUseMains\" name=\"justUseMains\""
+          + String(justUseMains ? " checked" : "") + ">"
+          "<label for=\"justUseMains\">Only Use Mains</label></div>";
+
+  // Zone pin configuration (medium)
+  html += "<div class=\"form-group\"><label>Zone pins (If not using A6) Tank Pin IO36(Default)</label>";
+  for (uint8_t i = 0; i < Zone; i++) {
+    html += "Zone " + String(i+1) + ": "
+         + "<input class=\"medium-input\" type=\"number\" name=\"zonePin" + String(i) + "\" "
+         + "min=\"0\" max=\"39\" value=\"" + String(zonePins[i]) + "\"><br>";
+  }
+  html += "</div>";
+
+  // Mains & Tank pins (medium)
+  html += "<div class=\"form-group\"><label for=\"mainsPin\">Mains-source pin (GPIO)</label>";
+  html += "<input class=\"medium-input\" type=\"number\" id=\"mainsPin\" name=\"mainsPin\" "
+          "min=\"0\" max=\"39\" value=\"" + String(mainsPin) + "\"></div>";
+
+  html += "<div class=\"form-group\"><label for=\"tankPin\">Tank-source pin (GPIO)</label>";
+  html += "<input class=\"medium-input\" type=\"number\" id=\"tankPin\" name=\"tankPin\" "
+          "min=\"0\" max=\"39\" value=\"" + String(tankPin) + "\"></div>";
+
+  // Submit button
+  html += "<button type=\"submit\" class=\"btn\">Save Settings</button>";
+
+  // Close out
+  html += "</form></div></body></html>";
+  // — END HTML —
+
+  server.send(200, "text/html", html);
+}
 
 void handleLogPage() {  
   File f = LittleFS.open("/events.csv", "r");
@@ -1469,7 +1627,6 @@ void handleConfigure() {
   // 5) Then reboot
   ESP.restart();
 }
-
 
 
 
