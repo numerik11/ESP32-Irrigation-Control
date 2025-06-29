@@ -1260,18 +1260,19 @@ void handleRoot() {
     html += "</div>";
 
     // Start times (1 & 2) + enable below Start 2
-    html += "<div class='time-duration-container' style='flex-direction:column; align-items:flex-start;'>";
-    html += "<div class='time-input'>"
+    html += "<div class='time-duration-container' "
+        "style='flex-direction:column; align-items:center; justify-content:center;'>";
+    html += "<div class='enable-input' style='justify-content:center;'>"
               "<label for='startHour" + String(zone) + "'>Start Time 1:</label>"
               "<input type='number' name='startHour" + String(zone) + "' min='0' max='23' value='" + String(startHour[zone]) + "' required>"
               "<input type='number' name='startMin"  + String(zone) + "' min='0' max='59' value='" + String(startMin[zone])  + "' required>"
             "</div>";
-    html += "<div class='time-input'>"
+    html += "<div class='enable-input' style='justify-content:center;'>"
               "<label for='startHour2" + String(zone) + "'>Start Time 2:</label>"
               "<input type='number' name='startHour2" + String(zone) + "' min='0' max='23' value='" + String(startHour2[zone]) + "'>"
               "<input type='number' name='startMin2"  + String(zone) + "' min='0' max='59' value='" + String(startMin2[zone])  + "'>"
             "</div>";
-    html += "<div class='enable-input'>"
+    html += "<div class='enable-input' style='justify-content:center;'>"
               "<input type='checkbox' id='enableStartTime2" + String(zone) + "' name='enableStartTime2" + String(zone) + "'" +
                 (enableStartTime2[zone] ? " checked" : "") + "> "
               "<label for='enableStartTime2" + String(zone) + "'>Start 2 On/Off</label>"
@@ -1322,143 +1323,6 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
-void handleSubmit() {
-  for (int z = 0; z < Zone; z++) {
-    for (int d = 0; d < 7; d++) {
-      days[z][d] = server.hasArg("day" + String(z) + "_" + String(d));
-    }
-    if (server.hasArg("startHour"+String(z)))
-      startHour[z] = server.arg("startHour"+String(z)).toInt();
-    if (server.hasArg("startMin"+String(z)))
-      startMin[z]  = server.arg("startMin"+String(z)).toInt();
-
-    if (server.hasArg("startHour2"+String(z)))
-      startHour2[z] = server.arg("startHour2"+String(z)).toInt();
-    if (server.hasArg("startMin2"+String(z)))
-      startMin2[z]  = server.arg("startMin2"+String(z)).toInt();
-
-    if (server.hasArg("duration"+String(z)))
-      durationMin[z] = server.arg("duration"+String(z)).toInt();
-
-    enableStartTime2[z] = server.hasArg("enableStartTime2"+String(z));
-  }
-
-  saveSchedule();
-  updateCachedWeather();  // (optional, to prime the cache)
-  server.sendHeader("Location", "/", true);
-  server.send(302, "text/plain", "");
-}
-
-void handleSetupPage() {
-  String html = "";
-
-  // — START HTML —
-  html += "<!DOCTYPE html><html lang=\"en\"><head>";
-  html += "<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
-  html += "<title>Setup - Irrigation System</title>";
-  html += "<link href=\"https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap\" rel=\"stylesheet\">";
-  html += "<style>"
-          ":root{--primary:#2E86AB;--primary-light:#379BD5;--bg:#f4f7fa;"
-          "--card-bg:#fff;--text:#333;--accent:#F2994A;}"
-          "body{font-family:'Roboto',sans-serif;background:var(--bg);"
-          "color:var(--text);display:flex;justify-content:center;"
-          "align-items:center;padding:20px;}"
-          ".container{background:var(--card-bg);padding:30px;"
-          "border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.1);"
-          "width:100%;max-width:450px;}"
-          ".container h1{text-align:center;color:var(--primary);"
-          "margin-bottom:20px;}"
-          ".form-group{margin-bottom:15px;}"
-          ".form-group label{display:block;margin-bottom:6px;}"
-          "input[type=text],input[type=number]{padding:10px;"
-          "border:1px solid #ccc;border-radius:6px;}"
-          /* full-width by default */
-          "input.full-width{width:100%;}"
-          /* narrow helpers */
-          ".small-input{width:6ch;}"
-          ".medium-input{width:8ch;}"
-          ".checkbox-group{display:flex;align-items:center;"
-          "margin-bottom:12px;}"
-          ".checkbox-group label{margin-left:8px;}"
-          ".btn{width:100%;padding:12px;background:var(--primary);"
-          "color:#fff;border:none;border-radius:6px;cursor:pointer;"
-          "transition:background .3s;}"
-          ".btn:hover{background:var(--primary-light);}"
-          "</style></head><body>";
-
-  html += "<div class=\"container\"><h1>⚙️ System Setup</h1>";
-  html += "<form action=\"/configure\" method=\"POST\">";
-
-  // API Key (full-width)
-  html += "<div class=\"form-group\"><label for=\"apiKey\">API Key</label>";
-  html += "<input class=\"full-width\" type=\"text\" id=\"apiKey\" name=\"apiKey\" "
-          "value=\"" + apiKey + "\" required></div>";
-
-  // City ID (full-width)
-  html += "<div class=\"form-group\"><label for=\"city\">City ID</label>";
-  html += "<input class=\"full-width\" type=\"text\" id=\"city\" name=\"city\" "
-          "value=\"" + city + "\" required></div>";
-
-  // Timezone Offset (small)
-  html += "<div class=\"form-group\"><label for=\"dstOffset\">Timezone Offset (hrs)</label>";
-  html += "<input class=\"small-input\" type=\"number\" id=\"dstOffset\" name=\"dstOffset\" "
-          "min=\"-12\" max=\"14\" step=\"0.5\" "
-          "value=\"" + String(tzOffsetHours, 1) + "\" required></div>";
-
-  // Wind Speed Threshold (small)
-  html += "<div class=\"form-group\"><label for=\"windSpeedThreshold\">Wind Speed Threshold (m/s)</label>";
-  html += "<input class=\"small-input\" type=\"number\" id=\"windSpeedThreshold\" name=\"windSpeedThreshold\" "
-          "min=\"0\" step=\"0.1\" "
-          "value=\"" + String(windSpeedThreshold, 1) + "\" required></div>";
-
-  // Checkboxes
-  html += "<div class=\"checkbox-group\">"
-          "<input type=\"checkbox\" id=\"windCancelEnabled\" name=\"windCancelEnabled\""
-          + String(windDelayEnabled ? " checked" : "") + ">"
-          "<label for=\"windCancelEnabled\">Enable Wind Delay</label></div>";
-
-  html += "<div class=\"checkbox-group\">"
-          "<input type=\"checkbox\" id=\"rainDelay\" name=\"rainDelay\""
-          + String(rainDelayEnabled ? " checked" : "") + ">"
-          "<label for=\"rainDelay\">Enable Rain Delay</label></div>";
-
-  html += "<div class=\"checkbox-group\">"
-          "<input type=\"checkbox\" id=\"justUseTank\" name=\"justUseTank\""
-          + String(justUseTank ? " checked" : "") + ">"
-          "<label for=\"justUseTank\">Only Use Tank</label></div>";
-
-  html += "<div class=\"checkbox-group\">"
-          "<input type=\"checkbox\" id=\"justUseMains\" name=\"justUseMains\""
-          + String(justUseMains ? " checked" : "") + ">"
-          "<label for=\"justUseMains\">Only Use Mains</label></div>";
-
-  // Zone pin configuration (medium)
-  html += "<div class=\"form-group\"><label>Zone pins (If not using A6) Tank Pin IO36(Default)</label>";
-  for (uint8_t i = 0; i < Zone; i++) {
-    html += "Zone " + String(i+1) + ": "
-         + "<input class=\"medium-input\" type=\"number\" name=\"zonePin" + String(i) + "\" "
-         + "min=\"0\" max=\"39\" value=\"" + String(zonePins[i]) + "\"><br>";
-  }
-  html += "</div>";
-
-  // Mains & Tank pins (medium)
-  html += "<div class=\"form-group\"><label for=\"mainsPin\">Mains-source pin (GPIO)</label>";
-  html += "<input class=\"medium-input\" type=\"number\" id=\"mainsPin\" name=\"mainsPin\" "
-          "min=\"0\" max=\"39\" value=\"" + String(mainsPin) + "\"></div>";
-
-  html += "<div class=\"form-group\"><label for=\"tankPin\">Tank-source pin (GPIO)</label>";
-  html += "<input class=\"medium-input\" type=\"number\" id=\"tankPin\" name=\"tankPin\" "
-          "min=\"0\" max=\"39\" value=\"" + String(tankPin) + "\"></div>";
-
-  // Submit button
-  html += "<button type=\"submit\" class=\"btn\">Save Settings</button>";
-
-  // Close out
-  html += "</form></div></body></html>";
-  // — END HTML —
-
-  server.send(200, "text/html", html);
-}
 
 void handleLogPage() {  
   File f = LittleFS.open("/events.csv", "r");
