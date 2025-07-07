@@ -1047,7 +1047,7 @@ void turnOffZone(int z) {
   bool wasDelayed = rainActive || windActive;
 
   // 3) Log STOP, passing wasDelayed as the 'rainDelayed' field
-  logEvent(z, "RainDelayOn", src, wasDelayed);
+  logEvent(z, "STOPPED", src, wasDelayed);
 
   // 4) Print a clearer Serial message
   if      (rainActive) Serial.printf("Zone %d stopped due to rain\n", z+1);
@@ -1119,18 +1119,36 @@ void turnOnValveManual(int z) {
 }
 
 void turnOffValveManual(int z) {
-  if (zoneActive[z]) {
-    if (useGpioFallback) {
-      digitalWrite(zonePins[z], HIGH);
-      digitalWrite(mainsPin, HIGH);
-      digitalWrite(tankPin, HIGH);
-    } else {
-      pcfOut.digitalWrite(valveChannel[z], HIGH);
-      pcfOut.digitalWrite(mainsChannel, HIGH);
-      pcfOut.digitalWrite(tankChannel, HIGH);
+  if (!zoneActive[z]) return;
+
+  // 1) Turn off this valve
+  if (useGpioFallback) {
+    digitalWrite(zonePins[z], HIGH);
+  } else {
+    pcfOut.digitalWrite(valveChannel[z], HIGH);
+  }
+  zoneActive[z] = false;
+  Serial.printf("Manual zone %d OFF\n", z+1);
+
+  // 2) Check if any other zone is still active
+  bool anyStillOn = false;
+  for (int i = 0; i < Zone; i++) {
+    if (zoneActive[i]) {
+      anyStillOn = true;
+      break;
     }
-    zoneActive[z] = false;
-    Serial.printf("Manual zone %d OFF\n", z+1);
+  }
+
+  // 3) Only shut off the source solenoid if *none* are running
+  if (!anyStillOn) {
+    if (useGpioFallback) {
+      digitalWrite(mainsPin, HIGH);
+      digitalWrite(tankPin,  HIGH);
+    } else {
+      pcfOut.digitalWrite(mainsChannel, HIGH);
+      pcfOut.digitalWrite(tankChannel,  HIGH);
+    }
+    Serial.println("Source solenoid OFF (no zones running)");
   }
 }
 
@@ -1221,7 +1239,7 @@ void handleRoot() {
 
   // --- HEADER (blue bar, both centered) ---
   html += "<header style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;'>";
-  html +=   "<span style='font-size:1.7em;font-weight:600;letter-spacing:1px;'>💧ESP32 Irrigation System💧</span>";
+  html +=   "<span style='font-size:1.7em;font-weight:600;letter-spacing:1px;'>💧ESP32 Irrigation Control💧</span>";
   html +=   "<span style='font-size:1.1em;font-weight:400;margin-top:3px;'>";
   html +=     "🕒 <span id='clock'>" + currentTime + "</span>&nbsp;&nbsp; &nbsp;🗓 <span id='date'>" + String(dateStr) + "</span>";
   html +=   "</span>";
