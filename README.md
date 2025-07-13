@@ -102,7 +102,7 @@ Partition Scheme: Default (4MB).
 
 ---
 
-3. Install the PCF8574 Library
+3. Install the PCF8574 Library (FOR K6-KC868)
 
 Go to PCF8574 Library Download below:
 
