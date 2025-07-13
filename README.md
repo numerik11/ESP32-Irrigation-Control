@@ -33,16 +33,17 @@ Other:
 Works with ESP32 (Arduino IDE framework).
 
 ----
+Materials Required:
+----
 
--Materials Required-
+- 7 Core irrigation wire to run from controller to solenoid valve box
 
+- 6 Solenoids (Powered by seperate AC12/24V source, depending on solenoid power reqirements) Ive used 20mm 12v DC Microsolenoids using the same power input scource of 12v 2a. 
 
-1.) 7 Core irrigation wire to run from controller to solenoid valve box
+- KC868 6 Channel relay board with case. Or ESP32 Controller with 6 Relay Module
 
-2.) 6 Solenoids (Powered by seperate AC12/24V source, depending on solenoid power reqirements) Ive used 20mm 12v DC Microsolenoids using the same power input scource of 12v 2a. 
-
-3.) KC868 6 Channel relay board with case. Or ESP32 Controller with 6 Relay Module
-
+----
+Wiring Instrustions:
 ----
 
 - Wire all solenoid wires/grounds to power source ground.
@@ -58,11 +59,10 @@ Works with ESP32 (Arduino IDE framework).
 - Tank level sensor to A1. (3.3V MAX?)
 
 ----
+Flashing Code to Controller:
+----
 
-
-- Flashing Code to Controller - 
-
-To upload the project to the Kilcoy A6 or ESP32 board use Arduino IDE software, follow these steps.
+- To upload the project to the Kilcoy A6 or ESP32 board use Arduino IDE software, follow these steps.
 
 ----
 
