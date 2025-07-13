@@ -145,7 +145,7 @@ Type this IP into a browser to access the user interface,
 
 enter your details into the setup page (Openweathermap.org City and API Key, Timezone, ect.) one saved goto main page to setup and save times, days, ect.
 
-By following these steps, your ESP32-based smart irrigation system will be successfully uploaded and configured to work with Adafruit IO and the PCF8574 I/O expander. If you encounter any issues or need further clarification, feel free to ask!
+By following these steps, your ESP32-based smart irrigation system will be successfully uploaded and configured. If you encounter any issues or need further clarification, feel free to ask!
 
 
 ---
