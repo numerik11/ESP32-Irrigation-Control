@@ -83,11 +83,11 @@ Search for ESP32 and click Install on the esp32 by Espressif Systems package.
 
 ---
 
-2. Select the ESP32 Dev Module Board for K6 or select your esp module if different.
+2. Select the ESP32 Dev Module Board for K6 or select your esp module if using a different module.
 
-After installing the ESP32 board package, go to Tools > Board and select ESP32 Dev Module from the list of boards.
+After installing the ESP32 board package, go to Tools > Board ESP32 Dev Module from the list of boards.
 
-Set the following options (for a typical ESP32 Dev board):
+Set the following options:
 
 Port: Select the COM port corresponding to your ESP32 board.
 
@@ -102,7 +102,7 @@ Partition Scheme: Default (4MB).
 
 ---
 
-3. Install the PCF8574 Library (FOR K6-KC868)
+3. Install the PCF8574 Library (FOR K6-KC868 I2C)
 
 Go to PCF8574 Library Download below:
 
