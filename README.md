@@ -30,7 +30,7 @@ Set API keys, city/region, time offsets, wind/rain/tank options, and GPIO assign
 
 Other:
 
-Works with ESP8266 and ESP32 (Arduino framework).
+Works with ESP32 (Arduino IDE framework).
 
 
 -Materials Required-
