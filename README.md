@@ -1,9 +1,9 @@
 Irrigation controller degsined to use KC868 6 relay module from aliexpress.
 
 
-Can be used with any ESP32 controller with 6 relays assign pins in setup page.
+Can be used with any ESP32 controller with 6 relays, assign pins in setup page.
 
-If other ESP32 is used it will detect the absent i2c conrollers on the A6 board and use GPIO programmed in settings. 
+If other ESP32 is used it will detect the absent i2c conroller address on the A6 board and use GPIO, pins programmed in settings. 
 
 IO36 Default Analog pin for Tank Level Sensor on A6 and with ESP32 Boards.
 
