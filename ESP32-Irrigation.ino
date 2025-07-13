@@ -1634,345 +1634,345 @@ void handleSubmit() {
 void handleSetupPage() {
   String html = "";
 
-  // — HTML Boilerplate Start —
+  // — HEADER & GLOBAL STYLES —
   html += "<!DOCTYPE html><html lang=\"en\"><head>";
   html += "<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
-  html += "<title>Setup - Irrigation System</title>";
+  html += "<title>Setup – Irrigation System</title>";
   html += "<link href=\"https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap\" rel=\"stylesheet\">";
   html += R"rawliteral(
   <style>
-:root {
-  --primary:#2684d7; --primary-light:#49b4fa;
-  --bg:#f5f7fa; --card-bg:#fff;
-  --text:#1d2328; --accent:#ffaa3c;
+  :root {
+  --primary: #2684d7;
+  --primary-light: #49b4fa;
+  --bg: #f5f7fa;
+  --card-bg: #fff;
+  --text: #1d2328;
   --shadow: 0 6px 22px rgba(0,0,0,0.12);
-  --header:#20242f;
-  --success:#30be72; --danger:#d34242; --input-bg:#f9fcff;
-}
-body {
-  font-family:'Roboto',sans-serif; background:var(--bg); color:var(--text);
-  margin:0; padding:0; min-height:100vh;
+  --header: #20242f;
+  --success: #30be72;
+  --danger: #d34242;
+  --input-bg: #f9fcff;
+ }
+ body {
+  margin:0;padding:0;
+  font-family:'Roboto',sans-serif;
+  background:var(--bg);
+  color:var(--text);
   transition: background .22s, color .18s;
-}
-header {
-  position:sticky;top:0;z-index:30;background:var(--header);color:#fff;
-  width:100vw;padding:17px 0 11px 0;text-align:center;
-  font-size:1.44em;font-weight:700;box-shadow:0 2px 12px #2684d733;
-  letter-spacing:0.01em;
-}
-#toggle-darkmode-btn {
-  position:fixed;right:19px;top:15px;z-index:50;background:none;
-  border:none;outline:none;cursor:pointer;
-  width:46px;height:28px;display:flex;align-items:center;justify-content:center;
-}
-.theme-switch {
-  width:38px;height:18px;background:#e4ebf0;border-radius:12px;
-  border:2px solid #b1c9dd;display:inline-flex;align-items:center;transition:.19s;
-  margin-left:6px;position:relative;
-}
-.theme-switch[data-dark="1"]{background:#141c25;border-color:#2684d7;}
-.theme-switch .dot {
-  width:16px;height:16px;border-radius:50%;background:#ffe94b;
-  position:absolute;left:2px;transition:.16s;
-}
-.theme-switch[data-dark="1"] .dot{left:18px;background:#2684d7;}
-.theme-switch .icon{position:absolute;left:5px;top:1px;font-size:1em;}
-.theme-switch[data-dark="1"] .icon{left:20px;color:#fff;}
-main {
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  width:100vw;min-height:100vh;
-}
-.setup-card {
-  background:var(--card-bg);padding:26px 18px 16px 18px;
-  border-radius:13px;box-shadow:var(--shadow);
-  width:100%;max-width:440px;margin:28px 0 17px 0;
-  display:flex;flex-direction:column;align-items:stretch;
-}
-section {margin:0 0 16px 0;}
-section legend {
-  font-size:1.03em;font-weight:500;
-  color:var(--primary);margin-bottom:1px;letter-spacing:0.02em;
-  border-left:4px solid var(--primary);padding-left:8px;
-}
-.form-group {margin-bottom:11px;}
-.form-row {display:flex;align-items:center;gap:7px;}
-input[type=text],input[type=number] {
-  padding:9px; border:1.1px solid #d0e0ed;border-radius:5px;
-  background:var(--input-bg); color:var(--text); font-size:1.06em;transition:.15s;width:100%;
-}
-input[type=text]:focus,input[type=number]:focus {border-color:var(--primary);}
-input.full-width {width:100%;}
-input.small-input {width:7ch;}
-input.medium-input {width:8ch;}
-input:invalid, .invalid {border-color:var(--danger)!important;background:#ffeaea!important;}
-input:valid, .valid {border-color:var(--success)!important;}
-input[readonly]{background:#eef4f8;}
-.copy-btn {
-  background:none;border:none;cursor:pointer;color:var(--primary);font-size:1.02em;margin-left:3px;
-}
-.checkbox-group {
-  display:flex;align-items:center;margin-bottom:8px;gap:7px;
-}
-.checkbox-group label {margin-left:4px;}
-input[type=checkbox] {accent-color: var(--primary);}
-.zone-pin-row{display:flex;align-items:center;gap:5px;margin-bottom:2px;}
-.zone-pin-row label {width:60px;}
-input[type=number].zone-pin-input {width:7ch;}
-.btn-row {
-  display:flex;gap:9px;margin-top:14px;flex-wrap:wrap;
-  justify-content:space-between;align-items:center;
-}
-.btn, .cancel-btn, .restore-btn {
-  border:none;padding:11px 0;border-radius:6px;font-size:1.08em;
-  font-weight:600;cursor:pointer;box-shadow:0 2px 6px #2e86ab14;
-  transition:background .17s,box-shadow .14s;
-  width:calc(50% - 6px);min-width:105px;
-}
-.btn {background:var(--primary);color:#fff;}
-.btn:hover {background:var(--primary-light);}
-.cancel-btn {background:#f3f3f3;color:var(--primary);}
-.cancel-btn:hover {background:#e1ebf1;}
-.restore-btn {background:var(--accent);color:#fff;}
-.restore-btn:hover {background:#e79c32;}
-@media (max-width:520px){
-  .setup-card{padding:7px 2px;}
-  .btn-row{flex-direction:column;gap:8px;}
-  .btn,.cancel-btn,.restore-btn{width:100%;min-width:0;}
-  .theme-switch{margin-left:0;}
-}
-input:focus,select:focus,button:focus {outline:2px solid var(--primary-light);}
-input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{
-  -webkit-appearance:none;margin:0;
-}
-input[type=number]{appearance:textfield;}
-body[data-theme='dark'], body[data-theme='dark'] :root {
-  --bg: #181a1b !important;
-  --card-bg: #23262e !important;
-  --text: #f0f5f8 !important;
-  --header:#1b1e23 !important;
-  --input-bg:#23272a !important;
-  --shadow: 0 8px 24px rgba(0,0,0,0.32) !important;
-  --primary: #49b4fa !important;
-  --primary-light: #70d3ff !important;
-  --success:#8be68b !important;
-}
-body:not([data-theme='dark']), body:not([data-theme='dark']) :root {
-  --bg:#f5f7fa !important;
-  --card-bg:#fff !important;
-  --text:#1d2328 !important;
-  --header:#20242f !important;
-  --input-bg:#f9fcff !important;
-  --shadow: 0 8px 24px rgba(0,0,0,0.12) !important;
-  --primary: #2684d7 !important;
-  --primary-light: #49b4fa !important;
-  --success:#30be72 !important;
-}
-.setup-success,.setup-error {
-  display:block;margin:12px auto 8px auto;max-width:410px;
-  text-align:center;font-size:1.02em;font-weight:500;
-  padding:10px 8px;border-radius:8px;
-  animation:fadeIn .8s;
-}
-.setup-success{background:#e6ffe7;color:var(--success);}
-.setup-error{background:#fff6e5;color:var(--danger);}
-@keyframes fadeIn{from{opacity:0;transform:translateY(19px);}to{opacity:1;transform:translateY(0);}}
+ }
+ header {
+  position:sticky;top:0;
+  background:var(--header);
+  color:#fff;
+  padding:14px 0;
+  text-align:center;
+  font-size:1.4em;
+  font-weight:500;
+  box-shadow:0 2px 8px rgba(0,0,0,0.2);
+ }
+ #toggle-darkmode-btn {
+  position:fixed;top:12px;right:12px;
+  background:none;border:none;cursor:pointer;
+  width:40px;height:24px;
+ }
+ .theme-switch {
+  width:34px;height:16px;
+  background:#e4ebf0;
+  border-radius:12px;
+  border:2px solid #b1c9dd;
+  position:relative;
+  transition:background .2s, border-color .2s;
+ }
+ .theme-switch[data-dark="1"] {
+  background:#141c25;
+  border-color:var(--primary);
+ }
+ .theme-switch .dot {
+  position:absolute;
+  top:1px;left:1px;
+  width:14px;height:14px;
+  background:#ffe94b;
+  border-radius:50%;
+  transition:left .2s, background .2s;
+ }
+ .theme-switch[data-dark="1"] .dot {
+  left:18px;
+  background:var(--primary);
+ }
+ main {
+  display:flex;
+  justify-content:center;
+  padding:20px 10px;
+ }
+ .setup-card {
+  background:var(--card-bg);
+  padding:24px;
+  border-radius:8px;
+  box-shadow:var(--shadow);
+  width:100%;max-width:420px;
+ }
+ section {
+  margin-bottom:20px;
+ }
+ section legend {
+  font-weight:500;
+  font-size:1.05em;
+  color:var(--primary);
+  margin-bottom:6px;
+  padding-left:6px;
+  border-left:3px solid var(--primary);
+ }
+ .form-group { margin-bottom:12px; }
+ .form-row { display:flex; gap:8px; align-items:center; }
+ input[type=text],input[type=number] {
+   flex:1;
+  padding:8px;
+  border:1px solid #ccd8e6;
+  border-radius:4px;
+  background:var(--input-bg);
+  transition:border-color .15s;
+ }
+ input:focus { border-color:var(--primary); outline:none; }
+ input.full-width { width:100%; }
+ input.small-input { width:6ch; }
+ .copy-btn {
+   background:none;
+  border:none;
+  color:var(--primary);
+  cursor:pointer;
+  font-size:0.95em;
+ }
+ .tooltip { position:relative; }
+ .tooltip .tip {
+  visibility:hidden;
+  position:absolute; top:24px; left:0;
+  background:#333; color:#fff;
+  padding:6px; border-radius:4px;
+  font-size:.88em;
+  white-space:nowrap;
+ }
+ .tooltip:hover .tip { visibility:visible; }
+ .checkbox-group {
+  display:flex; align-items:center; gap:6px;
+  margin-bottom:10px;
+ }
+ input[type=checkbox] { accent-color:var(--primary); }
+ .zone-pin-row {
+  display:flex; align-items:center; gap:6px; margin-bottom:6px;
+ }
+ .zone-pin-row label { width:60px; }
+ .zone-pin-input { width:6ch; }
+ .btn-row {
+   display:flex; gap:8px; flex-wrap:wrap; margin-top:16px;
+  justify-content:space-between;
+ }
+ .btn, .cancel-btn, .restore-btn {
+   flex:1; min-width:100px;
+  padding:10px 0;
+  border:none;border-radius:4px;
+  font-weight:500;
+  cursor:pointer;
+  transition:background .18s;
+ }
+ .btn { background:var(--primary); color:#fff; }
+ .btn:hover { background:var(--primary-light); }
+ .cancel-btn { background:#e0e4e9; color:var(--text); }
+ .cancel-btn:hover { background:#d0d4da; }
+ .restore-btn { background:#ffaa3c; color:#fff; }
+ .restore-btn:hover { background:#ffb95c; } 
+
+ /*  dark mode tweaks */
+ body[data-theme='dark'] {
+   background:#181a1b; color:#e3e7ea;
+ }
+ body[data-theme='dark'] .setup-card {
+   background:#23272e;
+ }
+ body[data-theme='dark'] input {
+   background:#2a2d34; color:#e3e7ea; border-color:#393d46;
+ }
+ body[data-theme='dark'] .cancel-btn {
+   background:#2a2d34; color:#e3e7ea;
+ }
+
+ / * messages */
+ #setup-msg {
+   margin-top:12px; text-align:center; font-weight:500;
+ }
+ #setup-msg.success { color:var(--success); }
+ #setup-msg.error   { color:var(--danger); }
   </style>
   )rawliteral";
 
+  // — BODY & FORM —
   html += "</head><body>";
-  // Header and Theme Toggle
   html += R"rawliteral(
-<header>System Setup</header>
-<button id="toggle-darkmode-btn" aria-label="Toggle dark mode">
-  <span id="switchbox" class="theme-switch"><span class="dot"></span><span class="icon">●</span></span>
-</button>
-<main>
-<div class="setup-card">
-<form id="setupForm" action="/configure" method="POST" autocomplete="off">
-)rawliteral";
+ <header>System Setup</header>
+ <button id="toggle-darkmode-btn" aria-label="Toggle dark mode">
+  <span id="switchbox" class="theme-switch"><span class="dot"></span></span>
+ </button>
+ <main>
+  <div class="setup-card">
+    <form id="setupForm" action="/configure" method="POST" autocomplete="off">
 
-  // Weather Section (NO icon)
-  html += R"rawliteral(
-<section>
-  <legend>Weather Settings</legend>
-  <div class="form-group form-row">
-    <input class="full-width" type="text" id="apiKey" name="apiKey"
-    value=")" + apiKey + R"(" required maxlength="64" autocomplete="off" inputmode="text" placeholder="API Key">
-    <button class="copy-btn" onclick="copyField('apiKey');return false;" title="Copy">Copy</button>
-    <span class="tooltip"><span class="tip">Your weather provider API key (OpenWeatherMap etc).</span></span>
-  </div>
-  <div class="form-group form-row">
-    <input class="full-width" type="text" id="city" name="city"
-    value=")" + city + R"(" required maxlength="32" autocomplete="off" inputmode="text" placeholder="City or OWM ID">
-    <button class="copy-btn" onclick="copyField('city');return false;" title="Copy">Copy</button>
-    <span class="tooltip"><span class="tip">City name or OWM City ID.</span></span>
-  </div>
-</section>
-)rawliteral";
+      <section>
+        <legend>Weather Settings</legend>
+        <div class="form-group form-row">
+          <input class="full-width" type="text" id="apiKey" name="apiKey" value=")rawliteral"
+       + apiKey +
+       R"rawliteral(" required maxlength="64" placeholder="API Key">
+          <button class="copy-btn" onclick="copyField('apiKey');return false;">Copy</button>
+          <span class="tooltip"><span class="tip">Your weather API key.</span></span>
+        </div>
+        <div class="form-group form-row">
+          <input class="full-width" type="text" id="city" name="city" value=")rawliteral"
+       + city +
+       R"rawliteral(" required maxlength="32" placeholder="City or ID">
+          <button class="copy-btn" onclick="copyField('city');return false;">Copy</button>
+          <span class="tooltip"><span class="tip">City name or provider ID.</span></span>
+        </div>
+      </section>
 
-  // Time/Location Section (NO icon)
-  html += R"rawliteral(
-<section>
-  <legend>Time & Location</legend>
-  <div class="form-group form-row">
-    <input class="small-input" type="number" id="dstOffset" name="dstOffset"
-    min="-12" max="14" step="0.5"
-    value=")" + String(tzOffsetHours, 1) + R"(" required inputmode="decimal" placeholder="UTC Offset">
-    <span class="tooltip"><span class="tip">UTC offset for your region (e.g. +9.5 for Adelaide).</span></span>
-  </div>
-</section>
-)rawliteral";
+      <section>
+        <legend>Time & Location</legend>
+        <div class="form-group form-row">
+          <input class="small-input" type="number" id="dstOffset" name="dstOffset"
+            min="-12" max="14" step="0.5" value=")rawliteral"
+       + String(tzOffsetHours,1) +
+       R"rawliteral(" required placeholder="UTC Offset">
+          <span class="tooltip"><span class="tip">UTC offset (e.g. +9.5).</span></span>
+        </div>
+      </section>
 
-  // Feature Toggles Section (minimal, no emoji)
-  html += R"rawliteral(
-<section>
-  <legend>Feature Toggles</legend>
-  <div class="checkbox-group">
-    <input type="checkbox" id="windCancelEnabled" name="windCancelEnabled" )"
-          + String(windDelayEnabled ? " checked" : "") + R"(>
-    <label for="windCancelEnabled">Enable Wind Delay</label>
-    <span class="tooltip"><span class="tip">Pause irrigation above wind threshold.</span></span>
-  </div>
-  <div class="form-group form-row">
-    <input class="small-input" type="number" id="windSpeedThreshold" name="windSpeedThreshold"
-    min="0" step="0.1"
-    value=")" + String(windSpeedThreshold, 1) + R"(" required inputmode="decimal" placeholder="m/s">
-    <span class="tooltip"><span class="tip">Wind speed (m/s) to pause watering.</span></span>
-  </div>
-  <div class="checkbox-group">
-    <input type="checkbox" id="rainDelay" name="rainDelay" )"
-          + String(rainDelayEnabled ? " checked" : "") + R"(>
-    <label for="rainDelay">Enable Rain Delay</label>
-    <span class="tooltip"><span class="tip">Pause on rain detection.</span></span>
-  </div>
-  <div class="checkbox-group">
-    <input type="checkbox" id="justUseTank" name="justUseTank" )"
-          + String(justUseTank ? " checked" : "") + R"(>
-    <label for="justUseTank">Only Use Tank</label>
-    <span class="tooltip"><span class="tip">Only irrigate with tank water.</span></span>
-  </div>
-  <div class="checkbox-group">
-    <input type="checkbox" id="justUseMains" name="justUseMains" )"
-          + String(justUseMains ? " checked" : "") + R"(>
-    <label for="justUseMains">Only Use Mains</label>
-    <span class="tooltip"><span class="tip">Only irrigate with mains supply.</span></span>
-  </div>
-</section>
-)rawliteral";
+      <section>
+        <legend>Feature Toggles</legend>
+        <div class="checkbox-group">
+          <input type="checkbox" id="windCancelEnabled" name="windCancelEnabled" )rawliteral
+       + String(windDelayEnabled?"checked":"") +
+       R"rawliteral(>
+          <label for="windCancelEnabled">Enable Wind Delay</label>
+          <span class="tooltip"><span class="tip">Pause when wind is high.</span></span>
+        </div>
+        <div class="form-group form-row">
+          <input class="small-input" type="number" id="windSpeedThreshold" name="windSpeedThreshold"
+            min="0" step="0.1" value=")rawliteral"
+       + String(windSpeedThreshold,1) +
+       R"rawliteral(" required placeholder="m/s">
+          <span class="tooltip"><span class="tip">Threshold in m/s.</span></span>
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="rainDelay" name="rainDelay" )rawliteral
+       + String(rainDelayEnabled?"checked":"") +
+       R"rawliteral(>
+          <label for="rainDelay">Enable Rain Delay</label>
+          <span class="tooltip"><span class="tip">Pause on rain.</span></span>
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="justUseTank" name="justUseTank" )rawliteral
+       + String(justUseTank?"checked":"") +
+       R"rawliteral(>
+          <label for="justUseTank">Only Use Tank</label>
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="justUseMains" name="justUseMains" )rawliteral
+       + String(justUseMains?"checked":"") +
+       R"rawliteral(>
+          <label for="justUseMains">Only Use Mains</label>
+        </div>
+      </section>
 
-  // Zone Pins Section (no icon, hint on valid pins)
-  html += R"rawliteral(
-<section>
-  <legend>Zone Pins</legend>
-)rawliteral";
+      <section>
+        <legend>Zone Pins</legend>
+ )rawliteral";
   for (uint8_t i = 0; i < Zone; i++) {
-    html += "<div class='zone-pin-row'><label>Zone " + String(i+1) + ":</label>"
-      "<input class='zone-pin-input medium-input' type='number' name='zonePin" + String(i) + "' "
-      "min='0' max='39' value='" + String(zonePins[i]) + "' autocomplete='off' inputmode='numeric'></div>";
+    html += "<div class=\"zone-pin-row\">"
+            "<label>Zone " + String(i+1) + ":</label>"
+            "<input class=\"zone-pin-input\" type=\"number\" name=\"zonePin" + String(i) +
+            "\" min=\"0\" max=\"39\" value=\"" + String(zonePins[i]) + "\">"
+            "</div>";
   }
-  html += "<div class='zone-pin-row'><label>Mains:</label>"
-       "<input class='zone-pin-input medium-input' type='number' id='mainsPin' name='mainsPin' min='0' max='39' value='" + String(mainsPin) + "' autocomplete='off' inputmode='numeric'></div>";
-  html += "<div class='zone-pin-row'><label>Tank:</label>"
-       "<input class='zone-pin-input medium-input' type='number' id='tankPin' name='tankPin' min='0' max='39' value='" + String(tankPin) + "' autocomplete='off' inputmode='numeric'></div>";
-  html += R"rawliteral(<span class="tooltip"><span class="tip">ESP32 valid GPIOs only. Avoid flash/boot pins.</span></span>
-</section>
-)rawliteral";
-
-  // Action buttons (sticky on mobile)
   html += R"rawliteral(
-<div class="btn-row">
-  <button type="submit" class="btn">Save Settings</button>
-  <button type="button" class="cancel-btn" onclick="window.location.href='/'">Cancel</button>
-  <button type="button" class="restore-btn" onclick="restoreDefaults();">Restore Defaults</button>
-</div>
-</form>
-<div id="setup-msg"></div>
-</div>
-</main>
-)rawliteral";
+        <div class="zone-pin-row">
+          <label>Main:</label>
+          <input class="zone-pin-input" type="number" id="mainsPin" name="mainsPin"
+            min="0" max="39" value=")rawliteral" + String(mainsPin) + R"rawliteral(">
+        </div>
+        <div class="zone-pin-row">
+          <label>Tank:</label>
+          <input class="zone-pin-input" type="number" id="tankPin" name="tankPin"
+            min="0" max="39" value=")rawliteral" + String(tankPin) + R"rawliteral(">
+        </div>
+      </section>
 
-  // --- Scripts (no change except for icon on dark mode switch)
-  html += R"rawliteral(<script>
-function setTheme(theme) {
-  var dark = (theme==='dark');
-  document.body.setAttribute('data-theme', dark ? 'dark' : 'light');
-  localStorage.setItem('theme', theme);
-  let sw = document.getElementById('switchbox');
-  sw.setAttribute('data-dark', dark ? '1' : '0');
-  sw.querySelector('.icon').textContent = dark ? '◑' : '●';
-  document.getElementById('toggle-darkmode-btn').ariaLabel = dark ? "Switch to light mode" : "Switch to dark mode";
-}
-function autoTheme() {
-  const stored = localStorage.getItem('theme');
-  if(stored==='dark') setTheme('dark');
-  else if(stored==='light') setTheme('light');
-  else if(window.matchMedia('(prefers-color-scheme: dark)').matches) setTheme('dark');
-  else setTheme('light');
-}
-window.addEventListener('DOMContentLoaded',function(){
-  autoTheme();
-  document.getElementById('toggle-darkmode-btn').onclick = function() {
-    const cur = document.body.getAttribute('data-theme');
-    setTheme(cur==='dark' ? 'light' : 'dark');
+      <div class="btn-row">
+        <button type="submit" class="btn">Save</button>
+        <button type="button" class="cancel-btn" onclick="location.href='/'">Cancel</button>
+        <button type="button" class="restore-btn" onclick="restoreDefaults()">Restore</button>
+      </div>
+    </form>
+    <div id="setup-msg"></div>
+  </div>
+ </main>
+ )rawliteral";
+
+  // — SCRIPTS (dark-mode, copy, restore, validate) —
+  html += R"rawliteral(
+ <script>
+  // Dark-mode toggle
+  function setTheme(dark) {
+    document.body.setAttribute('data-theme', dark ? 'dark' : 'light');
+    localStorage.setItem('theme', dark);
+    document.querySelector('.theme-switch').setAttribute('data-dark', dark ? '1' : '0');
+  }
+  document.getElementById('toggle-darkmode-btn').onclick = () => {
+    const isDark = document.body.getAttribute('data-theme')==='dark';
+    setTheme(!isDark);
+  };
+  // Init theme
+  setTheme(localStorage.getItem('theme')==='true' || 
+           window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+  // Copy button
+  window.copyField = id => {
+    const el = document.getElementById(id);
+    el.select(); document.execCommand('copy');
+    showMsg('Copied!', true);
   };
 
-  // Copy to clipboard
-  window.copyField = function(id) {
-    var el = document.getElementById(id);
-    el.select && el.select(); el.setSelectionRange && el.setSelectionRange(0,9999);
-    navigator.clipboard && navigator.clipboard.writeText
-      ? navigator.clipboard.writeText(el.value)
-      : document.execCommand('copy');
-    showMsg('Copied!',true,1100);
+  // Restore defaults
+  window.restoreDefaults = () => {
+    ['apiKey','city','dstOffset','windSpeedThreshold','mainsPin','tankPin']
+      .forEach(id => document.getElementById(id).value = '');
+    ['windCancelEnabled','rainDelay','justUseTank','justUseMains']
+      .forEach(id => document.getElementById(id).checked = false);
+    for(let i=0;i<)" + String(Zone) + R"(";i++){
+      document.getElementsByName('zonePin'+i)[0].value = '';
+    }
+    showMsg('Reset.', false);
   };
 
-  // Restore defaults (simulate; you can hook for actual)
-  window.restoreDefaults = function(){
-    document.getElementById('apiKey').value = '';
-    document.getElementById('city').value = '';
-    document.getElementById('dstOffset').value = '0.0';
-    document.getElementById('windSpeedThreshold').value = '7.5';
-    ['windCancelEnabled','rainDelay','justUseTank','justUseMains'].forEach(id=>{document.getElementById(id).checked=false;});
-    for(let i=0;i<)" + String(Zone) + R"(;++i)document.getElementsByName('zonePin'+i)[0].value='0';
-    document.getElementById('mainsPin').value='0';
-    document.getElementById('tankPin').value='0';
-    showMsg('Fields reset. Not saved yet.',true,1200);
-  };
+  // Simple feedback
+  function showMsg(txt, success=true) {
+    const msg = document.getElementById('setup-msg');
+    msg.textContent = txt;
+    msg.className = success ? 'success' : 'error';
+    setTimeout(()=>msg.textContent='', 2000);
+  }
 
-  // Live field validation
-  document.getElementById('setupForm').addEventListener('input', function(e){
-    let api = document.getElementById('apiKey');
-    let city = document.getElementById('city');
-    api.classList.toggle('invalid', api.value.trim()==='');
-    city.classList.toggle('invalid', city.value.trim()==='');
-    let pins = [];
-    for(let i=0;i<)" + String(Zone) + R"(;++i)pins.push(document.getElementsByName('zonePin'+i)[0].value);
-    pins.push(document.getElementById('mainsPin').value);
-    pins.push(document.getElementById('tankPin').value);
-    let dupe = pins.some((p,i)=>p&&pins.indexOf(p)!=i);
-    let inputs = document.querySelectorAll('.zone-pin-input, #mainsPin, #tankPin');
-    inputs.forEach(inp=>inp.classList.toggle('invalid',dupe||inp.value===''||inp.value<0||inp.value>39));
-    if(dupe)showMsg('Duplicate pin values detected!',false,1800);
+  // Live validation (minimal example)
+  document.getElementById('setupForm').addEventListener('input', e => {
+    // highlight empty required
+    ['apiKey','city'].forEach(id => {
+      const el = document.getElementById(id);
+      el.style.borderColor = el.value.trim() ? '' : 'var(--danger)';
+    });
   });
-
-  // Save feedback (simulate, hook to server msg if desired)
-  document.getElementById('setupForm').onsubmit=function(e){
-    showMsg('Settings saved!',true,1100);
-  };
-
-  // Show messages (success/error)
-  window.showMsg = function(msg,ok,timeout){
-    let el=document.getElementById('setup-msg');
-    el.textContent=msg;
-    el.className=ok?'setup-success':'setup-error';
-    if(timeout)setTimeout(()=>{el.textContent='';el.className='';},timeout);
-  };
-});
-</script></body></html>)rawliteral";
+ </script>
+ </body></html>
+  )rawliteral";
 
   server.send(200, "text/html", html);
 }
-
 
 void handleLogPage() {  
   File f = LittleFS.open("/events.csv", "r");
