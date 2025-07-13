@@ -142,8 +142,6 @@ enter your details into the setup page (Openweathermap.org City and API Key, Tim
 
 By following these steps, your ESP32-based smart irrigation system will be successfully uploaded and configured to work with Adafruit IO and the PCF8574 I/O expander. If you encounter any issues or need further clarification, feel free to ask!
 
-![image](https://github.com/user-attachments/assets/2046d64d-c5da-4538-b7e3-44f0fc024dd5)
-
 
 ![image](https://github.com/user-attachments/assets/c194f92f-5914-4ae4-bd30-b9ab55ca52b7)
 
