@@ -9,6 +9,8 @@ IO36 Default Analog pin for Tank Level Sensor on A6 and with ESP32 Boards.
 
 
 ---
+<img width="512" height="790" alt="image" src="https://github.com/user-attachments/assets/f77e35f3-2bdb-430a-921b-b675e6dc4dd3" />
+---
 
 
 -Materials Required-
@@ -22,16 +24,6 @@ IO36 Default Analog pin for Tank Level Sensor on A6 and with ESP32 Boards.
 
 ----
 
-https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
-![image](https://github.com/user-attachments/assets/113cedeb-a453-42a8-809c-a522808daa87)
-
-----
-
-![download](https://github.com/user-attachments/assets/634f39fa-968c-493c-b1b5-f588702cd1ed)    Relays
-
-![download](https://github.com/user-attachments/assets/b3d3e541-8df6-4f3f-af2c-38f72cae96a2)    ESP32 NodeMCU
-
-----
 
 - Wire all solenoid wires/grounds to power source ground.
 
@@ -47,7 +39,7 @@ https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
 
 ----
 
-![51BA8viI0BL _SX522_](https://github.com/user-attachments/assets/3ca35811-27b2-4bfd-a91e-8748b7463eb3)
+
 
 ----
 
@@ -73,7 +65,6 @@ https://dl.espressif.com/dl/package_esp32_index.json
 Go to Tools > Board > Board Manager.
 
 Search for ESP32 and click Install on the esp32 by Espressif Systems package.
-
 
 
 ---
@@ -143,10 +134,16 @@ enter your details into the setup page (Openweathermap.org City and API Key, Tim
 By following these steps, your ESP32-based smart irrigation system will be successfully uploaded and configured to work with Adafruit IO and the PCF8574 I/O expander. If you encounter any issues or need further clarification, feel free to ask!
 
 
-![image](https://github.com/user-attachments/assets/c194f92f-5914-4ae4-bd30-b9ab55ca52b7)
-
 ---
 
+https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
+![image](https://github.com/user-attachments/assets/113cedeb-a453-42a8-809c-a522808daa87)
+
+![51BA8viI0BL _SX522_](https://github.com/user-attachments/assets/3ca35811-27b2-4bfd-a91e-8748b7463eb3)
+
+![download](https://github.com/user-attachments/assets/634f39fa-968c-493c-b1b5-f588702cd1ed)    Relays
+
+![download](https://github.com/user-attachments/assets/b3d3e541-8df6-4f3f-af2c-38f72cae96a2)    ESP32 NodeMCU
 
 
 
