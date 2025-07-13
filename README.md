@@ -83,7 +83,7 @@ Search for ESP32 and click Install on the esp32 by Espressif Systems package.
 
 ---
 
-2. Select the ESP32 Dev Module Board
+2. Select the ESP32 Dev Module Board for K6 or select your esp module if different.
 
 After installing the ESP32 board package, go to Tools > Board and select ESP32 Dev Module from the list of boards.
 
