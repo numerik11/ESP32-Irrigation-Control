@@ -167,11 +167,6 @@ void setup() {
   display.display();
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1.5);
-
-  // Wi‑Fi Setup
-  wifiManager.setTimeout(180);
-  if (!wifiManager.autoConnect("ESPIrrigationAP")) {
-    Serial.println("Failed to connect to WiFi. Restarting...");
     display.clearDisplay();
     display.setCursor(0,10);
     display.print("Connect To");
@@ -180,6 +175,11 @@ void setup() {
     display.setCursor(0,30);
     display.print("Goto: https://192.168.4.1");
     display.display();  
+    
+  // Wi‑Fi Setup
+  wifiManager.setTimeout(180);
+  if (!wifiManager.autoConnect("ESPIrrigationAP")) {
+    Serial.println("Failed to connect to WiFi. Restarting...");
     ESP.restart();
   }
 
@@ -207,7 +207,7 @@ void setup() {
   while (now < 1000000000) {
   delay(500);
   now = time(nullptr);
- }
+}
 
   // OTA & Web Server
   ArduinoOTA.begin();
@@ -386,7 +386,7 @@ void loop() {
   else {
     HomeScreen();
   }
- }
+}
 
   delay(100);
 }
@@ -1158,230 +1158,361 @@ String getDayName(int d) {
 }
 
 void handleRoot() {
-  // --- Time & schedule load ---
+  // --- Time ---
   time_t now = time(nullptr);
   struct tm *timeinfo = localtime(&now);
-  char timeStr[9];
+  char timeStr[9], dateStr[11];
   strftime(timeStr, sizeof(timeStr), "%H:%M:%S", timeinfo);
-  String currentTime = String(timeStr);
+  strftime(dateStr, sizeof(dateStr), "%d/%m/%Y", timeinfo);
 
   loadSchedule();
 
-  // --- Weather parse ---
+  // --- Weather ---
   String weatherData = cachedWeatherData;
   DynamicJsonDocument jsonResponse(1024);
-  deserializeJson(jsonResponse, weatherData);
-  float temp      = jsonResponse["main"]["temp"];
-  float hum       = jsonResponse["main"]["humidity"];
-  float ws        = jsonResponse["wind"]["speed"];
-  String cond     = jsonResponse["weather"][0]["main"];
-  String cityName = jsonResponse["name"];
+  DeserializationError werr = deserializeJson(jsonResponse, weatherData);
+
+  float temp = werr ? NAN : jsonResponse["main"]["temp"] | NAN;
+  float hum  = werr ? NAN : jsonResponse["main"]["humidity"] | NAN;
+  float ws   = werr ? NAN : jsonResponse["wind"]["speed"] | NAN;
+  String cond     = werr ? "-" : String(jsonResponse["weather"][0]["main"].as<const char*>());
+  if (cond == "") cond = "-";
+  String cityName = werr ? "-" : String(jsonResponse["name"].as<const char*>());
+  if (cityName == "") cityName = "-";
 
   // --- Tank sensor ---
   int tankRaw = analogRead(TANK_PIN);
-  int tankPct = map(tankRaw, 0, 1023, 0, 100);
-  bool tankLow = tankRaw < 250;
+  int tankPct = map(tankRaw, tankEmptyRaw, tankFullRaw, 0, 100);
+  tankPct = constrain(tankPct, 0, 100);
+  bool tankLow = tankRaw < (tankEmptyRaw + (tankFullRaw-tankEmptyRaw) * 0.15f);
   String tankStatusStr = tankLow
     ? "<span class='tank-status-low'>Low — Using Main</span>"
     : "<span class='tank-status-normal'>Normal — Using Tank</span>";
 
-  // --- Build HTML ---
-  String html = "<!DOCTYPE html><html lang='en'><head>";
-  html += "<meta charset='UTF-8'>";
-  html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
-  html += "<title>ESP32 Irrigation System</title>";
-  html += "<link href='https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap' rel='stylesheet'>";
-  
-  // ===== Modernized CSS =====
-  html += "<style>";
-  html += R"rawliteral(
-    body { font-family: 'Roboto', sans-serif; background: linear-gradient(135deg, #eaf6fb 0%, #d8ecff 100%); margin: 0; padding: 0; min-height: 100vh; }
-    header { background: linear-gradient(90deg, #0059b2 0%, #48c6ef 100%); color: #fff; padding: 24px 0 18px; text-align: center; box-shadow: 0 2px 10px rgba(0,60,120,0.08); letter-spacing: 0.5px; font-size: 1.8em; border-bottom-left-radius: 18px; border-bottom-right-radius: 18px; }
-    .container { max-width: 930px; margin: 36px auto 24px; background: #fff; border-radius: 18px; box-shadow: 0 6px 32px rgba(0,0,0,0.08); padding: 34px 30px 24px 30px; min-height: 60vh; }
-    .summary-row { display: flex; flex-wrap: wrap; justify-content: space-between; margin-bottom: 18px; gap: 12px; border-bottom: 1px solid #e2e6ea; padding-bottom: 18px; }
-    .summary-block { background: #f2f7fb; border-radius: 10px; flex: 1 1 170px; margin: 0 6px; text-align: center; padding: 12px 0; min-width: 150px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); font-size: 1.06em; }
-    .zones-wrapper { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 22px; margin: 28px 0 24px 0; }
-    .zone-container { background: #eaf6fb; border: 1.8px solid #b7e1fa; border-radius: 15px; box-shadow: 0 2px 16px rgba(120,180,240,0.09); padding: 20px 16px 16px 16px; transition: box-shadow .2s; display: flex; flex-direction: column; min-width: 240px; }
-    .zone-container strong { color: #137fff; font-size: 1.09em; }
-    .zone-status-on { color: #43a047; font-weight: 500; }
-    .zone-status-off { color: #888; font-weight: 400; }
-    .days-container { display: flex; flex-wrap: wrap; justify-content: center; margin: 0 0 10px 0; gap: 2px; }
-    .checkbox-container { margin: 3px 6px; }
-    .checkbox-container input[type=checkbox] { accent-color: #0d84c6; width: 16px; height: 16px; }
-    .time-duration-container { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 10px; gap: 10px; }
-    .time-input, .duration-input { margin: 4px 10px 8px 0; display: flex; flex-direction: column; }
-    .time-input label, .duration-input label, .enable-input label { font-size: 0.92em; margin-bottom: 2px; }
-    input[type='number'] { padding: 6px 8px; border: 1.2px solid #b5d0ed; border-radius: 5px; font-size: 1.02em; background: #f5fcff; width: 64px; margin-bottom: 3px; }
-    .enable-input { margin: 6px 0 8px 0; font-size: 0.95em; display: flex; align-items: center; gap: 5px; }
-    .manual-control-container { text-align: center; margin: 16px 0 0 0; display: flex; gap: 9px; justify-content: center; }
-    .turn-on-btn, .turn-off-btn { padding: 8px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 1em; transition: background .18s, filter .18s; margin: 0 2px; box-shadow: 0 2px 10px rgba(80,160,255,0.06); }
-    .turn-on-btn { background: #43a047; color: #fff; }
-    .turn-on-btn:hover { background: #3a9243; filter: brightness(1.08);}
-    .turn-off-btn { background: #e53935; color: #fff; }
-    .turn-off-btn:hover { background: #a82121; }
-    button[type='submit'] { background: #1976d2; color: #fff; padding: 12px 36px; border-radius: 24px; font-size: 1.08em; font-weight: 500; margin: 20px auto 10px auto; display: block; box-shadow: 0 2px 8px rgba(50,110,220,0.06); transition: background .2s; }
-    button[type='submit']:hover { background: #1250ad; }
-    a { color: #1976d2; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    #tankLevel { width: 180px; height: 14px; accent-color: #21b6fc; border-radius: 8px; margin: 0 7px -3px 7px; background: #e1f5fe; }
-    .tank-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 8px 0 0 0; font-size: 1.07em; }
-    .tank-status-low { color: #e53935; font-weight: 600; }
-    .tank-status-normal { color: #388e3c; }
-    @media (max-width: 700px) { .container { padding: 13px 2vw 11px 2vw; } .zones-wrapper { grid-template-columns: 1fr; } .summary-row { flex-direction: column; gap: 7px; } }
-  )rawliteral";
-  html += "</style>";
+  // --- HTML ---
+  String html;
+  html.reserve(28 * 1024);
+  html += R"(
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>ESP32 Irrigation System</title>
+  <link href='https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap' rel='stylesheet'>
+  <style>
+:root {
+  --primary: #1976d2;
+  --danger: #e03e36;
+  --success: #32c366;
+  --neutral: #bed9ff;
+  --bg: #f5f7fa;
+  --card: #fff;
+  --font: #1a1a1a;
+  --footer: #fafdff4b;
+  --tank-gradient: linear-gradient(90deg, #32c366 0%, #ffe94b 65%, #e03e36 100%);
+  --shadow: 0 2px 16px rgba(80,160,255,.08);
+}
+body {
+  font-family:'Roboto',sans-serif;
+  background:var(--bg);
+  color:var(--font);
+  margin:0;
+  transition: background .2s, color .2s;
+}
+header {
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;padding:22px 0 10px 0;background:var(--primary);color:#fff;
+  border-radius:0 0 18px 18px;box-shadow:0 2px 8px #1976d241;
+}
+.container {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 22px 10px 14px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+  margin-bottom: 32px;
+}
+.summary-block {
+  background: var(--card);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 17px 13px 15px 13px;
+  min-width: 110px;
+  text-align: center;
+  font-size: 1.18em;
+  font-weight: 500;
+  position: relative;
+  border: 1.5px solid var(--neutral);
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.summary-block .icon { font-size:2.1em; margin-bottom: 3px; display:block; }
+.tank-row progress[value] {
+  width: 60px; height: 13px; vertical-align:middle; border-radius:8px; background:#e9ecef;
+  box-shadow: 0 1.5px 8px #32c36624 inset;
+  margin-bottom: 3px;
+}
+body[data-theme='dark'] .tank-row progress[value],
+body[data-theme='dark'] .tank-row progress[value]::-webkit-progress-bar {
+  background: #222 !important;
+}
+.tank-row progress[value]::-webkit-progress-bar { background: #e9ecef; border-radius:8px; }
+.tank-row progress[value]::-webkit-progress-value {
+  background: var(--tank-gradient); border-radius:8px; transition:width .4s;
+  animation: tankPulse 2.5s linear infinite alternate;
+}
+.tank-row progress[value]::-moz-progress-bar {
+  background: var(--tank-gradient); border-radius:8px;
+}
+@keyframes tankPulse {
+  0% { box-shadow:0 0 0 #32c36622;}
+  60%{ box-shadow:0 0 12px #ffe94b77;}
+  100%{ box-shadow:0 0 16px #e03e3665;}
+}
+.active-badge {
+  color: var(--success);
+  font-weight:700;
+  padding:2px 10px;
+  border-radius:10px;
+  background: #e6ffe7;
+  box-shadow: 0 0 12px 2px #32c36688;
+  animation: statusGlow 1.2s ease-in-out infinite alternate;
+  display:inline-block;
+  font-size:1em;
+  margin-top:2px;
+}
+body[data-theme='dark'] .active-badge { background:#1e4220; }
+@keyframes statusGlow {
+  0% { box-shadow: 0 0 8px #32c36677;}
+  100% { box-shadow: 0 0 16px #32c366cc, 0 0 25px #ffe94b66;}
+}
+.inactive-badge {
+  color: #ccc;
+  font-weight:700;
+  background: #f4f4f4;
+  border-radius:10px;
+  padding:2px 10px;
+  font-size:1em;
+  margin-top:2px;
+}
+body[data-theme='dark'] .inactive-badge { background:#24262c;color:#666;}
+.zone-status-on {
+  color: var(--success);
+  font-weight: 600;
+  animation: statusGlow 1.5s ease-in-out infinite alternate;
+  text-shadow:0 0 6px #32c36699;
+}
+.zone-status-off { color:#aaa; }
+.zones-wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  justify-content: center;
+  width: 100%;
+}
+.zone-container {
+  border: 1.6px solid var(--neutral);
+  background: var(--card);
+  border-radius: 13px;
+  box-shadow: 0 2px 14px #1976d21a;
+  padding: 15px 13px 13px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  align-items: center;
+  min-width: 295px;
+  max-width: 340px;
+  margin-bottom: 8px;
+  text-align: center;
+}
+.time-duration-container {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: 100%;
+  align-items: center;
+  margin: 8px 0;
+}
+.enable-input {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 0;
+}
+.days-container, .manual-control-container {
+  justify-content: center;
+  width: 100%;
+  display: flex;
+}
+.days-container { gap:7px; flex-wrap:wrap; }
+.checkbox-container {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.97em;
+  border-radius: 6px;
+  padding: 2px 7px;
+  transition: background .19s;
+  justify-content: center;
+}
+.checkbox-container:hover, .checkbox-container:focus-within {
+  background: #e9f2fe;
+}
+body[data-theme='dark'] .checkbox-container:hover, body[data-theme='dark'] .checkbox-container:focus-within {
+  background: #263241;
+}
+.checkbox-container input[type='checkbox']:checked+label {
+  background: #1976d2; color:#fff; border-radius:5px; padding:2px 7px;
+  font-weight:600; box-shadow:0 1px 5px #1976d261;
+  transition:background .17s;
+}
+.checkbox-container label { cursor:pointer; padding:2px 2px; transition:background .14s, color .14s;}
+input[type='checkbox'] { accent-color: #1976d2; }
+.enable-input input[type='checkbox'] { width:1.2em;height:1.2em;}
+input[type='number'] {
+  font-size:1.07em; padding:4px 7px; border-radius:6px; border:1.1px solid #b6c8e2; width:4.3em; margin-left:4px;
+  text-align: center;
+  background: var(--card);
+  color: var(--font);
+  transition: background .2s, color .2s, border .15s;
+}
+label { margin-right:2px; }
+button, input[type='submit'] {
+  background: var(--primary); color: #fff; font-weight: 500; border: none;
+  border-radius: 9px; padding: 8px 20px; font-size: 1em; cursor: pointer;
+  transition: background .16s, box-shadow .17s, transform .11s;
+  box-shadow:0 2px 6px #1976d224;
+  text-align: center;
+}
+button:active { transform:scale(0.97);}
+button[disabled], .manual-control-container button[disabled] {
+  background: #d4dbe0; color: #888; cursor:not-allowed; box-shadow:none;
+}
+.manual-control-container .turn-on-btn:not([disabled]) {background: var(--success);}
+.manual-control-container .turn-off-btn:not([disabled]) {background: var(--danger);}
+.footer-links {
+  border-top: 1.5px solid #dae7f5;
+  margin: 38px 0 0 0; padding-top:18px;
+  text-align:center; font-size:1.09em;
+  background: var(--footer);
+  border-radius:0 0 12px 12px;
+  transition:background .2s;
+}
+@media(max-width:820px){
+  .container{padding:9px;}
+  .zones-wrapper{flex-direction: column;align-items:center;}
+  .summary-row{gap:10px;}
+}
+@media(max-width:520px){
+  .summary-block{min-width:80px;font-size:1em;}
+  .zone-container{padding:7px 4px;}
+  .footer-links{font-size:.99em;}
+}
+/* --- PLACE THESE LAST! --- */
+body[data-theme='dark'], body[data-theme='dark'] :root {
+  --bg: #181a1b !important;
+  --card: #20252a !important;
+  --font: #f5f7fa !important;
+  --footer: #202830 !important;
+  --neutral: #394b5b !important;
+  --shadow: 0 2px 16px rgba(20,32,45,.12) !important;
+}
+body:not([data-theme='dark']), body:not([data-theme='dark']) :root {
+  --bg: #f5f7fa !important;
+  --card: #fff !important;
+  --font: #1a1a1a !important;
+  --footer: #fafdff4b !important;
+  --neutral: #bed9ff !important;
+  --shadow: 0 2px 16px rgba(80,160,255,.08) !important;
+}
+  </style>
+</head>
+<body>
+  <header>
+    <span style='font-size:1.75em;font-weight:700;'>💧ESP32 Irrigation Dashboard</span>
+    <span style='font-size:1.13em;'>
+      🕒 <span id='clock'>)" + String(timeStr) + R"(</span>
+      &nbsp;&nbsp; 🗓 <span id='date'>)" + String(dateStr) + R"(</span>
+    </span>
+  </header>
+  <div class='container'>
+    <button id='toggle-darkmode-btn' style='margin:16px auto 8px auto;display:block;min-width:125px;'>🌗 Dark Mode</button>
+    <div class='summary-row'>
+      <div class='summary-block'><span class='icon'>📍</span><br>)" + cityName + R"(</div>
+      <div class='summary-block'><span class='icon'>🌬</span><br>)" + (isnan(ws) ? "--" : String(ws,1) + " m/s") + R"(</div>
+      <div class='summary-block'><span class='icon'>🌡</span><br>)" + (isnan(temp) ? "--" : String(temp,1) + " ℃") + R"(</div>
+      <div class='summary-block'><span class='icon'>💧</span><br>)" + (isnan(hum) ? "--" : String(hum) + " %") + R"(</div>
+      <div class='summary-block'><span class='icon'>🌤</span><br>)" + cond + R"(</div>
+      <div class='summary-block tank-row'><span class='icon'>🚰</span><progress value=')" + String(tankPct) + R"(' max='100'></progress>)" + String(tankPct) + R"(%<br>)" + tankStatusStr + R"(</div>
+      <div class='summary-block'><span class='icon' title='Rain Delay'>🌧</span><br>)" +
+        (rainActive ? "<span class='active-badge'>Active</span>" : "<span class='inactive-badge'>Off</span>") + R"(</div>
+      <div class='summary-block'><span class='icon' title='Wind Delay'>💨</span><br>)" +
+        (windActive ? "<span class='active-badge'>Active</span>" : "<span class='inactive-badge'>Off</span>") + R"(</div>
+    </div>
+    <form action='/submit' method='POST'><div class='zones-wrapper'>)";
 
-  html += "</head><body>";
-
-  // --- Date and time for header ---
-  char dateStr[11];
-  strftime(dateStr, sizeof(dateStr), "%d/%m/%Y", timeinfo);
-
-  // --- HEADER (blue bar, both centered) ---
-  html += "<header style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;'>";
-  html +=   "<span style='font-size:1.7em;font-weight:600;letter-spacing:1px;'>💧ESP32 Irrigation Control💧</span>";
-  html +=   "<span style='font-size:1.1em;font-weight:400;margin-top:3px;'>";
-  html +=     "🕒 <span id='clock'>" + currentTime + "</span>&nbsp;&nbsp; &nbsp;🗓 <span id='date'>" + String(dateStr) + "</span>";
-  html +=   "</span>";
-  html += "</header>";
-
-    // ← NEW: Rain-Delay status
-  html += "<div class='summary-block'><span title='Rain Delay'>🌧</span><br>" 
-           + String(rainActive ? "Active" : "Off") + "</div>";
-
-  // ← NEW: Wind-Delay status
-  html += "<div class='summary-block'><span title='Wind Delay'>💨</span><br>" 
-           + String(windActive ? "Active" : "Off") + "</div>";
-  html += "</div>";  // end .summary-row
-
-  html += "<div class='container'>";
-
-  // start summary-row
-  html += "<div class='container'><div class='summary-row'>";
-    // Location
-    html += "<div class='summary-block'>📍<br>" + cityName + "</div>";
-    html += "<div class='summary-block'>🌬<br>" + String(ws,1) + " m/s</div>";   // Condition
-    html += "<div class='summary-block'>🌡<br>" + String(temp,1) + " ℃</div>";
-    html += "<div class='summary-block'>💧<br>" + String(hum) + " %</div>";
-    html += "<div class='summary-block'>🌤<br>" + cond + "</div>";
-    // Tank Level
-    html += "<div class='summary-block tank-row'>🚰<progress value='"
-         + String(tankPct) + "' max='100'></progress>" 
-         + String(tankPct) + "%<br>" + tankStatusStr + "</div>";
-    html += "</div>";  
-
-  // ===== Scripts =====
- html += "<script>"
- // 1) Clock updater
-     "function updateClockAndDate(){"
-       "const now=new Date();"
-       "const h=now.getHours().toString().padStart(2,'0');"
-       "const m=now.getMinutes().toString().padStart(2,'0');"
-       "const s=now.getSeconds().toString().padStart(2,'0');"
-       "document.getElementById('clock').textContent=h+':'+m+':'+s;"
-       "const d=now.getDate().toString().padStart(2,'0');"
-       "const mo=(now.getMonth()+1).toString().padStart(2,'0');"
-       "const y=now.getFullYear();"
-       "document.getElementById('date').textContent=d+'/'+mo+'/'+y;"
-     "}"
-     "setInterval(updateClockAndDate,1000);"
-
- // 2) Weather refresher
-     "function fetchWeatherData(){"
-       "fetch('/weather-data').then(r=>r.json()).then(d=>{"
-         "document.getElementById('weather-condition').textContent=d.condition;"
-         "document.getElementById('temperature').textContent=d.temp+' °C';"
-         "document.getElementById('humidity').textContent=d.humidity+' %';"
-         "document.getElementById('wind-speed').textContent=d.windSpeed+' m/s';"
-       "}).catch(console.error);"
-     "}"
-     "setInterval(fetchWeatherData,60000);"
-
- // 3) All button wiring once DOM is ready
-     "document.addEventListener('DOMContentLoaded',()=>{"
-       // backlight toggle
-       "const tb=document.getElementById('toggle-backlight-btn');"
-       "if(tb){"
-         "tb.addEventListener('click',()=>{"
-           "fetch('/toggleBacklight',{method:'POST'})"
-             ".then(r=>r.text()).then(alert).catch(console.error);"
-         "});"
-       "}"
-       // manual on buttons
-       "document.querySelectorAll('.turn-on-btn').forEach(btn=>{"
-         "btn.addEventListener('click',()=>{"
-           "const z=btn.dataset.zone;"
-           "fetch('/valve/on/'+z,{method:'POST'})"
-             ".then(()=>location.reload()).catch(console.error);"
-         "});"
-       "});"
-       // manual off buttons
-       "document.querySelectorAll('.turn-off-btn').forEach(btn=>{"
-         "btn.addEventListener('click',()=>{"
-           "const z=btn.dataset.zone;"
-           "fetch('/valve/off/'+z,{method:'POST'})"
-             ".then(()=>location.reload()).catch(console.error);"
-         "});"
-       "});"
-     "});"
-     "</script>";
-
-  // ===== Zones Form =====
-  html += "<form action='/submit' method='POST'>";
-  html += "<div class='zones-wrapper'>";
+  // --- ZONE EDITORS ---
+  static const char* dayNames[7] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
   for (int zone = 0; zone < Zone; zone++) {
-    html += "<div class='zone-container'>";
-    html += "<p><strong>Zone " + String(zone + 1) + ":</strong></p>";
-    html += "<p>Status: <span class='" + String(zoneActive[zone] ? "zone-status-on" : "zone-status-off") + "'>" +
-              String(zoneActive[zone] ? "Running" : "Off") + "</span></p>";
+    html += "<div class='zone-container'>"
+            "<p style='margin:0 0 4px 0'><strong>Zone " + String(zone + 1) + ":</strong></p>"
+            "<p>Status: <span class='" + String(zoneActive[zone] ? "zone-status-on" : "zone-status-off") + "'>"
+            + String(zoneActive[zone] ? "Running" : "Off") + "</span></p>";
 
-    // Days of week checkboxes
+    // Days checkboxes
     html += "<div class='days-container'>";
     for (int d = 0; d < 7; d++) {
       String chk = days[zone][d] ? "checked" : "";
       html += "<div class='checkbox-container'>"
-              "<input type='checkbox' name='day" + String(zone) + "_" + d +
-                "' id='day" + String(zone) + "_" + d + "' " + chk + ">"
-              "<label for='day" + String(zone) + "_" + d + "'>" + getDayName(d) + "</label>"
+              "<input type='checkbox' name='day" + String(zone) + "_" + d + "' id='day" + String(zone) + "_" + d + "' " + chk + ">"
+              "<label for='day" + String(zone) + "_" + d + "'>" + dayNames[d] + "</label>"
               "</div>";
     }
     html += "</div>";
 
-    // Start times (1 & 2) + enable below Start 2
-    html += "<div class='time-duration-container' "
-        "style='flex-direction:column; align-items:center; justify-content:center;'>";
-    html += "<div class='enable-input' style='justify-content:center;'>"
-              "<label for='startHour" + String(zone) + "'>Start Time 1:</label>"
-              "<input type='number' name='startHour" + String(zone) + "' min='0' max='23' value='" + String(startHour[zone]) + "' required>"
-              "<input type='number' name='startMin"  + String(zone) + "' min='0' max='59' value='" + String(startMin[zone])  + "' required>"
-            "</div>";
-    html += "<div class='enable-input' style='justify-content:center;'>"
-              "<label for='startHour2" + String(zone) + "'>Start Time 2:</label>"
-              "<input type='number' name='startHour2" + String(zone) + "' min='0' max='23' value='" + String(startHour2[zone]) + "'>"
-              "<input type='number' name='startMin2"  + String(zone) + "' min='0' max='59' value='" + String(startMin2[zone])  + "'>"
-            "</div>";
-    html += "<div class='enable-input' style='justify-content:center;'>"
-              "<input type='checkbox' id='enableStartTime2" + String(zone) + "' name='enableStartTime2" + String(zone) + "'" +
-                (enableStartTime2[zone] ? " checked" : "") + "> "
-              "<label for='enableStartTime2" + String(zone) + "'>Start 2 On/Off</label>"
-            "</div>";
-    html += "</div>";
+    // Times and durations (column layout)
+    html += "<div class='time-duration-container'>"
+      "<div class='enable-input'>"
+        "<label>Start Time 1:</label>"
+        "<input type='number' name='startHour" + String(zone) + "' min='0' max='23' value='" + String(startHour[zone]) + "' required>"
+        "<span>:</span>"
+        "<input type='number' name='startMin"  + String(zone) + "' min='0' max='59' value='" + String(startMin[zone]) + "' required>"
+      "</div>"
+      "<div class='enable-input'>"
+        "<label>Start Time 2:</label>"
+        "<input type='number' name='startHour2" + String(zone) + "' min='0' max='23' value='" + String(startHour2[zone]) + "'>"
+        "<span>:</span>"
+        "<input type='number' name='startMin2"  + String(zone) + "' min='0' max='59' value='" + String(startMin2[zone]) + "'>"
+      "</div>"
+      "<div class='enable-input' style='justify-content:center;'>"
+        "<input type='checkbox' id='enableStartTime2" + String(zone) + "' name='enableStartTime2" + String(zone) + "'" + (enableStartTime2[zone] ? " checked" : "") + ">"
+        "<label for='enableStartTime2" + String(zone) + "'>Start 2 On/Off</label>"
+      "</div>"
+      "<div class='enable-input'>"
+        "<label>Run Time (Min):</label>"
+        "<input type='number' name='durationMin"  + String(zone) + "' min='0' value='" + String(durationMin[zone]) + "' required>"
+        "<label style='margin-left:8px;'>Sec:</label>"
+        "<input type='number' name='durationSec"  + String(zone) + "' min='0' max='59' value='" + String(durationSec[zone]) + "' required>"
+      "</div>"
+    "</div>";
 
-    // new (minutes + seconds):
-    html += "<div style='display:flex; align-items:center; justify-content:center; gap:6px;'>"
-        "<div>"
-          "<label>Run Time - Min:</label>"
-          "<input type='number' name='durationMin"  + String(zone) +
-                "' min='0' value='" + String(durationMin[zone]) + "' required>"
-        "</div>"
-        "<div>"
-          "<label>Sec:</label>"
-          "<input type='number' name='durationSec"  + String(zone) +
-                "' min='0' max='59' value='" + String(durationSec[zone]) + "' required>"
-        "</div>"
-      "</div>";
-
-    // Manual On/Off controls with correct state
+    // Manual controls
     html += "<div class='manual-control-container'>";
     if (zoneActive[zone]) {
       html += "<button type='button' class='turn-on-btn'  data-zone='" + String(zone) + "' disabled>▶️ On</button>";
@@ -1390,30 +1521,83 @@ void handleRoot() {
       html += "<button type='button' class='turn-on-btn'  data-zone='" + String(zone) + "'>▶️ On</button>";
       html += "<button type='button' class='turn-off-btn' data-zone='" + String(zone) + "' disabled>⏹ Off</button>";
     }
-    html += "</div>";  // close .manual-control-container
-
-    html += "</div>";  // close .zone-container
+    html += "</div></div>";
   }
-  html += "</div>"; // end .zones-wrapper
-  html += "<button type='submit'>Update Schedule</button>";
-  html += "</form>";
+  html += "</div><div style='display:flex;justify-content:center;width:100%;'><button type='submit'>Update Schedule</button></div></form>";
 
-  // LCD Backlight toggle button, after the form
-  html += "<div style='text-align:center; margin:20px 0 0 0;'>"
-        "<button type='button' id='toggle-backlight-btn'>Toggle LCD Backlight</button>"
+  // LCD Backlight toggle
+  html += "<div style='text-align:center; margin:25px 0 0 0;'>"
+        "<button type='button' id='toggle-backlight-btn' style='min-width:170px;'>Toggle LCD Backlight</button>"
         "</div>";
 
-  // ===== Footer Links =====
-  html += "<div style='text-align:center; margin:22px 0 0 0;'>";
-  html += "<a href='/events' style='margin:0 14px;'>View Event Log</a>";
-  html += "<a href='/tank' style='margin:0 14px;'>Tank Calibration Tool</a>";
-  html += "<a href='/setup' style='margin:0 14px;'>Setup Page</a>";
-  html += "<a href='https://openweathermap.org/city/" + city + "' target='_blank' style='margin:0 14px;'>OpenWeatherMap</a>";
-  html += "</div>";
+  // Footer Links (with card style)
+  html += "<div class='footer-links'>"
+          "<a href='/events'>📒 Event Log</a>"
+          "<span style='margin:0 9px;color:#b3b3b3;'>|</span>"
+          "<a href='/tank'>🚰 Tank Calibration</a>"
+          "<span style='margin:0 9px;color:#b3b3b3;'>|</span>"
+          "<a href='/setup'>⚙️ Setup</a>"
+          "<span style='margin:0 9px;color:#b3b3b3;'>|</span>"
+          "<a href='https://openweathermap.org/city/" + cityName + "' target='_blank'>🌤 Weather</a>"
+          "</div></div>";
 
-  html += "</div>";  // .container
-  html += "</body></html>";
+  // --- SCRIPTS ---
+  html += R"(<script>
+function updateClockAndDate(){
+  const now=new Date();
+  const h=now.getHours().toString().padStart(2,'0');
+  const m=now.getMinutes().toString().padStart(2,'0');
+  const s=now.getSeconds().toString().padStart(2,'0');
+  document.getElementById('clock').textContent=h+':'+m+':'+s;
+  const d=now.getDate().toString().padStart(2,'0');
+  const mo=(now.getMonth()+1).toString().padStart(2,'0');
+  const y=now.getFullYear();
+  document.getElementById('date').textContent=d+'/'+mo+'/'+y;
+}
+setInterval(updateClockAndDate,1000);
 
+// --- Robust Dark Mode Toggle ---
+function setTheme(theme) {
+  if(theme==='dark') {
+    document.body.setAttribute('data-theme','dark');
+    localStorage.setItem('theme', 'dark');
+    document.getElementById('toggle-darkmode-btn').textContent = "☀️ Light Mode";
+  } else {
+    document.body.removeAttribute('data-theme');
+    localStorage.setItem('theme', 'light');
+    document.getElementById('toggle-darkmode-btn').textContent = "🌗 Dark Mode";
+  }
+}
+function autoTheme() {
+  const stored = localStorage.getItem('theme');
+  if(stored==='dark') setTheme('dark');
+  else if(stored==='light') setTheme('light');
+  else if(window.matchMedia('(prefers-color-scheme: dark)').matches) setTheme('dark');
+  else setTheme('light');
+}
+window.addEventListener('DOMContentLoaded',()=>{
+  autoTheme();
+  document.getElementById('toggle-darkmode-btn').onclick = function() {
+    const cur = document.body.getAttribute('data-theme')==='dark' ? 'dark' : 'light';
+    setTheme(cur==='dark' ? 'light' : 'dark');
+  };
+
+  document.querySelectorAll('.turn-on-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const z=btn.dataset.zone;
+      fetch('/valve/on/'+z,{method:'POST'}).then(()=>location.reload());
+    });
+  });
+  document.querySelectorAll('.turn-off-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const z=btn.dataset.zone;
+      fetch('/valve/off/'+z,{method:'POST'}).then(()=>location.reload());
+    });
+  });
+  const tb=document.getElementById('toggle-backlight-btn');
+  if(tb){tb.addEventListener('click',()=>{fetch('/toggleBacklight',{method:'POST'}).then(r=>r.text()).then(alert);});}
+});
+    </script></body></html>)";
   server.send(200, "text/html", html);
 }
 
@@ -1450,113 +1634,345 @@ void handleSubmit() {
 void handleSetupPage() {
   String html = "";
 
-  // — START HTML —
+  // — HTML Boilerplate Start —
   html += "<!DOCTYPE html><html lang=\"en\"><head>";
   html += "<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
   html += "<title>Setup - Irrigation System</title>";
   html += "<link href=\"https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap\" rel=\"stylesheet\">";
-  html += "<style>"
-          ":root{--primary:#2E86AB;--primary-light:#379BD5;--bg:#f4f7fa;"
-          "--card-bg:#fff;--text:#333;--accent:#F2994A;}"
-          "body{font-family:'Roboto',sans-serif;background:var(--bg);"
-          "color:var(--text);display:flex;justify-content:center;"
-          "align-items:center;padding:20px;}"
-          ".container{background:var(--card-bg);padding:30px;"
-          "border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.1);"
-          "width:100%;max-width:450px;}"
-          ".container h1{text-align:center;color:var(--primary);"
-          "margin-bottom:20px;}"
-          ".form-group{margin-bottom:15px;}"
-          ".form-group label{display:block;margin-bottom:6px;}"
-          "input[type=text],input[type=number]{padding:10px;"
-          "border:1px solid #ccc;border-radius:6px;}"
-          /* full-width by default */
-          "input.full-width{width:100%;}"
-          /* narrow helpers */
-          ".small-input{width:6ch;}"
-          ".medium-input{width:8ch;}"
-          ".checkbox-group{display:flex;align-items:center;"
-          "margin-bottom:12px;}"
-          ".checkbox-group label{margin-left:8px;}"
-          ".btn{width:100%;padding:12px;background:var(--primary);"
-          "color:#fff;border:none;border-radius:6px;cursor:pointer;"
-          "transition:background .3s;}"
-          ".btn:hover{background:var(--primary-light);}"
-          "</style></head><body>";
+  html += R"rawliteral(
+  <style>
+:root {
+  --primary:#2684d7; --primary-light:#49b4fa;
+  --bg:#f5f7fa; --card-bg:#fff;
+  --text:#1d2328; --accent:#ffaa3c;
+  --shadow: 0 6px 22px rgba(0,0,0,0.12);
+  --header:#20242f;
+  --success:#30be72; --danger:#d34242; --input-bg:#f9fcff;
+}
+body {
+  font-family:'Roboto',sans-serif; background:var(--bg); color:var(--text);
+  margin:0; padding:0; min-height:100vh;
+  transition: background .22s, color .18s;
+}
+header {
+  position:sticky;top:0;z-index:30;background:var(--header);color:#fff;
+  width:100vw;padding:17px 0 11px 0;text-align:center;
+  font-size:1.44em;font-weight:700;box-shadow:0 2px 12px #2684d733;
+  letter-spacing:0.01em;
+}
+#toggle-darkmode-btn {
+  position:fixed;right:19px;top:15px;z-index:50;background:none;
+  border:none;outline:none;cursor:pointer;
+  width:46px;height:28px;display:flex;align-items:center;justify-content:center;
+}
+.theme-switch {
+  width:38px;height:18px;background:#e4ebf0;border-radius:12px;
+  border:2px solid #b1c9dd;display:inline-flex;align-items:center;transition:.19s;
+  margin-left:6px;position:relative;
+}
+.theme-switch[data-dark="1"]{background:#141c25;border-color:#2684d7;}
+.theme-switch .dot {
+  width:16px;height:16px;border-radius:50%;background:#ffe94b;
+  position:absolute;left:2px;transition:.16s;
+}
+.theme-switch[data-dark="1"] .dot{left:18px;background:#2684d7;}
+.theme-switch .icon{position:absolute;left:5px;top:1px;font-size:1em;}
+.theme-switch[data-dark="1"] .icon{left:20px;color:#fff;}
+main {
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  width:100vw;min-height:100vh;
+}
+.setup-card {
+  background:var(--card-bg);padding:26px 18px 16px 18px;
+  border-radius:13px;box-shadow:var(--shadow);
+  width:100%;max-width:440px;margin:28px 0 17px 0;
+  display:flex;flex-direction:column;align-items:stretch;
+}
+section {margin:0 0 16px 0;}
+section legend {
+  font-size:1.03em;font-weight:500;
+  color:var(--primary);margin-bottom:1px;letter-spacing:0.02em;
+  border-left:4px solid var(--primary);padding-left:8px;
+}
+.form-group {margin-bottom:11px;}
+.form-row {display:flex;align-items:center;gap:7px;}
+input[type=text],input[type=number] {
+  padding:9px; border:1.1px solid #d0e0ed;border-radius:5px;
+  background:var(--input-bg); color:var(--text); font-size:1.06em;transition:.15s;width:100%;
+}
+input[type=text]:focus,input[type=number]:focus {border-color:var(--primary);}
+input.full-width {width:100%;}
+input.small-input {width:7ch;}
+input.medium-input {width:8ch;}
+input:invalid, .invalid {border-color:var(--danger)!important;background:#ffeaea!important;}
+input:valid, .valid {border-color:var(--success)!important;}
+input[readonly]{background:#eef4f8;}
+.copy-btn {
+  background:none;border:none;cursor:pointer;color:var(--primary);font-size:1.02em;margin-left:3px;
+}
+.checkbox-group {
+  display:flex;align-items:center;margin-bottom:8px;gap:7px;
+}
+.checkbox-group label {margin-left:4px;}
+input[type=checkbox] {accent-color: var(--primary);}
+.zone-pin-row{display:flex;align-items:center;gap:5px;margin-bottom:2px;}
+.zone-pin-row label {width:60px;}
+input[type=number].zone-pin-input {width:7ch;}
+.btn-row {
+  display:flex;gap:9px;margin-top:14px;flex-wrap:wrap;
+  justify-content:space-between;align-items:center;
+}
+.btn, .cancel-btn, .restore-btn {
+  border:none;padding:11px 0;border-radius:6px;font-size:1.08em;
+  font-weight:600;cursor:pointer;box-shadow:0 2px 6px #2e86ab14;
+  transition:background .17s,box-shadow .14s;
+  width:calc(50% - 6px);min-width:105px;
+}
+.btn {background:var(--primary);color:#fff;}
+.btn:hover {background:var(--primary-light);}
+.cancel-btn {background:#f3f3f3;color:var(--primary);}
+.cancel-btn:hover {background:#e1ebf1;}
+.restore-btn {background:var(--accent);color:#fff;}
+.restore-btn:hover {background:#e79c32;}
+@media (max-width:520px){
+  .setup-card{padding:7px 2px;}
+  .btn-row{flex-direction:column;gap:8px;}
+  .btn,.cancel-btn,.restore-btn{width:100%;min-width:0;}
+  .theme-switch{margin-left:0;}
+}
+input:focus,select:focus,button:focus {outline:2px solid var(--primary-light);}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{
+  -webkit-appearance:none;margin:0;
+}
+input[type=number]{appearance:textfield;}
+body[data-theme='dark'], body[data-theme='dark'] :root {
+  --bg: #181a1b !important;
+  --card-bg: #23262e !important;
+  --text: #f0f5f8 !important;
+  --header:#1b1e23 !important;
+  --input-bg:#23272a !important;
+  --shadow: 0 8px 24px rgba(0,0,0,0.32) !important;
+  --primary: #49b4fa !important;
+  --primary-light: #70d3ff !important;
+  --success:#8be68b !important;
+}
+body:not([data-theme='dark']), body:not([data-theme='dark']) :root {
+  --bg:#f5f7fa !important;
+  --card-bg:#fff !important;
+  --text:#1d2328 !important;
+  --header:#20242f !important;
+  --input-bg:#f9fcff !important;
+  --shadow: 0 8px 24px rgba(0,0,0,0.12) !important;
+  --primary: #2684d7 !important;
+  --primary-light: #49b4fa !important;
+  --success:#30be72 !important;
+}
+.setup-success,.setup-error {
+  display:block;margin:12px auto 8px auto;max-width:410px;
+  text-align:center;font-size:1.02em;font-weight:500;
+  padding:10px 8px;border-radius:8px;
+  animation:fadeIn .8s;
+}
+.setup-success{background:#e6ffe7;color:var(--success);}
+.setup-error{background:#fff6e5;color:var(--danger);}
+@keyframes fadeIn{from{opacity:0;transform:translateY(19px);}to{opacity:1;transform:translateY(0);}}
+  </style>
+  )rawliteral";
 
-  html += "<div class=\"container\"><h1>⚙️ System Setup</h1>";
-  html += "<form action=\"/configure\" method=\"POST\">";
+  html += "</head><body>";
+  // Header and Theme Toggle
+  html += R"rawliteral(
+<header>System Setup</header>
+<button id="toggle-darkmode-btn" aria-label="Toggle dark mode">
+  <span id="switchbox" class="theme-switch"><span class="dot"></span><span class="icon">●</span></span>
+</button>
+<main>
+<div class="setup-card">
+<form id="setupForm" action="/configure" method="POST" autocomplete="off">
+)rawliteral";
 
-  // API Key (full-width)
-  html += "<div class=\"form-group\"><label for=\"apiKey\">API Key</label>";
-  html += "<input class=\"full-width\" type=\"text\" id=\"apiKey\" name=\"apiKey\" "
-          "value=\"" + apiKey + "\" required></div>";
+  // Weather Section (NO icon)
+  html += R"rawliteral(
+<section>
+  <legend>Weather Settings</legend>
+  <div class="form-group form-row">
+    <input class="full-width" type="text" id="apiKey" name="apiKey"
+    value=")" + apiKey + R"(" required maxlength="64" autocomplete="off" inputmode="text" placeholder="API Key">
+    <button class="copy-btn" onclick="copyField('apiKey');return false;" title="Copy">Copy</button>
+    <span class="tooltip"><span class="tip">Your weather provider API key (OpenWeatherMap etc).</span></span>
+  </div>
+  <div class="form-group form-row">
+    <input class="full-width" type="text" id="city" name="city"
+    value=")" + city + R"(" required maxlength="32" autocomplete="off" inputmode="text" placeholder="City or OWM ID">
+    <button class="copy-btn" onclick="copyField('city');return false;" title="Copy">Copy</button>
+    <span class="tooltip"><span class="tip">City name or OWM City ID.</span></span>
+  </div>
+</section>
+)rawliteral";
 
-  // City ID (full-width)
-  html += "<div class=\"form-group\"><label for=\"city\">City ID</label>";
-  html += "<input class=\"full-width\" type=\"text\" id=\"city\" name=\"city\" "
-          "value=\"" + city + "\" required></div>";
+  // Time/Location Section (NO icon)
+  html += R"rawliteral(
+<section>
+  <legend>Time & Location</legend>
+  <div class="form-group form-row">
+    <input class="small-input" type="number" id="dstOffset" name="dstOffset"
+    min="-12" max="14" step="0.5"
+    value=")" + String(tzOffsetHours, 1) + R"(" required inputmode="decimal" placeholder="UTC Offset">
+    <span class="tooltip"><span class="tip">UTC offset for your region (e.g. +9.5 for Adelaide).</span></span>
+  </div>
+</section>
+)rawliteral";
 
-  // Timezone Offset (small)
-  html += "<div class=\"form-group\"><label for=\"dstOffset\">Timezone Offset (hrs)</label>";
-  html += "<input class=\"small-input\" type=\"number\" id=\"dstOffset\" name=\"dstOffset\" "
-          "min=\"-12\" max=\"14\" step=\"0.5\" "
-          "value=\"" + String(tzOffsetHours, 1) + "\" required></div>";
+  // Feature Toggles Section (minimal, no emoji)
+  html += R"rawliteral(
+<section>
+  <legend>Feature Toggles</legend>
+  <div class="checkbox-group">
+    <input type="checkbox" id="windCancelEnabled" name="windCancelEnabled" )"
+          + String(windDelayEnabled ? " checked" : "") + R"(>
+    <label for="windCancelEnabled">Enable Wind Delay</label>
+    <span class="tooltip"><span class="tip">Pause irrigation above wind threshold.</span></span>
+  </div>
+  <div class="form-group form-row">
+    <input class="small-input" type="number" id="windSpeedThreshold" name="windSpeedThreshold"
+    min="0" step="0.1"
+    value=")" + String(windSpeedThreshold, 1) + R"(" required inputmode="decimal" placeholder="m/s">
+    <span class="tooltip"><span class="tip">Wind speed (m/s) to pause watering.</span></span>
+  </div>
+  <div class="checkbox-group">
+    <input type="checkbox" id="rainDelay" name="rainDelay" )"
+          + String(rainDelayEnabled ? " checked" : "") + R"(>
+    <label for="rainDelay">Enable Rain Delay</label>
+    <span class="tooltip"><span class="tip">Pause on rain detection.</span></span>
+  </div>
+  <div class="checkbox-group">
+    <input type="checkbox" id="justUseTank" name="justUseTank" )"
+          + String(justUseTank ? " checked" : "") + R"(>
+    <label for="justUseTank">Only Use Tank</label>
+    <span class="tooltip"><span class="tip">Only irrigate with tank water.</span></span>
+  </div>
+  <div class="checkbox-group">
+    <input type="checkbox" id="justUseMains" name="justUseMains" )"
+          + String(justUseMains ? " checked" : "") + R"(>
+    <label for="justUseMains">Only Use Mains</label>
+    <span class="tooltip"><span class="tip">Only irrigate with mains supply.</span></span>
+  </div>
+</section>
+)rawliteral";
 
-  // Wind Speed Threshold (small)
-  html += "<div class=\"form-group\"><label for=\"windSpeedThreshold\">Wind Speed Threshold (m/s)</label>";
-  html += "<input class=\"small-input\" type=\"number\" id=\"windSpeedThreshold\" name=\"windSpeedThreshold\" "
-          "min=\"0\" step=\"0.1\" "
-          "value=\"" + String(windSpeedThreshold, 1) + "\" required></div>";
-
-  // Checkboxes
-  html += "<div class=\"checkbox-group\">"
-          "<input type=\"checkbox\" id=\"windCancelEnabled\" name=\"windCancelEnabled\""
-          + String(windDelayEnabled ? " checked" : "") + ">"
-          "<label for=\"windCancelEnabled\">Enable Wind Delay</label></div>";
-
-  html += "<div class=\"checkbox-group\">"
-          "<input type=\"checkbox\" id=\"rainDelay\" name=\"rainDelay\""
-          + String(rainDelayEnabled ? " checked" : "") + ">"
-          "<label for=\"rainDelay\">Enable Rain Delay</label></div>";
-
-  html += "<div class=\"checkbox-group\">"
-          "<input type=\"checkbox\" id=\"justUseTank\" name=\"justUseTank\""
-          + String(justUseTank ? " checked" : "") + ">"
-          "<label for=\"justUseTank\">Only Use Tank</label></div>";
-
-  html += "<div class=\"checkbox-group\">"
-          "<input type=\"checkbox\" id=\"justUseMains\" name=\"justUseMains\""
-          + String(justUseMains ? " checked" : "") + ">"
-          "<label for=\"justUseMains\">Only Use Mains</label></div>";
-
-  // Zone pin configuration (medium)
-  html += "<div class=\"form-group\"><label>Zone pins (If not using A6) Tank Pin IO36(Default)</label>";
+  // Zone Pins Section (no icon, hint on valid pins)
+  html += R"rawliteral(
+<section>
+  <legend>Zone Pins</legend>
+)rawliteral";
   for (uint8_t i = 0; i < Zone; i++) {
-    html += "Zone " + String(i+1) + ": "
-         + "<input class=\"medium-input\" type=\"number\" name=\"zonePin" + String(i) + "\" "
-         + "min=\"0\" max=\"39\" value=\"" + String(zonePins[i]) + "\"><br>";
+    html += "<div class='zone-pin-row'><label>Zone " + String(i+1) + ":</label>"
+      "<input class='zone-pin-input medium-input' type='number' name='zonePin" + String(i) + "' "
+      "min='0' max='39' value='" + String(zonePins[i]) + "' autocomplete='off' inputmode='numeric'></div>";
   }
-  html += "</div>";
+  html += "<div class='zone-pin-row'><label>Mains:</label>"
+       "<input class='zone-pin-input medium-input' type='number' id='mainsPin' name='mainsPin' min='0' max='39' value='" + String(mainsPin) + "' autocomplete='off' inputmode='numeric'></div>";
+  html += "<div class='zone-pin-row'><label>Tank:</label>"
+       "<input class='zone-pin-input medium-input' type='number' id='tankPin' name='tankPin' min='0' max='39' value='" + String(tankPin) + "' autocomplete='off' inputmode='numeric'></div>";
+  html += R"rawliteral(<span class="tooltip"><span class="tip">ESP32 valid GPIOs only. Avoid flash/boot pins.</span></span>
+</section>
+)rawliteral";
 
-  // Mains & Tank pins (medium)
-  html += "<div class=\"form-group\"><label for=\"mainsPin\">Mains-source pin (GPIO)</label>";
-  html += "<input class=\"medium-input\" type=\"number\" id=\"mainsPin\" name=\"mainsPin\" "
-          "min=\"0\" max=\"39\" value=\"" + String(mainsPin) + "\"></div>";
+  // Action buttons (sticky on mobile)
+  html += R"rawliteral(
+<div class="btn-row">
+  <button type="submit" class="btn">Save Settings</button>
+  <button type="button" class="cancel-btn" onclick="window.location.href='/'">Cancel</button>
+  <button type="button" class="restore-btn" onclick="restoreDefaults();">Restore Defaults</button>
+</div>
+</form>
+<div id="setup-msg"></div>
+</div>
+</main>
+)rawliteral";
 
-  html += "<div class=\"form-group\"><label for=\"tankPin\">Tank-source pin (GPIO)</label>";
-  html += "<input class=\"medium-input\" type=\"number\" id=\"tankPin\" name=\"tankPin\" "
-          "min=\"0\" max=\"39\" value=\"" + String(tankPin) + "\"></div>";
+  // --- Scripts (no change except for icon on dark mode switch)
+  html += R"rawliteral(<script>
+function setTheme(theme) {
+  var dark = (theme==='dark');
+  document.body.setAttribute('data-theme', dark ? 'dark' : 'light');
+  localStorage.setItem('theme', theme);
+  let sw = document.getElementById('switchbox');
+  sw.setAttribute('data-dark', dark ? '1' : '0');
+  sw.querySelector('.icon').textContent = dark ? '◑' : '●';
+  document.getElementById('toggle-darkmode-btn').ariaLabel = dark ? "Switch to light mode" : "Switch to dark mode";
+}
+function autoTheme() {
+  const stored = localStorage.getItem('theme');
+  if(stored==='dark') setTheme('dark');
+  else if(stored==='light') setTheme('light');
+  else if(window.matchMedia('(prefers-color-scheme: dark)').matches) setTheme('dark');
+  else setTheme('light');
+}
+window.addEventListener('DOMContentLoaded',function(){
+  autoTheme();
+  document.getElementById('toggle-darkmode-btn').onclick = function() {
+    const cur = document.body.getAttribute('data-theme');
+    setTheme(cur==='dark' ? 'light' : 'dark');
+  };
 
-  // Submit button
-  html += "<button type=\"submit\" class=\"btn\">Save Settings</button>";
+  // Copy to clipboard
+  window.copyField = function(id) {
+    var el = document.getElementById(id);
+    el.select && el.select(); el.setSelectionRange && el.setSelectionRange(0,9999);
+    navigator.clipboard && navigator.clipboard.writeText
+      ? navigator.clipboard.writeText(el.value)
+      : document.execCommand('copy');
+    showMsg('Copied!',true,1100);
+  };
 
-  // Close out
-  html += "</form></div></body></html>";
-  // — END HTML —
+  // Restore defaults (simulate; you can hook for actual)
+  window.restoreDefaults = function(){
+    document.getElementById('apiKey').value = '';
+    document.getElementById('city').value = '';
+    document.getElementById('dstOffset').value = '0.0';
+    document.getElementById('windSpeedThreshold').value = '7.5';
+    ['windCancelEnabled','rainDelay','justUseTank','justUseMains'].forEach(id=>{document.getElementById(id).checked=false;});
+    for(let i=0;i<)" + String(Zone) + R"(;++i)document.getElementsByName('zonePin'+i)[0].value='0';
+    document.getElementById('mainsPin').value='0';
+    document.getElementById('tankPin').value='0';
+    showMsg('Fields reset. Not saved yet.',true,1200);
+  };
+
+  // Live field validation
+  document.getElementById('setupForm').addEventListener('input', function(e){
+    let api = document.getElementById('apiKey');
+    let city = document.getElementById('city');
+    api.classList.toggle('invalid', api.value.trim()==='');
+    city.classList.toggle('invalid', city.value.trim()==='');
+    let pins = [];
+    for(let i=0;i<)" + String(Zone) + R"(;++i)pins.push(document.getElementsByName('zonePin'+i)[0].value);
+    pins.push(document.getElementById('mainsPin').value);
+    pins.push(document.getElementById('tankPin').value);
+    let dupe = pins.some((p,i)=>p&&pins.indexOf(p)!=i);
+    let inputs = document.querySelectorAll('.zone-pin-input, #mainsPin, #tankPin');
+    inputs.forEach(inp=>inp.classList.toggle('invalid',dupe||inp.value===''||inp.value<0||inp.value>39));
+    if(dupe)showMsg('Duplicate pin values detected!',false,1800);
+  });
+
+  // Save feedback (simulate, hook to server msg if desired)
+  document.getElementById('setupForm').onsubmit=function(e){
+    showMsg('Settings saved!',true,1100);
+  };
+
+  // Show messages (success/error)
+  window.showMsg = function(msg,ok,timeout){
+    let el=document.getElementById('setup-msg');
+    el.textContent=msg;
+    el.className=ok?'setup-success':'setup-error';
+    if(timeout)setTimeout(()=>{el.textContent='';el.className='';},timeout);
+  };
+});
+</script></body></html>)rawliteral";
 
   server.send(200, "text/html", html);
 }
+
 
 void handleLogPage() {  
   File f = LittleFS.open("/events.csv", "r");
@@ -1703,7 +2119,6 @@ void handleConfigure() {
   // 5) Then reboot
   ESP.restart();
 }
-
 
 
 
