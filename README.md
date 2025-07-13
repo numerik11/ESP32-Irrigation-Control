@@ -12,6 +12,26 @@ IO36 Default Analog pin for Tank Level Sensor on A6 and with ESP32 Boards.
 <img width="512" height="790" alt="image" src="https://github.com/user-attachments/assets/f77e35f3-2bdb-430a-921b-b675e6dc4dd3" />
 ---
 
+Key Features:
+
+Dashboard:
+
+Tank levels, weather (OpenWeatherMap), current zone status, rain/wind delays, and scheduled runs.
+
+Zone Management:
+
+Configure schedules for up to 4+ irrigation zones.
+
+Manual override buttons for each zone (“On”/“Off”).
+
+Setup Page:
+
+Set API keys, city/region, time offsets, wind/rain/tank options, and GPIO assignments.
+
+Other:
+
+Works with ESP8266 and ESP32 (Arduino framework).
+
 
 -Materials Required-
 
