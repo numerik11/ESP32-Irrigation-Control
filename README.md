@@ -32,6 +32,7 @@ Other:
 
 Works with ESP32 (Arduino IDE framework).
 
+----
 
 -Materials Required-
 
@@ -43,7 +44,6 @@ Works with ESP32 (Arduino IDE framework).
 3.) KC868 6 Channel relay board with case. Or ESP32 Controller with 6 Relay Module
 
 ----
-
 
 - Wire all solenoid wires/grounds to power source ground.
 
@@ -60,17 +60,11 @@ Works with ESP32 (Arduino IDE framework).
 ----
 
 
-
-----
-
 - Flashing Code to Controller - 
-
 
 To upload the project to the Kilcoy A6 or ESP32 board use Arduino IDE software, follow these steps.
 
-
 ----
-
 
 1. Install/Add the ESP32 Board in Arduino IDE
 
@@ -157,7 +151,7 @@ By following these steps, your ESP32-based smart irrigation system will be succe
 ---
 
 https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
-![image](https://github.com/user-attachments/assets/113cedeb-a453-42a8-809c-a522808daa87)
+![image](https://github.com/user-attachments/assets/113cedeb-a453-42a8-809c-a522808daa87) Kilkony KC868-K6
 
 ![51BA8viI0BL _SX522_](https://github.com/user-attachments/assets/3ca35811-27b2-4bfd-a91e-8748b7463eb3) Tank water level sensor
 
