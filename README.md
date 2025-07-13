@@ -16,7 +16,7 @@ IO36 Default Analog pin for Tank Level Sensor on A6 and with ESP32 Boards.
 -Materials Required-
 
 
-1.) 7 Core irrigation wire to run from controller to solenoid box
+1.) 7 Core irrigation wire to run from controller to solenoid valve box
 
 2.) 6 Solenoids (Powered by seperate AC12/24V source, depending on solenoid power reqirements) Ive used 20mm 12v DC Microsolenoids using the same power input scource of 12v 2a. 
 
