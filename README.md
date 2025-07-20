@@ -150,25 +150,39 @@ By following these steps, your ESP32-based smart irrigation system will be confi
 https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
 ![image](https://github.com/user-attachments/assets/113cedeb-a453-42a8-809c-a522808daa87)
 Kilkony KC868-K6
+
 ---
+
 ![51BA8viI0BL _SX522_](https://github.com/user-attachments/assets/3ca35811-27b2-4bfd-a91e-8748b7463eb3) 
-Tank water level sensor
+Tank level sensor
+
 ---
+
 ![download](https://github.com/user-attachments/assets/634f39fa-968c-493c-b1b5-f588702cd1ed) 
 Relays
+
 ---
+
 ![download](https://github.com/user-attachments/assets/b3d3e541-8df6-4f3f-af2c-38f72cae96a2)  
 ESP32 NodeMCU
+
 ---
+
 <img width="512" height="790" alt="image" src="https://github.com/user-attachments/assets/f77e35f3-2bdb-430a-921b-b675e6dc4dd3" /> 
 Home Page
+
 ---
+
 <img width="354" height="638" alt="image" src="https://github.com/user-attachments/assets/531b57cc-fbef-48b7-88c3-558be41420d7" />
 Setup
+
 ---
+
 <img width="343" height="294" alt="image" src="https://github.com/user-attachments/assets/64398358-6fa6-4831-9fb2-2bdc4a0b0a8e" />
 Tank Calibration
+
 ---
+
 <img width="758" height="584" alt="image" src="https://github.com/user-attachments/assets/c8ee1952-1950-4785-acd9-3eb0f2e94e7e" />
 Event Logger
 
