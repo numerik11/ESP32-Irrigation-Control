@@ -7,6 +7,8 @@ If other ESP32 is used it will detect the absent i2c conroller address on the A6
 
 IO36 Default Analog pin for Tank Level Sensor on A6 and with ESP32 Boards.
 
+Get a Free API Key at [openweathermap.org ](https://home.openweathermap.org/users/sign_up)
+
 
 ---
 <img width="512" height="790" alt="image" src="https://github.com/user-attachments/assets/f77e35f3-2bdb-430a-921b-b675e6dc4dd3" />
@@ -31,6 +33,7 @@ Set API keys, city/region, time offsets, wind/rain/tank options, and GPIO assign
 Other:
 ----
 Works with ESP32 (Arduino IDE framework).
+Tank Level calibration, save Empty and Full Readings.
 
 ----
 Materials Required:
