@@ -146,7 +146,7 @@ The OLED will show the IP its connected to on startup.
 
 Type this IP into a browser to access the user interface,
 
-Enter your details into the setup page (Openweathermap.org City and API Key, Timezone, ect.) one saved goto main page to setup and save times, days, ect.
+Enter your details into the setup page (City ID, API Key and Timezone) Once setup is saved goto home page to setup and save times, days, ect.
 
 <img width="236" height="58" alt="image" src="https://github.com/user-attachments/assets/eb369697-5fc7-436d-93eb-d64fb0faf5b2" /> - City ID
 
