@@ -3,16 +3,9 @@ Irrigation controller degsined to use KC868 6 relay module from Aliexpress.
 
 Can also be used with any ESP32 controller with a 6 relay module, you can assign pins in setup page.
 
-If other ESP32 is used it will detect the absent i2c conroller address on the A6 board and use GPIO, pins programmed in settings. 
-
 IO36 Default Analog pin for Tank Level Sensor on A6 and with ESP32 Boards.
 
 Get a Free API Key at [openweathermap.org ](https://home.openweathermap.org/users/sign_up)
-
-
----
-<img width="512" height="790" alt="image" src="https://github.com/user-attachments/assets/f77e35f3-2bdb-430a-921b-b675e6dc4dd3" /> 
----
 
 Key Features:
 ----
@@ -166,5 +159,14 @@ Relays
 ![download](https://github.com/user-attachments/assets/b3d3e541-8df6-4f3f-af2c-38f72cae96a2)  
 ESP32 NodeMCU
 
-
+---
+<img width="512" height="790" alt="image" src="https://github.com/user-attachments/assets/f77e35f3-2bdb-430a-921b-b675e6dc4dd3" /> 
+---
+Home Page 
+<img width="354" height="638" alt="image" src="https://github.com/user-attachments/assets/531b57cc-fbef-48b7-88c3-558be41420d7" />
+Setup
+<img width="343" height="294" alt="image" src="https://github.com/user-attachments/assets/64398358-6fa6-4831-9fb2-2bdc4a0b0a8e" />
+Tank Calibration
+<img width="758" height="584" alt="image" src="https://github.com/user-attachments/assets/c8ee1952-1950-4785-acd9-3eb0f2e94e7e" />
+Event Logger
 
