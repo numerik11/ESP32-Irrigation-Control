@@ -3,7 +3,7 @@ Irrigation controller degsined to use KC868 6 relay module from Aliexpress.
 
 Can also be used with any ESP32 controller with a 6 relay module, you can assign pins in setup page.
 
-IO36 Default Analog pin for Tank Level Sensor on A6 and with ESP32 Boards.
+IO36 is Default Analog pin for Tank Level Sensor on A6 and with ESP32 Boards.
 
 Get a Free API Key at [openweathermap.org ](https://home.openweathermap.org/users/sign_up)
 
