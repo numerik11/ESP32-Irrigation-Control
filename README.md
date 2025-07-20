@@ -144,13 +144,13 @@ You should now see "ESPIrrigationAP" in your wifi menu connect to it, the wifi m
 
 The OLED will show the IP its connected to on startup. 
 
-Type this IP into a browser to access the user interface,
+Type this IP into a browser to access the irrigation control homepage goto setup page,
 
 Enter your details into the setup page (City ID, API Key and Timezone) Once setup is saved goto home page to setup and save times, days, ect.
 
 <img width="236" height="58" alt="image" src="https://github.com/user-attachments/assets/eb369697-5fc7-436d-93eb-d64fb0faf5b2" /> - City ID
 
-By following these steps, your ESP32-based smart irrigation system will be successfully uploaded and configured. If you encounter any issues or need further clarification, feel free to ask!
+By following these steps, your ESP32-based smart irrigation system will be configured. If you encounter any issues or need further clarification, feel free to ask!
 
 ---
 
