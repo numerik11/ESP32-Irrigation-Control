@@ -18,7 +18,7 @@ Dashboard:
 ----
 Tank levels, weather (OpenWeatherMap), current zone status, rain/wind delays, and scheduled runs.
 
-Zone Management:
+Zones:
 ----
 Configure schedules for up to 4+ irrigation zones.
 
