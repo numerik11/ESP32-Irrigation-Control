@@ -207,7 +207,7 @@ void setup() {
   while (now < 1000000000) {
   delay(500);
   now = time(nullptr);
-}
+ }
 
   // OTA & Web Server
   ArduinoOTA.begin();
@@ -386,7 +386,7 @@ void loop() {
   else {
     HomeScreen();
   }
-}
+ }
 
   delay(100);
 }
@@ -1193,15 +1193,15 @@ void handleRoot() {
   String html;
   html.reserve(28 * 1024);
   html += R"(
-<!DOCTYPE html>
-<html lang='en'>
-<head>
+ <!DOCTYPE html>
+ <html lang='en'>
+ <head>
   <meta charset='UTF-8'>
   <meta name='viewport' content='width=device-width, initial-scale=1.0'>
   <title>ESP32 Irrigation System</title>
   <link href='https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap' rel='stylesheet'>
   <style>
-:root {
+ :root {
   --primary: #1976d2;
   --danger: #e03e36;
   --success: #32c366;
@@ -1212,28 +1212,28 @@ void handleRoot() {
   --footer: #fafdff4b;
   --tank-gradient: linear-gradient(90deg, #32c366 0%, #ffe94b 65%, #e03e36 100%);
   --shadow: 0 2px 16px rgba(80,160,255,.08);
-}
-body {
+ }
+ body {
   font-family:'Roboto',sans-serif;
   background:var(--bg);
   color:var(--font);
   margin:0;
   transition: background .2s, color .2s;
-}
-header {
+ }
+ header {
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:10px;padding:22px 0 10px 0;background:var(--primary);color:#fff;
   border-radius:0 0 18px 18px;box-shadow:0 2px 8px #1976d241;
-}
-.container {
+ }
+ .container {
   max-width: 1040px;
   margin: 0 auto;
   padding: 22px 10px 14px 10px;
   display: flex;
   flex-direction: column;
   align-items: center;
-}
-.summary-row {
+ }
+ .summary-row {
   display: flex;
   flex-wrap: wrap;
   gap: 18px;
@@ -1241,8 +1241,8 @@ header {
   align-items: flex-start;
   width: 100%;
   margin-bottom: 32px;
-}
-.summary-block {
+ }
+ .summary-block {
   background: var(--card);
   border-radius: 14px;
   box-shadow: var(--shadow);
@@ -1258,31 +1258,31 @@ header {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-}
-.summary-block .icon { font-size:2.1em; margin-bottom: 3px; display:block; }
-.tank-row progress[value] {
+ }
+ .summary-block .icon { font-size:2.1em; margin-bottom: 3px; display:block; }
+ .tank-row progress[value] {
   width: 60px; height: 13px; vertical-align:middle; border-radius:8px; background:#e9ecef;
   box-shadow: 0 1.5px 8px #32c36624 inset;
   margin-bottom: 3px;
-}
-body[data-theme='dark'] .tank-row progress[value],
-body[data-theme='dark'] .tank-row progress[value]::-webkit-progress-bar {
-  background: #222 !important;
-}
-.tank-row progress[value]::-webkit-progress-bar { background: #e9ecef; border-radius:8px; }
-.tank-row progress[value]::-webkit-progress-value {
+ }
+ body[data-theme='dark'] .tank-row progress[value],
+ body[data-theme='dark'] .tank-row progress[value]::-webkit-progress-bar {
+ background: #222 !important;
+ }
+ .tank-row progress[value]::-webkit-progress-bar { background: #e9ecef; border-radius:8px; }
+ .tank-row progress[value]::-webkit-progress-value {
   background: var(--tank-gradient); border-radius:8px; transition:width .4s;
   animation: tankPulse 2.5s linear infinite alternate;
-}
-.tank-row progress[value]::-moz-progress-bar {
+ }
+ .tank-row progress[value]::-moz-progress-bar {
   background: var(--tank-gradient); border-radius:8px;
-}
-@keyframes tankPulse {
+ }
+ @keyframes tankPulse {
   0% { box-shadow:0 0 0 #32c36622;}
   60%{ box-shadow:0 0 12px #ffe94b77;}
   100%{ box-shadow:0 0 16px #e03e3665;}
-}
-.active-badge {
+ }
+ .active-badge {
   color: var(--success);
   font-weight:700;
   padding:2px 10px;
@@ -1293,13 +1293,13 @@ body[data-theme='dark'] .tank-row progress[value]::-webkit-progress-bar {
   display:inline-block;
   font-size:1em;
   margin-top:2px;
-}
-body[data-theme='dark'] .active-badge { background:#1e4220; }
-@keyframes statusGlow {
+ }
+ body[data-theme='dark'] .active-badge { background:#1e4220; }
+ @keyframes statusGlow {
   0% { box-shadow: 0 0 8px #32c36677;}
   100% { box-shadow: 0 0 16px #32c366cc, 0 0 25px #ffe94b66;}
-}
-.inactive-badge {
+ }
+ .inactive-badge {
   color: #ccc;
   font-weight:700;
   background: #f4f4f4;
@@ -1307,23 +1307,23 @@ body[data-theme='dark'] .active-badge { background:#1e4220; }
   padding:2px 10px;
   font-size:1em;
   margin-top:2px;
-}
-body[data-theme='dark'] .inactive-badge { background:#24262c;color:#666;}
-.zone-status-on {
+ }
+ body[data-theme='dark'] .inactive-badge { background:#24262c;color:#666;}
+ .zone-status-on {
   color: var(--success);
   font-weight: 600;
   animation: statusGlow 1.5s ease-in-out infinite alternate;
   text-shadow:0 0 6px #32c36699;
-}
-.zone-status-off { color:#aaa; }
-.zones-wrapper {
+ }
+ .zone-status-off { color:#aaa; }
+ .zones-wrapper {
   display: flex;
   flex-wrap: wrap;
   gap: 22px;
   justify-content: center;
   width: 100%;
-}
-.zone-container {
+ }
+ .zone-container {
   border: 1.6px solid var(--neutral);
   background: var(--card);
   border-radius: 13px;
@@ -1337,16 +1337,16 @@ body[data-theme='dark'] .inactive-badge { background:#24262c;color:#666;}
   max-width: 340px;
   margin-bottom: 8px;
   text-align: center;
-}
-.time-duration-container {
+ }
+ .time-duration-container {
   display: flex;
   flex-direction: column;
   gap: 9px;
   width: 100%;
   align-items: center;
   margin: 8px 0;
-}
-.enable-input {
+ }
+ .enable-input {
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -1354,14 +1354,14 @@ body[data-theme='dark'] .inactive-badge { background:#24262c;color:#666;}
   justify-content: center;
   width: 100%;
   margin-bottom: 0;
-}
-.days-container, .manual-control-container {
+ }
+ .days-container, .manual-control-container {
   justify-content: center;
   width: 100%;
   display: flex;
-}
-.days-container { gap:7px; flex-wrap:wrap; }
-.checkbox-container {
+ }
+ .days-container { gap:7px; flex-wrap:wrap; }
+ .checkbox-container {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1370,80 +1370,80 @@ body[data-theme='dark'] .inactive-badge { background:#24262c;color:#666;}
   padding: 2px 7px;
   transition: background .19s;
   justify-content: center;
-}
-.checkbox-container:hover, .checkbox-container:focus-within {
+ }
+ .checkbox-container:hover, .checkbox-container:focus-within {
   background: #e9f2fe;
-}
-body[data-theme='dark'] .checkbox-container:hover, body[data-theme='dark'] .checkbox-container:focus-within {
+ }
+ body[data-theme='dark'] .checkbox-container:hover, body[data-theme='dark'] .checkbox-container:focus-within {
   background: #263241;
-}
-.checkbox-container input[type='checkbox']:checked+label {
+ }
+ .checkbox-container input[type='checkbox']:checked+label {
   background: #1976d2; color:#fff; border-radius:5px; padding:2px 7px;
   font-weight:600; box-shadow:0 1px 5px #1976d261;
   transition:background .17s;
-}
-.checkbox-container label { cursor:pointer; padding:2px 2px; transition:background .14s, color .14s;}
-input[type='checkbox'] { accent-color: #1976d2; }
-.enable-input input[type='checkbox'] { width:1.2em;height:1.2em;}
-input[type='number'] {
+ }
+ .checkbox-container label { cursor:pointer; padding:2px 2px; transition:background .14s, color .14s;}
+ input[type='checkbox'] { accent-color: #1976d2; }
+ .enable-input input[type='checkbox'] { width:1.2em;height:1.2em;}
+ input[type='number'] {
   font-size:1.07em; padding:4px 7px; border-radius:6px; border:1.1px solid #b6c8e2; width:4.3em; margin-left:4px;
   text-align: center;
   background: var(--card);
   color: var(--font);
   transition: background .2s, color .2s, border .15s;
-}
-label { margin-right:2px; }
-button, input[type='submit'] {
+ }
+ label { margin-right:2px; }
+ button, input[type='submit'] {
   background: var(--primary); color: #fff; font-weight: 500; border: none;
   border-radius: 9px; padding: 8px 20px; font-size: 1em; cursor: pointer;
   transition: background .16s, box-shadow .17s, transform .11s;
   box-shadow:0 2px 6px #1976d224;
   text-align: center;
-}
-button:active { transform:scale(0.97);}
-button[disabled], .manual-control-container button[disabled] {
+ }
+ button:active { transform:scale(0.97);}
+ button[disabled], .manual-control-container button[disabled] {
   background: #d4dbe0; color: #888; cursor:not-allowed; box-shadow:none;
-}
-.manual-control-container .turn-on-btn:not([disabled]) {background: var(--success);}
-.manual-control-container .turn-off-btn:not([disabled]) {background: var(--danger);}
-.footer-links {
+ }
+ .manual-control-container .turn-on-btn:not([disabled]) {background: var(--success);}
+ .manual-control-container .turn-off-btn:not([disabled]) {background: var(--danger);}
+ .footer-links {
   border-top: 1.5px solid #dae7f5;
   margin: 38px 0 0 0; padding-top:18px;
   text-align:center; font-size:1.09em;
   background: var(--footer);
   border-radius:0 0 12px 12px;
   transition:background .2s;
-}
-@media(max-width:820px){
+ }
+ @media(max-width:820px){
   .container{padding:9px;}
   .zones-wrapper{flex-direction: column;align-items:center;}
   .summary-row{gap:10px;}
-}
-@media(max-width:520px){
+ }
+ @media(max-width:520px){
   .summary-block{min-width:80px;font-size:1em;}
   .zone-container{padding:7px 4px;}
   .footer-links{font-size:.99em;}
-}
-/* --- PLACE THESE LAST! --- */
-body[data-theme='dark'], body[data-theme='dark'] :root {
+ }
+ /* --- PLACE THESE LAST! --- */
+ body[data-theme='dark'], body[data-theme='dark'] :root {
   --bg: #181a1b !important;
   --card: #20252a !important;
   --font: #f5f7fa !important;
   --footer: #202830 !important;
   --neutral: #394b5b !important;
   --shadow: 0 2px 16px rgba(20,32,45,.12) !important;
-}
-body:not([data-theme='dark']), body:not([data-theme='dark']) :root {
+ }
+ body:not([data-theme='dark']), body:not([data-theme='dark']) :root {
   --bg: #f5f7fa !important;
   --card: #fff !important;
   --font: #1a1a1a !important;
   --footer: #fafdff4b !important;
   --neutral: #bed9ff !important;
   --shadow: 0 2px 16px rgba(80,160,255,.08) !important;
-}
-  </style>
-</head>
-<body>
+ }
+  </style> 
+ </head>
+ <body>
   <header>
     <span style='font-size:1.75em;font-weight:700;'>💧ESP32 Irrigation Dashboard</span>
     <span style='font-size:1.13em;'>
@@ -1543,7 +1543,7 @@ body:not([data-theme='dark']), body:not([data-theme='dark']) :root {
 
   // --- SCRIPTS ---
   html += R"(<script>
-function updateClockAndDate(){
+ function updateClockAndDate(){
   const now=new Date();
   const h=now.getHours().toString().padStart(2,'0');
   const m=now.getMinutes().toString().padStart(2,'0');
@@ -1553,11 +1553,11 @@ function updateClockAndDate(){
   const mo=(now.getMonth()+1).toString().padStart(2,'0');
   const y=now.getFullYear();
   document.getElementById('date').textContent=d+'/'+mo+'/'+y;
-}
-setInterval(updateClockAndDate,1000);
+ }
+ setInterval(updateClockAndDate,1000);
 
-// --- Robust Dark Mode Toggle ---
-function setTheme(theme) {
+ // --- Robust Dark Mode Toggle ---
+ function setTheme(theme) {
   if(theme==='dark') {
     document.body.setAttribute('data-theme','dark');
     localStorage.setItem('theme', 'dark');
@@ -1567,15 +1567,15 @@ function setTheme(theme) {
     localStorage.setItem('theme', 'light');
     document.getElementById('toggle-darkmode-btn').textContent = "🌗 Dark Mode";
   }
-}
-function autoTheme() {
+ }
+ function autoTheme() {
   const stored = localStorage.getItem('theme');
   if(stored==='dark') setTheme('dark');
   else if(stored==='light') setTheme('light');
   else if(window.matchMedia('(prefers-color-scheme: dark)').matches) setTheme('dark');
   else setTheme('light');
-}
-window.addEventListener('DOMContentLoaded',()=>{
+ }
+ window.addEventListener('DOMContentLoaded',()=>{
   autoTheme();
   document.getElementById('toggle-darkmode-btn').onclick = function() {
     const cur = document.body.getAttribute('data-theme')==='dark' ? 'dark' : 'light';
@@ -1596,7 +1596,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   });
   const tb=document.getElementById('toggle-backlight-btn');
   if(tb){tb.addEventListener('click',()=>{fetch('/toggleBacklight',{method:'POST'}).then(r=>r.text()).then(alert);});}
-});
+ });
     </script></body></html>)";
   server.send(200, "text/html", html);
 }
@@ -1632,179 +1632,171 @@ void handleSubmit() {
 }
 
 void handleSetupPage() {
-  String html = "";
+  loadConfig();
+  String html;
 
-  // — HEADER & GLOBAL STYLES —
+  // Header and CSS
   html += "<!DOCTYPE html><html lang=\"en\"><head>";
-  html += "<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
+  html += "<meta charset=\"UTF-8\">";
+  html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
   html += "<title>Setup – Irrigation System</title>";
   html += "<link href=\"https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap\" rel=\"stylesheet\">";
   html += R"rawliteral(
   <style>
   :root {
-  --primary: #2684d7;
-  --primary-light: #49b4fa;
-  --bg: #f5f7fa;
-  --card-bg: #fff;
-  --text: #1d2328;
-  --shadow: 0 6px 22px rgba(0,0,0,0.12);
-  --header: #20242f;
-  --success: #30be72;
-  --danger: #d34242;
-  --input-bg: #f9fcff;
- }
- body {
-  margin:0;padding:0;
-  font-family:'Roboto',sans-serif;
-  background:var(--bg);
-  color:var(--text);
-  transition: background .22s, color .18s;
- }
- header {
-  position:sticky;top:0;
-  background:var(--header);
-  color:#fff;
-  padding:14px 0;
-  text-align:center;
-  font-size:1.4em;
-  font-weight:500;
-  box-shadow:0 2px 8px rgba(0,0,0,0.2);
- }
- #toggle-darkmode-btn {
-  position:fixed;top:12px;right:12px;
-  background:none;border:none;cursor:pointer;
-  width:40px;height:24px;
- }
- .theme-switch {
-  width:34px;height:16px;
-  background:#e4ebf0;
-  border-radius:12px;
-  border:2px solid #b1c9dd;
-  position:relative;
-  transition:background .2s, border-color .2s;
- }
- .theme-switch[data-dark="1"] {
-  background:#141c25;
-  border-color:var(--primary);
- }
- .theme-switch .dot {
-  position:absolute;
-  top:1px;left:1px;
-  width:14px;height:14px;
-  background:#ffe94b;
-  border-radius:50%;
-  transition:left .2s, background .2s;
- }
- .theme-switch[data-dark="1"] .dot {
-  left:18px;
-  background:var(--primary);
- }
- main {
-  display:flex;
-  justify-content:center;
-  padding:20px 10px;
- }
- .setup-card {
-  background:var(--card-bg);
-  padding:24px;
-  border-radius:8px;
-  box-shadow:var(--shadow);
-  width:100%;max-width:420px;
- }
- section {
-  margin-bottom:20px;
- }
- section legend {
-  font-weight:500;
-  font-size:1.05em;
-  color:var(--primary);
-  margin-bottom:6px;
-  padding-left:6px;
-  border-left:3px solid var(--primary);
- }
- .form-group { margin-bottom:12px; }
- .form-row { display:flex; gap:8px; align-items:center; }
- input[type=text],input[type=number] {
-   flex:1;
-  padding:8px;
-  border:1px solid #ccd8e6;
-  border-radius:4px;
-  background:var(--input-bg);
-  transition:border-color .15s;
- }
- input:focus { border-color:var(--primary); outline:none; }
- input.full-width { width:100%; }
- input.small-input { width:6ch; }
- .copy-btn {
-   background:none;
-  border:none;
-  color:var(--primary);
-  cursor:pointer;
-  font-size:0.95em;
- }
- .tooltip { position:relative; }
- .tooltip .tip {
-  visibility:hidden;
-  position:absolute; top:24px; left:0;
-  background:#333; color:#fff;
-  padding:6px; border-radius:4px;
-  font-size:.88em;
-  white-space:nowrap;
- }
- .tooltip:hover .tip { visibility:visible; }
- .checkbox-group {
-  display:flex; align-items:center; gap:6px;
-  margin-bottom:10px;
- }
- input[type=checkbox] { accent-color:var(--primary); }
- .zone-pin-row {
-  display:flex; align-items:center; gap:6px; margin-bottom:6px;
- }
- .zone-pin-row label { width:60px; }
- .zone-pin-input { width:6ch; }
- .btn-row {
-   display:flex; gap:8px; flex-wrap:wrap; margin-top:16px;
-  justify-content:space-between;
- }
- .btn, .cancel-btn, .restore-btn {
-   flex:1; min-width:100px;
-  padding:10px 0;
-  border:none;border-radius:4px;
-  font-weight:500;
-  cursor:pointer;
-  transition:background .18s;
- }
- .btn { background:var(--primary); color:#fff; }
- .btn:hover { background:var(--primary-light); }
- .cancel-btn { background:#e0e4e9; color:var(--text); }
- .cancel-btn:hover { background:#d0d4da; }
- .restore-btn { background:#ffaa3c; color:#fff; }
- .restore-btn:hover { background:#ffb95c; } 
-
- /*  dark mode tweaks */
- body[data-theme='dark'] {
-   background:#181a1b; color:#e3e7ea;
- }
- body[data-theme='dark'] .setup-card {
-   background:#23272e;
- }
- body[data-theme='dark'] input {
-   background:#2a2d34; color:#e3e7ea; border-color:#393d46;
- }
- body[data-theme='dark'] .cancel-btn {
-   background:#2a2d34; color:#e3e7ea;
- }
-
- / * messages */
- #setup-msg {
-   margin-top:12px; text-align:center; font-weight:500;
- }
- #setup-msg.success { color:var(--success); }
- #setup-msg.error   { color:var(--danger); }
+    --primary: #2684d7;
+    --primary-light: #49b4fa;
+    --bg: #f5f7fa;
+    --card-bg: #fff;
+    --text: #1d2328;
+    --shadow: 0 6px 22px rgba(0,0,0,0.12);
+    --header: #20242f;
+    --success: #30be72;
+    --danger: #d34242;
+    --input-bg: #f9fcff;
+  }
+  body {
+    margin:0;padding:0;
+    font-family:'Roboto',sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    transition: background .22s, color .18s;
+  }
+  header {
+    position:sticky;top:0;
+    background:var(--header);
+    color:#fff;
+    padding:14px 0;
+    text-align:center;
+    font-size:1.4em;
+    font-weight:500;
+    box-shadow:0 2px 8px rgba(0,0,0,0.2);
+  }
+  #toggle-darkmode-btn {
+    position:fixed;top:12px;right:12px;
+    background:none;border:none;cursor:pointer;
+    width:40px;height:24px;
+  }
+  .theme-switch {
+    width:34px;height:16px;
+    background:#e4ebf0;
+    border-radius:12px;
+    border:2px solid #b1c9dd;
+    position:relative;
+    transition:background .2s, border-color .2s;
+  }
+  .theme-switch[data-dark="1"] {
+    background:#141c25;
+    border-color:var(--primary);
+  }
+  .theme-switch .dot {
+    position:absolute;
+    top:1px;left:1px;
+    width:14px;height:14px;
+    background:#ffe94b;
+    border-radius:50%;
+    transition:left .2s, background .2s;
+  }
+  .theme-switch[data-dark="1"] .dot {
+    left:18px;
+    background:var(--primary);
+  }
+  main {
+    display:flex;
+    justify-content:center;
+    padding:20px 10px;
+  }
+  .setup-card {
+    background:var(--card-bg);
+    padding:24px;
+    border-radius:8px;
+    box-shadow:var(--shadow);
+    width:100%;max-width:420px;
+  }
+  section {
+    margin-bottom:20px;
+  }
+  section legend {
+    font-weight:500;
+    font-size:1.05em;
+    color:var(--primary);
+    margin-bottom:6px;
+    padding-left:6px;
+    border-left:3px solid var(--primary);
+  }
+  .form-group { margin-bottom:12px; }
+  .form-row { display:flex; gap:8px; align-items:center; }
+  label { min-width:80px; }
+  input[type=text],input[type=number] {
+    flex:1;
+    padding:8px;
+    border:1px solid #ccd8e6;
+    border-radius:4px;
+    background:var(--input-bg);
+    transition:border-color .15s;
+  }
+  input:focus { border-color:var(--primary); outline:none; }
+  input.full-width { width:100%; }
+  input.small-input { width:6ch; }
+  .tooltip { position:relative; }
+  .tooltip .tip {
+    visibility:hidden;
+    position:absolute; top:24px; left:0;
+    background:#333; color:#fff;
+    padding:6px; border-radius:4px;
+    font-size:.88em;
+    white-space:nowrap;
+  }
+  .tooltip:hover .tip { visibility:visible; }
+  .checkbox-group {
+    display:flex; align-items:center; gap:6px;
+    margin-bottom:10px;
+  }
+  input[type=checkbox] { accent-color:var(--primary); }
+  .zone-pin-row {
+    display:flex; align-items:center; gap:6px; margin-bottom:6px;
+  }
+  .zone-pin-row label { width:60px; }
+  .zone-pin-input { width:6ch; }
+  .btn-row {
+    display:flex; gap:8px; flex-wrap:wrap; margin-top:16px;
+    justify-content:space-between;
+  }
+  .btn, .cancel-btn, .restore-btn {
+    flex:1; min-width:100px;
+    padding:10px 0;
+    border:none;border-radius:4px;
+    font-weight:500;
+    cursor:pointer;
+    transition:background .18s;
+  }
+  .btn { background:var(--primary); color:#fff; }
+  .btn:hover { background:var(--primary-light); }
+  .cancel-btn { background:#e0e4e9; color:var(--text); }
+  .cancel-btn:hover { background:#d0d4da; }
+  .restore-btn { background:#ffaa3c; color:#fff; }
+  .restore-btn:hover { background:#ffb95c; } 
+  body[data-theme='dark'] {
+    background:#181a1b; color:#e3e7ea;
+  }
+  body[data-theme='dark'] .setup-card {
+    background:#23272e;
+  }
+  body[data-theme='dark'] input {
+    background:#2a2d34; color:#e3e7ea; border-color:#393d46;
+  }
+  body[data-theme='dark'] .cancel-btn {
+    background:#2a2d34; color:#e3e7ea;
+  }
+  #setup-msg {
+    margin-top:12px; text-align:center; font-weight:500;
+  }
+  #setup-msg.success { color:var(--success); }
+  #setup-msg.error   { color:var(--danger); }
   </style>
   )rawliteral";
 
-  // — BODY & FORM —
+  // --- BODY ---
   html += "</head><body>";
   html += R"rawliteral(
  <header>System Setup</header>
@@ -1818,42 +1810,43 @@ void handleSetupPage() {
       <section>
         <legend>Weather Settings</legend>
         <div class="form-group form-row">
+          <label for="apiKey">API Key</label>
           <input class="full-width" type="text" id="apiKey" name="apiKey" value=")rawliteral"
        + apiKey +
        R"rawliteral(" required maxlength="64" placeholder="API Key">
-          <button class="copy-btn" onclick="copyField('apiKey');return false;">Copy</button>
           <span class="tooltip"><span class="tip">Your weather API key.</span></span>
         </div>
         <div class="form-group form-row">
+          <label for="city">City ID</label>
           <input class="full-width" type="text" id="city" name="city" value=")rawliteral"
        + city +
-       R"rawliteral(" required maxlength="32" placeholder="City or ID">
-          <button class="copy-btn" onclick="copyField('city');return false;">Copy</button>
-          <span class="tooltip"><span class="tip">City name or provider ID.</span></span>
+       R"rawliteral(" required maxlength="32" placeholder="City ID">
+          <span class="tooltip"><span class="tip">City ID or provider location ID.</span></span>
         </div>
       </section>
 
       <section>
         <legend>Time & Location</legend>
         <div class="form-group form-row">
+          <label for="dstOffset">UTC Offset</label>
           <input class="small-input" type="number" id="dstOffset" name="dstOffset"
             min="-12" max="14" step="0.5" value=")rawliteral"
        + String(tzOffsetHours,1) +
        R"rawliteral(" required placeholder="UTC Offset">
-          <span class="tooltip"><span class="tip">UTC offset (e.g. +9.5).</span></span>
+          <span class="tooltip"><span class="tip">e.g. +9.5</span></span>
         </div>
       </section>
 
       <section>
         <legend>Feature Toggles</legend>
         <div class="checkbox-group">
-          <input type="checkbox" id="windCancelEnabled" name="windCancelEnabled" )rawliteral
-       + String(windDelayEnabled?"checked":"") +
-       R"rawliteral(>
+          <input type="checkbox" id="windCancelEnabled" name="windCancelEnabled" 
+            )rawliteral" + String(windDelayEnabled ? " checked" : "") + R"rawliteral(>
           <label for="windCancelEnabled">Enable Wind Delay</label>
           <span class="tooltip"><span class="tip">Pause when wind is high.</span></span>
         </div>
         <div class="form-group form-row">
+          <label for="windSpeedThreshold">Wind Threshold</label>
           <input class="small-input" type="number" id="windSpeedThreshold" name="windSpeedThreshold"
             min="0" step="0.1" value=")rawliteral"
        + String(windSpeedThreshold,1) +
@@ -1861,22 +1854,19 @@ void handleSetupPage() {
           <span class="tooltip"><span class="tip">Threshold in m/s.</span></span>
         </div>
         <div class="checkbox-group">
-          <input type="checkbox" id="rainDelay" name="rainDelay" )rawliteral
-       + String(rainDelayEnabled?"checked":"") +
-       R"rawliteral(>
+          <input type="checkbox" id="rainDelay" name="rainDelay"
+            )rawliteral" + String(rainDelayEnabled ? " checked" : "") + R"rawliteral(>
           <label for="rainDelay">Enable Rain Delay</label>
           <span class="tooltip"><span class="tip">Pause on rain.</span></span>
         </div>
         <div class="checkbox-group">
-          <input type="checkbox" id="justUseTank" name="justUseTank" )rawliteral
-       + String(justUseTank?"checked":"") +
-       R"rawliteral(>
+          <input type="checkbox" id="justUseTank" name="justUseTank"
+            )rawliteral" + String(justUseTank ? " checked" : "") + R"rawliteral(>
           <label for="justUseTank">Only Use Tank</label>
         </div>
         <div class="checkbox-group">
-          <input type="checkbox" id="justUseMains" name="justUseMains" )rawliteral
-       + String(justUseMains?"checked":"") +
-       R"rawliteral(>
+          <input type="checkbox" id="justUseMains" name="justUseMains"
+            )rawliteral" + String(justUseMains ? " checked" : "") + R"rawliteral(>
           <label for="justUseMains">Only Use Mains</label>
         </div>
       </section>
@@ -1904,62 +1894,49 @@ void handleSetupPage() {
         </div>
       </section>
 
-      <div class="btn-row">
-        <button type="submit" class="btn">Save</button>
-        <button type="button" class="cancel-btn" onclick="location.href='/'">Cancel</button>
-        <button type="button" class="restore-btn" onclick="restoreDefaults()">Restore</button>
-      </div>
+  <div class="btn-row">
+    <button type="submit" class="btn">Save</button>
+    <button type="button" class="cancel-btn" onclick="location.href='/'">Home</button>
+    <button type="button" class="restore-btn" onclick="location.href='/tank'">Calibrate Tank</button>
+  </div>
     </form>
     <div id="setup-msg"></div>
   </div>
  </main>
  )rawliteral";
 
-  // — SCRIPTS (dark-mode, copy, restore, validate) —
+  // --- SCRIPTS: Dark mode, validation ---
   html += R"rawliteral(
  <script>
-  // Dark-mode toggle
-  function setTheme(dark) {
-    document.body.setAttribute('data-theme', dark ? 'dark' : 'light');
-    localStorage.setItem('theme', dark);
-    document.querySelector('.theme-switch').setAttribute('data-dark', dark ? '1' : '0');
-  }
-  document.getElementById('toggle-darkmode-btn').onclick = () => {
-    const isDark = document.body.getAttribute('data-theme')==='dark';
-    setTheme(!isDark);
-  };
-  // Init theme
-  setTheme(localStorage.getItem('theme')==='true' || 
-           window.matchMedia('(prefers-color-scheme: dark)').matches);
-
-  // Copy button
-  window.copyField = id => {
-    const el = document.getElementById(id);
-    el.select(); document.execCommand('copy');
-    showMsg('Copied!', true);
-  };
-
-  // Restore defaults
-  window.restoreDefaults = () => {
-    ['apiKey','city','dstOffset','windSpeedThreshold','mainsPin','tankPin']
-      .forEach(id => document.getElementById(id).value = '');
-    ['windCancelEnabled','rainDelay','justUseTank','justUseMains']
-      .forEach(id => document.getElementById(id).checked = false);
-    for(let i=0;i<)" + String(Zone) + R"(";i++){
-      document.getElementsByName('zonePin'+i)[0].value = '';
+  function setTheme(theme) {
+    if(theme==='dark') {
+      document.body.setAttribute('data-theme','dark');
+      localStorage.setItem('theme', 'dark');
+      document.getElementById('toggle-darkmode-btn').title = "Switch to light mode";
+      document.getElementById('toggle-darkmode-btn').innerHTML = "<span id='switchbox' class='theme-switch' data-dark='1'><span class='dot'></span></span>";
+    } else {
+      document.body.removeAttribute('data-theme');
+      localStorage.setItem('theme', 'light');
+      document.getElementById('toggle-darkmode-btn').title = "Switch to dark mode";
+      document.getElementById('toggle-darkmode-btn').innerHTML = "<span id='switchbox' class='theme-switch'><span class='dot'></span></span>";
     }
-    showMsg('Reset.', false);
-  };
-
-  // Simple feedback
-  function showMsg(txt, success=true) {
-    const msg = document.getElementById('setup-msg');
-    msg.textContent = txt;
-    msg.className = success ? 'success' : 'error';
-    setTimeout(()=>msg.textContent='', 2000);
   }
+  function autoTheme() {
+    const stored = localStorage.getItem('theme');
+    if(stored==='dark') setTheme('dark');
+    else if(stored==='light') setTheme('light');
+    else if(window.matchMedia('(prefers-color-scheme: dark)').matches) setTheme('dark');
+    else setTheme('light');
+  }
+  window.addEventListener('DOMContentLoaded',()=>{
+    autoTheme();
+    document.getElementById('toggle-darkmode-btn').onclick = function() {
+      const cur = document.body.getAttribute('data-theme')==='dark' ? 'dark' : 'light';
+      setTheme(cur==='dark' ? 'light' : 'dark');
+    };
+  });
 
-  // Live validation (minimal example)
+  // Simple feedback/validation (optional)
   document.getElementById('setupForm').addEventListener('input', e => {
     // highlight empty required
     ['apiKey','city'].forEach(id => {
@@ -2077,48 +2054,65 @@ void handleLogPage() {
 }
 
 void handleConfigure() {
-  // 1) Parse POSTed fields
-  apiKey             = server.arg("apiKey");
-  city               = server.arg("city");
-  tzOffsetHours      = server.arg("dstOffset").toFloat();
+  // --- Save the old API key to detect changes
+  String oldApiKey = apiKey;
+  bool shouldRestart = false;
+
+  // 1) Parse POST fields (field names must match your form!)
+  if (server.hasArg("apiKey")) apiKey = server.arg("apiKey");
+  if (server.hasArg("city"))   city   = server.arg("city");
+  if (server.hasArg("dstOffset")) tzOffsetHours = server.arg("dstOffset").toFloat();
+
+  // Checkbox logic
   rainDelayEnabled   = server.hasArg("rainDelay");
   windDelayEnabled   = server.hasArg("windCancelEnabled");
-  windSpeedThreshold = server.arg("windSpeedThreshold").toFloat();
   justUseTank        = server.hasArg("justUseTank");
   justUseMains       = server.hasArg("justUseMains");
+
+  windSpeedThreshold = server.arg("windSpeedThreshold").toFloat();
+
   for (int i = 0; i < Zone; i++) {
-    if (server.hasArg("zonePin" + String(i)))
+    if (server.hasArg("zonePin" + String(i))) {
       zonePins[i] = server.arg("zonePin" + String(i)).toInt();
+    }
   }
   if (server.hasArg("mainsPin")) mainsPin = server.arg("mainsPin").toInt();
   if (server.hasArg("tankPin"))  tankPin  = server.arg("tankPin").toInt();
 
-  // 2) Save to SPIFFS (no restart in saveConfig anymore)
+  // --- Only restart if the API key changed
+  if (apiKey != oldApiKey) shouldRestart = true;
+
   saveConfig();
+  loadConfig();
 
-  // 3) Build a confirmation page with a 5-second redirect back to "/"
-  String html = "<!DOCTYPE html><html lang=\"en\"><head>"
-              "<meta charset=\"UTF-8\">"
-              "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
-              "<meta http-equiv=\"refresh\" content=\"5;url=/\" />"
-              "<title>Settings Saved</title>"
-              "<style>"
-                "body{font-family:Arial,sans-serif;text-align:center;padding:40px;}"
-                "h1{color:#2E86AB;}p{font-size:1.1em;}"
-              "</style>"
-              "</head><body>"
-              "<h1>✅ Settings Saved</h1>"
-              "<p>Restarting… You’ll be returned to the home page shortly.</p>"
-              "</body></html>";
+  Serial.printf("[CONFIG] Saved - RainDelay:%d WindDelay:%d JustTank:%d JustMains:%d  RESTART:%d\n",
+    rainDelayEnabled, windDelayEnabled, justUseTank, justUseMains, shouldRestart);
 
+  // --- Confirmation and redirect back to setup
+  String html = "<!DOCTYPE html><html lang='en'><head>"
+                "<meta charset='UTF-8'>"
+                "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+                "<meta http-equiv='refresh' content='2;url=/setup' />"
+                "<title>Settings Saved</title>"
+                "<style>body{font-family:Arial,sans-serif;text-align:center;padding:40px;}h1{color:#2E86AB;}p{font-size:1.1em;}</style>"
+                "</head><body>"
+                "<h1>✅ Settings Saved</h1>"
+                "<p>Settings have been saved.<br>You’ll be returned to Setup.</p>"
+                "</body></html>";
   server.send(200, "text/html", html);
 
-  // 4) Give the browser a moment to receive the page
-  delay(500);
-
-  // 5) Then reboot
-  ESP.restart();
+  // --- Only restart if API key changed
+  if (shouldRestart) {
+    delay(1500);  // Let browser finish receiving the response
+    ESP.restart();
+  }
 }
+
+
+
+
+
+
 
 
 
