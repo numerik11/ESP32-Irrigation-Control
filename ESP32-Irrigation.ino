@@ -2079,14 +2079,11 @@ void handleConfigure() {
   if (server.hasArg("mainsPin")) mainsPin = server.arg("mainsPin").toInt();
   if (server.hasArg("tankPin"))  tankPin  = server.arg("tankPin").toInt();
 
-  // --- Only restart if the API key changed
-  if (apiKey != oldApiKey) shouldRestart = true;
-
   saveConfig();
   loadConfig();
 
   Serial.printf("[CONFIG] Saved - RainDelay:%d WindDelay:%d JustTank:%d JustMains:%d  RESTART:%d\n",
-    rainDelayEnabled, windDelayEnabled, justUseTank, justUseMains, shouldRestart);
+    rainDelayEnabled, windDelayEnabled, justUseTank, justUseMains);
 
   // --- Confirmation and redirect back to setup
   String html = "<!DOCTYPE html><html lang='en'><head>"
@@ -2105,6 +2102,12 @@ void handleConfigure() {
       delay(1500);  // Let browser finish receiving the response
     ESP.restart();
   }
+
+
+
+
+
+
 
 
 
