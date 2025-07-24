@@ -168,7 +168,7 @@ ESP32 NodeMCU
 
 ---
 
-<img width="512" height="790" alt="image" src="https://github.com/user-attachments/assets/f77e35f3-2bdb-430a-921b-b675e6dc4dd3" /> 
+<img width="491" height="793" alt="image" src="https://github.com/user-attachments/assets/f79826b6-1607-4128-b457-18ad0a56ca95" />
 Home Page
 
 ---
