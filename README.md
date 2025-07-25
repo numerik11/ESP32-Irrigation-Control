@@ -16,7 +16,6 @@ Tank levels, weather (OpenWeatherMap), current zone status, rain/wind delays, an
 Zones:
 ----
 Configure schedules for up to 4+ irrigation zones.
-
 Manual override buttons for each zone (“On”/“Off”).
 
 Setup Page:
@@ -33,9 +32,7 @@ Materials Required:
 ----
 
 - 7 Core irrigation wire to run from controller to solenoid valve box
-
-- 6 Solenoids (Powered by seperate AC12/24V source, depending on solenoid power reqirements) Ive used 20mm 12v DC Microsolenoids using the same power input scource of 12v 2a. 
-
+- 6 Irrigatoion Solenoids (Powered by seperate AC12/24V source, depending on irrigation solenoid power reqirements) Ive used 20mm 12v DC Microsolenoids using the same power input scource of 12v 1.5a. 
 - KC868 6 Channel relay board with case. Or ESP32 Controller with 6 Relay Module
 
 ----
@@ -43,15 +40,8 @@ Wiring Instrustions:
 ----
 
 - Wire all solenoid wires/grounds to power source ground.
-
-- Wire 24/12v to all "COM" screw termials for relays, then wire solenoids to the N.O screw terminals
-
-- Relays 1 - 4 = Zones 1 - 4 
-
-- Relay 5 - Mains, Relay 6 - Tank.
-
-- N.O - COM - N.C.
-
+- Wire 24/12v to all "COM" screw termials for relays, then wire irrigation solenoids to the N.O screw terminals
+- Relays 1 - 4 = Zones 1 - 4 - Relay 5 - Mains, Relay 6 - Tank.
 - Tank level sensor to A1. (3.3V MAX?)
 
 ----
@@ -65,15 +55,12 @@ Flashing Code to Controller:
 1. Install/Add the ESP32 Board in Arduino IDE
 
 Open Arduino IDE.
-
 Go to File > Preferences.
-
 In the Additional Boards Manager URLs field, add the following link (if it's not already there):
 
 https://dl.espressif.com/dl/package_esp32_index.json
 
 Go to Tools > Board > Board Manager.
-
 Search for ESP32 and click Install on the esp32 by Espressif Systems package.
 
 
@@ -82,15 +69,11 @@ Search for ESP32 and click Install on the esp32 by Espressif Systems package.
 2. Select the ESP32 Dev Module Board for K6 or select your esp module if using a different module.
 
 After installing the ESP32 board package, go to Tools > Board ESP32 Dev Module from the list of boards.
-
 Set the following options:
 
 Port: Select the COM port corresponding to your ESP32 board.
-
 Flash Frequency: 80 MHz (default).
-
 Upload Speed: 115200 or 921600.
-
 Partition Scheme: Default (4MB).
 
 
@@ -105,12 +88,10 @@ Go to PCF8574 Library Download below:
 https://www.kincony.com/forum/attachment.php?aid=1697
 
 Download the library file (it should be in .zip format).
-
 In Arduino IDE, go to Sketch > Include Library > Add .ZIP Library....
-
 Select the downloaded .zip file and click Open.
 
-This will add the PCF8574 library to your Arduino IDE.
+This will add the PCF8574 (K6-KC868) library to your Arduino IDE.
 
 
 ---
@@ -118,9 +99,7 @@ This will add the PCF8574 library to your Arduino IDE.
 4. Upload Your Code
 
 Now that your ESP32 board (ESP32 Dev Module Board for K6) is selected and all necessary libraries are installed, you can upload the code.
-
 Open ESP32-Irrigation.ino or Irrigation6Zone.ino file with Arduino IDE.
-
 Click the Upload arrow button in the Arduino IDE to upload the code to your ESP32 board.
 
 
@@ -137,16 +116,14 @@ Wifi manager page should popup automatically if not got Goto: https://192.168.4.
 6. Access the System
 
 The OLED will show the IP its connected to on startup. 
-
 Or type "arp -a" into command prompt and find it in the list.
-
 Type this IP into a browser to access the irrigation control homepage goto setup page,
-
 Enter your details into the setup page (City ID, API Key and Timezone) Once setup is saved goto home page to setup and save times, days, ect.
 
 <img width="236" height="58" alt="image" src="https://github.com/user-attachments/assets/eb369697-5fc7-436d-93eb-d64fb0faf5b2" /> - City ID
 
 By following these steps, your ESP32-based smart irrigation system will be configured. If you encounter any issues or need further clarification, feel free to ask!
+
 
 ---
 
@@ -170,12 +147,12 @@ Relays
 ESP32 NodeMCU
 
 ---
-<img width="602" height="788" alt="image" src="https://github.com/user-attachments/assets/e170f431-8a63-4cbf-b046-953546a97a58" />
-6 Zone
 
 <img width="491" height="793" alt="image" src="https://github.com/user-attachments/assets/f79826b6-1607-4128-b457-18ad0a56ca95" />
 4 Zone w/Tank/Main Control
 
+<img width="602" height="788" alt="image" src="https://github.com/user-attachments/assets/e170f431-8a63-4cbf-b046-953546a97a58" />
+6 Zone
 ---
 
 <img width="354" height="638" alt="image" src="https://github.com/user-attachments/assets/531b57cc-fbef-48b7-88c3-558be41420d7" />
@@ -191,3 +168,4 @@ Tank Calibration
 <img width="758" height="584" alt="image" src="https://github.com/user-attachments/assets/c8ee1952-1950-4785-acd9-3eb0f2e94e7e" />
 Event Logger
 
+---
