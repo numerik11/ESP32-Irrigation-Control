@@ -1,11 +1,11 @@
 Irrigation controller degsined to use KC868 6 relay module from Aliexpress.
 
 
-Can also be used with any ESP32 controller with a 6 relay module, you can assign pins in setup page.
+Can also be used with any ESP32 module with the addition of a 6 relay module, you can assign pins in the setup page.
+IO36 is Default Analog pin for Tank Level Sensor on K6-KC868 and with ESP32 Boards.
+Youll need to get a free API Key for weather data at: 
 
-IO36 is Default Analog pin for Tank Level Sensor on A6 and with ESP32 Boards.
-
-Get a Free API Key at [openweathermap.org ](https://home.openweathermap.org/users/sign_up)
+[openweathermap.org ](https://home.openweathermap.org/users/sign_up)
 
 Key Features:
 ----
@@ -60,10 +60,10 @@ In the Additional Boards Manager URLs field, add the following link (if it's not
 
 https://dl.espressif.com/dl/package_esp32_index.json
 
-Go to Tools > Board > Board Manager.
-Search for ESP32 and click Install on the esp32 by Espressif Systems package.
+Once added You should now be able to Search for ESP32 in boards manager,
+click Install on the esp32 by Espressif Systems package.
 
-
+Go to: Tools > Board > Board Manager.
 ---
 
 2. Select the ESP32 Dev Module Board for K6 or select your esp module if using a different module.
@@ -75,9 +75,6 @@ Port: Select the COM port corresponding to your ESP32 board.
 Flash Frequency: 80 MHz (default).
 Upload Speed: 115200 or 921600.
 Partition Scheme: Default (4MB).
-
-
-
 
 ---
 
