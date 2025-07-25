@@ -16,7 +16,7 @@ Tank levels, weather (OpenWeatherMap), current zone status, rain/wind delays, an
 
 Zones:
 ----
-Configure schedules for up to 4+ irrigation zones.
+Configure schedules for up to 6 irrigation zones.
 
 Manual override buttons for each zone (“On”/“Off”).
 
