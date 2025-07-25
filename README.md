@@ -3,6 +3,7 @@ Irrigation controller degsined to use KC868 6 relay module from Aliexpress.
 
 Can also be used with any ESP32 module with the addition of a 6 relay module, you can assign pins in the setup page.
 IO36 is Default Analog pin for Tank Level Sensor on K6-KC868 and with ESP32 Boards.
+
 Youll need to get a free API Key for weather data at: 
 
 [openweathermap.org ](https://home.openweathermap.org/users/sign_up)
@@ -16,6 +17,7 @@ Tank levels, weather (OpenWeatherMap), current zone status, rain/wind delays, an
 Zones:
 ----
 Configure schedules for up to 4+ irrigation zones.
+
 Manual override buttons for each zone (“On”/“Off”).
 
 Setup Page:
@@ -25,6 +27,7 @@ Set API keys, city/region, time offsets, wind/rain/tank options, and GPIO assign
 Other:
 ----
 Works with ESP32 (Arduino IDE framework).
+
 Tank Level calibration, save Empty and Full Readings.
 
 ----
@@ -32,8 +35,11 @@ Materials Required:
 ----
 
 - 7 Core irrigation wire to run from controller to solenoid valve box
-- 6 Irrigatoion Solenoids (Powered by seperate AC12/24V source, depending on irrigation solenoid power reqirements) Ive used 20mm 12v DC Microsolenoids using the same power input scource of 12v 1.5a. 
+  
+- 6 Irrigatoion Solenoids (Powered by seperate AC12/24V source, depending on irrigation solenoid power reqirements) Ive used 20mm 12v DC Microsolenoids using the same power input scource of 12v 1.5a.
+  
 - KC868 6 Channel relay board with case. Or ESP32 Controller with 6 Relay Module
+  
 
 ----
 Wiring Instrustions:
