@@ -137,6 +137,8 @@ You should now see "ESPIrrigationAP" in your wifi menu connect to it, the wifi m
 
 The OLED will show the IP its connected to on startup. 
 
+Or type "arp -a" into command prompt and find it in the list.
+
 Type this IP into a browser to access the irrigation control homepage goto setup page,
 
 Enter your details into the setup page (City ID, API Key and Timezone) Once setup is saved goto home page to setup and save times, days, ect.
