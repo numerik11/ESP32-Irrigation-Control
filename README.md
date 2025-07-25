@@ -167,9 +167,11 @@ Relays
 ESP32 NodeMCU
 
 ---
+<img width="602" height="788" alt="image" src="https://github.com/user-attachments/assets/e170f431-8a63-4cbf-b046-953546a97a58" />
+6 Zone
 
 <img width="491" height="793" alt="image" src="https://github.com/user-attachments/assets/f79826b6-1607-4128-b457-18ad0a56ca95" />
-Home Page
+4 Zone w/Tank/Main Control
 
 ---
 
