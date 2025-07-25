@@ -131,7 +131,8 @@ By following these steps, your ESP32-based smart irrigation system will be confi
 ---
 
 https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
-![image](https://github.com/user-attachments/assets/113cedeb-a453-42a8-809c-a522808daa87)
+<img width="997" height="955" alt="image" src="https://github.com/user-attachments/assets/bad47c5e-605c-4431-b262-8dc58fe497ab" />
+
 Kilkony KC868-K6
 
 ---
