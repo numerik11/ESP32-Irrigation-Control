@@ -117,19 +117,20 @@ This will add the PCF8574 library to your Arduino IDE.
 
 4. Upload Your Code
 
-Now that your ESP32 board is selected and the necessary libraries are installed, you can upload the project code.
+Now that your ESP32 board (ESP32 Dev Module Board for K6) is selected and all necessary libraries are installed, you can upload the code.
 
-Copy and paste the ESP32 irrigation system code (from the project description) into Arduino IDE.
+Open ESP32-Irrigation.ino or Irrigation6Zone.ino file with Arduino IDE.
 
-Click the Upload button in the Arduino IDE to upload the code to your ESP32 board.
+Click the Upload arrow button in the Arduino IDE to upload the code to your ESP32 board.
 
 
 ---
 
 5. Check for Successful Upload
 
-After the code is successfully uploaded, open the Serial Monitor (set to 115200 baud rate) to check for any output or errors.
-You should now see "ESPIrrigationAP" in your wifi menu connect to it, the wifi manager page should load automatically if not got Goto: https://192.168.4.1 scan for your wifi router select and input your password.
+After the code is successfully uploaded, you can open the Serial Monitor (set to 115200 baud rate) to check for any output or errors.
+You should now also see "ESPIrrigationAP" in your wifi menu on your phone or pc connect to it,
+Wifi manager page should popup automatically if not got Goto: https://192.168.4.1 then scan for your wifi router name select and input your password.
 
 ---
 
