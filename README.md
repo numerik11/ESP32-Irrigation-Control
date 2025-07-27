@@ -1,4 +1,4 @@
-Irrigation controller degsined to use KC868 6 relay module from Aliexpress.
+Irrigation controller degsined to use KC868-A6 6 relay module from Aliexpress.
 
 
 Can also be used with any ESP32 module with the addition of a 6 relay module, you can assign pins in the setup page.
