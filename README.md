@@ -54,7 +54,7 @@ Wiring Instrustions:
 Flashing Code to Controller:
 ----
 
-- To upload the project to the Kilcoy A6 or ESP32 board use Arduino IDE software, follow these steps.
+- To upload the project to the Kilcony A6 or ESP32 board use Arduino IDE software, follow these steps.
 
 ----
 
