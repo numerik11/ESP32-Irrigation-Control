@@ -36,7 +36,7 @@ Materials Required:
 
 - 7 Core irrigation wire to run from controller to solenoid valve box
   
-- 6 Irrigatoion Solenoids (Powered by seperate AC12/24V source, depending on irrigation solenoid power reqirements) Ive used 20mm 12v DC Microsolenoids using the same power input scource of 12v 1.5a.
+- 6 Irrigation Solenoids (Powered by seperate AC12/24V source, depending on irrigation solenoid power reqirements) Ive used 20mm 12v DC Microsolenoids using the same power input scource of 12v 1.5a.
   
 - KC868 6 Channel relay board with case. Or ESP32 Controller with 6 Relay Module
   
@@ -102,7 +102,7 @@ This will add the PCF8574 (K6-KC868) library to your Arduino IDE.
 4. Upload Your Code
 
 Now that your ESP32 board (ESP32 Dev Module Board for K6) is selected and all necessary libraries are installed, you can upload the code.
-Open ESP32-Irrigation.ino or Irrigation6Zone.ino file with Arduino IDE.
+Open ESP32-Irrigation4Zone.ino or ESP323-Irrigation6Zone.ino file with Arduino IDE.
 Click the Upload arrow button in the Arduino IDE to upload the code to your ESP32 board.
 
 
