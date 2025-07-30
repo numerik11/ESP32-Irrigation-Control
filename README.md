@@ -12,7 +12,7 @@ Key Features:
 ----
 Dashboard:
 ----
-Tank levels, weather (OpenWeatherMap), current zone status, rain/wind delays, and scheduled runs.
+Days, Start Times, Runtime, Tank level, Weather(OpenWeatherMap), Zone status, Rain/wind delays.
 
 Zones:
 ----
