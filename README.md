@@ -154,7 +154,7 @@ ESP32 NodeMCU
 ---
 
 <img width="491" height="793" alt="image" src="https://github.com/user-attachments/assets/f79826b6-1607-4128-b457-18ad0a56ca95" />
-4 Zone w/Tank/Main Control
+4 Zone w/Tank/Main Master Control
 
 <img width="621" height="816" alt="image" src="https://github.com/user-attachments/assets/55c5281c-fc18-4f83-958a-1e78213eee66" />
 6 Zone
