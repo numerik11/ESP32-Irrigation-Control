@@ -436,7 +436,7 @@ void initGpioFallback() {
   useGpioFallback = true;
   for (uint8_t i = 0; i < Zone; i++) {
     pinMode(zonePins[i], OUTPUT);
-    digitalWrite(zonePins[i], HIGH);
+    digitalWrite(zonePins[i], LOW);
   }
 }
 
@@ -578,53 +578,6 @@ void saveSchedule() {
     f.println();
   }
   f.close();
-}
-
-void logEvent(int zone, const char* eventType, const char* source, bool rainDelayed) {
-  updateCachedWeather();
-  DynamicJsonDocument js(512);
-  float temp = NAN, wind = NAN;
-  int hum = 0;
-  String cond = "?";
-  if (!deserializeJson(js, cachedWeatherData)) {
-    temp = js["main"]["temp"].as<float>();
-    hum  = js["main"]["humidity"].as<int>();
-    wind = js["wind"]["speed"].as<float>();
-    cond = js["weather"][0]["main"].as<const char*>();
-  }
-
-  // --- Log to CSV with weather ---
-  File f = LittleFS.open("/events.csv", "a");
-  if (!f) return;
-  time_t now = time(nullptr);
-  struct tm* t = localtime(&now);
-  char buf[200];
-  // Add weather columns: temp, hum, wind, cond
-  sprintf(buf,
-    "%04d-%02d-%02d %02d:%02d:%02d,Zone%d,%s,%s,%s,%.1f,%d,%.1f,%s\n",
-    t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
-    t->tm_hour, t->tm_min, t->tm_sec,
-    zone + 1,
-    eventType,
-    source,
-    rainDelayed ? "Active" : "Off",
-    temp,
-    hum,
-    wind,
-    cond.c_str()
-  );
-  f.print(buf);
-  f.close();
-}
-
-void handleClearEvents() {
-  // Delete the file (or truncate)
-  if (LittleFS.exists("/events.csv")) {
-    LittleFS.remove("/events.csv");
-  }
-  // Redirect back to the log page
-  server.sendHeader("Location", "/events", true);
-  server.send(302, "text/plain", "");
 }
 
 void updateCachedWeather() {
@@ -978,7 +931,7 @@ void turnOnZone(int z) {
   zoneActive[z]  = true;
 
   if (useGpioFallback)
-    digitalWrite(zonePins[z], LOW);
+    digitalWrite(zonePins[z], HIGH);
   else
     pcfOut.digitalWrite(valveChannel[z], LOW);
 
@@ -994,9 +947,9 @@ void turnOnZone(int z) {
 }
 
 void turnOffZone(int z) {
-  logEvent(z, "STOPPED", "-", (rainActive || windActive));
+  logEvent(z, "OFF", "-", (rainActive || windActive));
   if (useGpioFallback)
-    digitalWrite(zonePins[z], HIGH);
+    digitalWrite(zonePins[z], LOW);
   else
     pcfOut.digitalWrite(valveChannel[z], HIGH);
 
@@ -1016,7 +969,7 @@ void turnOnValveManual(int z) {
     zoneActive[z]  = true;
 
     if (useGpioFallback)
-      digitalWrite(zonePins[z], LOW);
+      digitalWrite(zonePins[z], HIGH);
     else
       pcfOut.digitalWrite(valveChannel[z], LOW);
 
@@ -1028,7 +981,7 @@ void turnOffValveManual(int z) {
   if (!zoneActive[z]) return;
 
   if (useGpioFallback)
-    digitalWrite(zonePins[z], HIGH);
+    digitalWrite(zonePins[z], LOW);
   else
     pcfOut.digitalWrite(valveChannel[z], HIGH);
 
@@ -1070,8 +1023,8 @@ void handleRoot() {
   tankPct = constrain(tankPct, 0, 100);
   bool tankLow = tankRaw < (tankEmptyRaw + (tankFullRaw-tankEmptyRaw) * 0.15f);
   String tankStatusStr = tankLow
-    ? "<span class='tank-status-low'>Low — Using Main</span>"
-    : "<span class='tank-status-normal'>Normal — Using Tank</span>";
+    ? "<span class='tank-status-low'>Tank Level Low</span>"
+    : "<span class='tank-status-normal'>Tank Level</span>";
 
   // --- HTML ---
   String html;
@@ -1812,6 +1765,67 @@ void handleSetupPage() {
   server.send(200, "text/html", html);
 }
 
+void handleConfigure() {
+  // Store old config for change detection
+  String oldApiKey = apiKey;
+  String oldCity   = city;
+  float  oldTz     = tzOffsetHours;
+
+  // Parse POST
+  if (server.hasArg("apiKey")) apiKey = server.arg("apiKey");
+  if (server.hasArg("city"))   city   = server.arg("city");
+  if (server.hasArg("dstOffset")) tzOffsetHours = server.arg("dstOffset").toFloat();
+
+  rainDelayEnabled   = server.hasArg("rainDelay");
+  windDelayEnabled   = server.hasArg("windCancelEnabled");
+  windSpeedThreshold = server.arg("windSpeedThreshold").toFloat();
+
+  for (int i = 0; i < Zone; i++)
+    if (server.hasArg("zonePin" + String(i)))
+      zonePins[i] = server.arg("zonePin" + String(i)).toInt();
+
+  saveConfig();
+  loadConfig(); // update RAM from saved file
+
+  Serial.printf("[CONFIG] Saved - RainDelay:%d WindDelay:%d\n",
+    rainDelayEnabled, windDelayEnabled);
+
+  // --- Only restart if network-dependent settings changed
+  bool needsRestart =
+    (apiKey != oldApiKey) ||
+    (city != oldCity) ||
+    (fabs(tzOffsetHours - oldTz) > 0.0001);
+
+  if (needsRestart) {
+    String html = "<!DOCTYPE html><html lang='en'><head>"
+      "<meta charset='UTF-8'>"
+      "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+      "<meta http-equiv='refresh' content='2;url=/setup' />"
+      "<title>Restarting</title>"
+      "<style>body{font-family:Arial,sans-serif;text-align:center;padding:40px;}h1{color:#2E86AB;}p{font-size:1.1em;}</style>"
+      "</head><body>"
+      "<h1>⚡ Restart Required</h1>"
+      "<p>Network or timezone settings changed.<br>Restarting system...</p>"
+      "</body></html>";
+    server.send(200, "text/html", html);
+    delay(1500);
+    ESP.restart();
+  } else {
+    // No restart needed
+    String html = "<!DOCTYPE html><html lang='en'><head>"
+      "<meta charset='UTF-8'>"
+      "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+      "<meta http-equiv='refresh' content='2;url=/setup' />"
+      "<title>Settings Saved</title>"
+      "<style>body{font-family:Arial,sans-serif;text-align:center;padding:40px;}h1{color:#2E86AB;}p{font-size:1.1em;}</style>"
+      "</head><body>"
+      "<h1>✅ Settings Saved</h1>"
+      "<p>Settings have been saved.<br>You’ll be returned to Setup.</p>"
+      "</body></html>";
+    server.send(200, "text/html", html);
+  }
+}
+
 void handleLogPage() {  
   File f = LittleFS.open("/events.csv", "r");
   if (!f) {
@@ -1914,64 +1928,50 @@ void handleLogPage() {
   server.send(200, "text/html", html);
 }
 
-void handleConfigure() {
-  // Store old config for change detection
-  String oldApiKey = apiKey;
-  String oldCity   = city;
-  float  oldTz     = tzOffsetHours;
-
-  // Parse POST
-  if (server.hasArg("apiKey")) apiKey = server.arg("apiKey");
-  if (server.hasArg("city"))   city   = server.arg("city");
-  if (server.hasArg("dstOffset")) tzOffsetHours = server.arg("dstOffset").toFloat();
-
-  rainDelayEnabled   = server.hasArg("rainDelay");
-  windDelayEnabled   = server.hasArg("windCancelEnabled");
-  windSpeedThreshold = server.arg("windSpeedThreshold").toFloat();
-
-  for (int i = 0; i < Zone; i++)
-    if (server.hasArg("zonePin" + String(i)))
-      zonePins[i] = server.arg("zonePin" + String(i)).toInt();
-
-  saveConfig();
-  loadConfig(); // update RAM from saved file
-
-  Serial.printf("[CONFIG] Saved - RainDelay:%d WindDelay:%d\n",
-    rainDelayEnabled, windDelayEnabled);
-
-  // --- Only restart if network-dependent settings changed
-  bool needsRestart =
-    (apiKey != oldApiKey) ||
-    (city != oldCity) ||
-    (fabs(tzOffsetHours - oldTz) > 0.0001);
-
-  if (needsRestart) {
-    String html = "<!DOCTYPE html><html lang='en'><head>"
-      "<meta charset='UTF-8'>"
-      "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
-      "<meta http-equiv='refresh' content='2;url=/setup' />"
-      "<title>Restarting</title>"
-      "<style>body{font-family:Arial,sans-serif;text-align:center;padding:40px;}h1{color:#2E86AB;}p{font-size:1.1em;}</style>"
-      "</head><body>"
-      "<h1>⚡ Restart Required</h1>"
-      "<p>Network or timezone settings changed.<br>Restarting system...</p>"
-      "</body></html>";
-    server.send(200, "text/html", html);
-    delay(1500);
-    ESP.restart();
-  } else {
-    // No restart needed
-    String html = "<!DOCTYPE html><html lang='en'><head>"
-      "<meta charset='UTF-8'>"
-      "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
-      "<meta http-equiv='refresh' content='2;url=/setup' />"
-      "<title>Settings Saved</title>"
-      "<style>body{font-family:Arial,sans-serif;text-align:center;padding:40px;}h1{color:#2E86AB;}p{font-size:1.1em;}</style>"
-      "</head><body>"
-      "<h1>✅ Settings Saved</h1>"
-      "<p>Settings have been saved.<br>You’ll be returned to Setup.</p>"
-      "</body></html>";
-    server.send(200, "text/html", html);
+void logEvent(int zone, const char* eventType, const char* source, bool rainDelayed) {
+  updateCachedWeather();
+  DynamicJsonDocument js(512);
+  float temp = NAN, wind = NAN;
+  int hum = 0;
+  String cond = "?";
+  if (!deserializeJson(js, cachedWeatherData)) {
+    temp = js["main"]["temp"].as<float>();
+    hum  = js["main"]["humidity"].as<int>();
+    wind = js["wind"]["speed"].as<float>();
+    cond = js["weather"][0]["main"].as<const char*>();
   }
+
+  // --- Log to CSV with weather ---
+  File f = LittleFS.open("/events.csv", "a");
+  if (!f) return;
+  time_t now = time(nullptr);
+  struct tm* t = localtime(&now);
+  char buf[200];
+  // Add weather columns: temp, hum, wind, cond
+  sprintf(buf,
+    "%04d-%02d-%02d %02d:%02d:%02d,Zone%d,%s,%s,%s,%.1f,%d,%.1f,%s\n",
+    t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+    t->tm_hour, t->tm_min, t->tm_sec,
+    zone + 1,
+    eventType,
+    source,
+    rainDelayed ? "Active" : "Off",
+    temp,
+    hum,
+    wind,
+    cond.c_str()
+  );
+  f.print(buf);
+  f.close();
+} 
+
+void handleClearEvents() {
+  // Delete the file (or truncate)
+  if (LittleFS.exists("/events.csv")) {
+    LittleFS.remove("/events.csv");
+  }
+  // Redirect back to the log page
+  server.sendHeader("Location", "/events", true);
+  server.send(302, "text/plain", "");
 }
 
