@@ -98,6 +98,21 @@ const uint8_t expanderAddrs[] = { 0x22, 0x24 }; // 0x22=input, 0x24=relays
 const uint8_t I2C_HEALTH_DEBOUNCE = 10;
 uint8_t i2cFailCount = 0;
 
+// --- Efficiency timers (tune as needed) ---
+static const uint32_t LOOP_SLEEP_MS     = 20;    // keep the CPU cool
+static const uint32_t I2C_CHECK_MS      = 1000;  // only if not useGpioFallback
+static const uint32_t TIME_QUERY_MS     = 1000;  // call time()/localtime() once per second
+static const uint32_t SCHEDULE_TICK_MS  = 1000;  // evaluate shouldStartZone once per second
+
+// --- Internal state for throttling ---
+static uint32_t lastI2cCheck      = 0;
+static uint32_t lastTimeQuery     = 0;
+static uint32_t lastScheduleTick  = 0;
+static bool     midnightDone      = false;
+
+// Cache the last known clock snapshot to avoid localtime() per loop
+static tm cachedTm = {};
+
 // -------------------------------
 // Prototypes
 // -------------------------------
@@ -173,7 +188,7 @@ void setup() {
   Serial.begin(115200);
 
   // Use one bus for everything, same pins as your working demo
-  I2Cbus.begin(I2C_SDA, I2C_SCL, 100000); // 400kHz OK for A6
+  I2Cbus.begin(I2C_SDA, I2C_SCL, 100000); // PCF8574 is standard-mode (100kHz)
 
   if (!LittleFS.begin()) {
     Serial.println("⚠ LittleFS mount failed; formatting...");
@@ -194,17 +209,23 @@ void setup() {
 
   // —— PCF8574 init or GPIO fallback ——
   if (!initExpanders()) {
-  Serial.println("⚠ PCF8574 relays not found at 0x24. Switching to GPIO fallback.");
-  initGpioFallback();         // <— IMPORTANT: configure pins
-  useGpioFallback = true;
+    Serial.println("⚠ PCF8574 relays not found at 0x24. Switching to GPIO fallback.");
+    initGpioFallback();         // <— configure pins for fallback
+    useGpioFallback = true;
   } else {
-  useGpioFallback = false;
-  // optional sanity pulse to confirm relays are alive
-  Serial.println("[I2C] sanity pulse relays P0..P1");
-  pcfOut.digitalWrite(P0, LOW); delay(120); pcfOut.digitalWrite(P0, HIGH);
-  pcfOut.digitalWrite(P1, LOW); delay(120); pcfOut.digitalWrite(P1, HIGH);
-  }
+    useGpioFallback = false;
 
+    // optional sanity pulse to confirm relays are alive
+    Serial.println("[I2C] sanity pulse relays P0..P1");
+    pcfOut.digitalWrite(P0, LOW); delay(120); pcfOut.digitalWrite(P0, HIGH);
+    pcfOut.digitalWrite(P1, LOW); delay(120); pcfOut.digitalWrite(P1, HIGH);
+
+    // >>> ONE-TIME I2C HEALTH CHECK (runs only at startup)
+    #ifdef DEBUG
+    Serial.println("[I2C] one-time health check at startup");
+    #endif
+    checkI2CHealth();    
+  }
 
   pinMode(LED_PIN, OUTPUT);
 
@@ -217,13 +238,13 @@ void setup() {
 
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
-  display.setTextSize(2);
+  display.setTextSize(1);
   display.setCursor(0,10);
   display.print("Connect To");
   display.setCursor(0,30);
-  display.print("A6-Irrigation");
+  display.print("ESPIrrigationAP");
   display.setCursor(0,50);
-  display.setTextSize(1);
+  display.setTextSize(1.5);
   display.print("Goto: http://192.168.4.1");
   display.display();
 
@@ -241,7 +262,7 @@ void setup() {
     display.setTextSize(2);
     display.setCursor(0,0);
     display.print("Connected!");
-    display.setTextSize(1);
+    display.setTextSize(2);
     display.setCursor(0,20);
     display.print(WiFi.localIP().toString());
     display.display();
@@ -341,7 +362,7 @@ void setup() {
     server.send(200, "text/plain", s);
   });
 
-  // Inputs peek (debug)
+  // Outputs peek (debug)
   server.on("/outputs", HTTP_GET, [](){
     String s;
     for (uint8_t ch = 0; ch <= 5; ch++) {
@@ -354,86 +375,115 @@ void setup() {
 }
 
 void loop() {
-  unsigned long now = millis();
+  const uint32_t now = millis();
 
+  // Lightweight service calls
   ArduinoOTA.handle();
   server.handleClient();
   wifiCheck();
 
-  if (!useGpioFallback) checkI2CHealth();
+  // Update rain/wind flags once per loop
+  checkWindRain();
 
+  // --- Rain/Wind forced stop ---
   if (rainActive || windActive) {
     for (int z = 0; z < Zone; ++z) {
       if (zoneActive[z]) {
         turnOffZone(z);
         Serial.printf("Zone %d forcibly stopped due to %s\n",
-                      z+1, rainActive ? "rain" : "wind");
+                      z + 1, rainActive ? "rain" : "wind");
       }
     }
-    delay(1000);
+    // Show rain/wind screen without blocking
+    if (now - lastScreenRefresh >= SCREEN_REFRESH_MS) {
+      lastScreenRefresh = now;
+      RainScreen();
+    }
+    delay(20); // short pause to keep OTA/web responsive
     return;
   }
 
-  // Midnight reset of minute-checks
-  time_t nowTime = time(nullptr);
-  struct tm* nowTm = localtime(&nowTime);
-  if (nowTm->tm_hour == 0 && nowTm->tm_min == 0) {
-    memset(lastCheckedMinute, -1, sizeof(lastCheckedMinute));
+  // --- Midnight reset (once per day) ---
+  static bool midnightDone = false;
+  static tm cachedTm = {};
+  static uint32_t lastTimeQuery = 0;
+  if (now - lastTimeQuery >= 1000) {
+    lastTimeQuery = now;
+    time_t nowTime = time(nullptr);
+    localtime_r(&nowTime, &cachedTm);
+  }
+  if (cachedTm.tm_hour == 0 && cachedTm.tm_min == 0) {
+    if (!midnightDone) {
+      memset(lastCheckedMinute, -1, sizeof(lastCheckedMinute));
+      midnightDone = true;
+    }
+  } else {
+    midnightDone = false;
   }
 
-  // Determine if any zone is active
+  // --- Any zone active? ---
   bool anyActive = false;
   for (int z = 0; z < Zone; ++z) {
     if (zoneActive[z]) { anyActive = true; break; }
   }
 
-  // Scheduled actions with sequential-on-mains logic
-  for (int z = 0; z < Zone; ++z) {
-    if (shouldStartZone(z)) {
-      if (!checkWindRain()) {
-        pendingStart[z] = true;
-        logEvent(z, "RAIN DELAY", "N/A", true);
-        continue;
-      }
-      if (isTankLow()) {
-        bool someone = false;
-        for (int i = 0; i < Zone; ++i) if (zoneActive[i]) { someone = true; break; }
-        if (someone) {
+  // --- Scheduled actions (throttled to once per second) ---
+  static uint32_t lastScheduleTick = 0;
+  if (now - lastScheduleTick >= 1000) {
+    lastScheduleTick = now;
+
+    for (int z = 0; z < Zone; ++z) {
+      if (shouldStartZone(z)) {
+        if (rainActive) {
           pendingStart[z] = true;
-          Serial.printf("Zone %d queued for sequential start\n", z+1);
+          logEvent(z, "RAIN DELAY", "N/A", true);
+          continue;
+        }
+        if (windActive) {
+          pendingStart[z] = true;
+          logEvent(z, "WIND DELAY", "N/A", false);
+          continue;
+        }
+
+        if (isTankLow()) {
+          if (anyActive) {
+            pendingStart[z] = true;
+            Serial.printf("Zone %d queued for sequential start\n", z + 1);
+          } else {
+            turnOnZone(z);
+            anyActive = true;
+          }
         } else {
           turnOnZone(z);
+          anyActive = true;
         }
-      } else {
-        // tank ok: parallel allowed
-        turnOnZone(z);
+      }
+
+      if (zoneActive[z] && hasDurationCompleted(z)) {
+        turnOffZone(z);
       }
     }
-    // auto-stop when duration completes
-    if (zoneActive[z] && hasDurationCompleted(z)) {
-      turnOffZone(z);
-    }
-  }
 
-  // If nothing is running, start the next queued zone
-  if (!anyActive) {
-    for (int z = 0; z < Zone; ++z) {
-      if (pendingStart[z]) {
-        Serial.printf("Starting queued Zone %d\n", z+1);
-        pendingStart[z] = false;
-        turnOnZone(z);
-        break;
+    // Start next queued zone if idle
+    if (!anyActive) {
+      for (int z = 0; z < Zone; ++z) {
+        if (pendingStart[z]) {
+          pendingStart[z] = false;
+          Serial.printf("Starting queued Zone %d\n", z + 1);
+          turnOnZone(z);
+          break;
+        }
       }
     }
   }
 
-  // OLED refresh at 1 Hz
+  // --- OLED refresh ---
   if (now - lastScreenRefresh >= SCREEN_REFRESH_MS) {
     lastScreenRefresh = now;
-    if (rainActive) RainScreen(); else HomeScreen();
+    HomeScreen();
   }
 
-  delay(100);
+  delay(20); // light idle sleep
 }
 
 void wifiCheck() {
@@ -1781,6 +1831,8 @@ void handleConfigure() {
     ESP.restart();
   }
 }
+
+
 
 
 
