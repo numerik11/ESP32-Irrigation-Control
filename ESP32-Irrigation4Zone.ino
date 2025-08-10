@@ -55,6 +55,7 @@ uint8_t zonePins[Zone] = {16, 17, 18, 19};
 uint8_t mainsPin       = 21;
 uint8_t tankPin        = 22;
 
+
 // On-board LED & tank sensor
 const int LED_PIN  = 2;
 const int TANK_PIN = 36; // A1
@@ -185,8 +186,13 @@ bool initExpanders() {
 }
 
 void setup() {
-  Serial.begin(115200);
-
+  Serial.begin(115200);    
+    
+    for (uint8_t i = 0; i < Zone; i++) {
+    pinMode(zonePins[i], OUTPUT);
+    digitalWrite(zonePins[i], LOW);
+  }
+   
   // Use one bus for everything, same pins as your working demo
   I2Cbus.begin(I2C_SDA, I2C_SCL, 100000); // PCF8574 is standard-mode (100kHz)
 
@@ -214,11 +220,6 @@ void setup() {
     useGpioFallback = true;
   } else {
     useGpioFallback = false;
-
-    // optional sanity pulse to confirm relays are alive
-    Serial.println("[I2C] sanity pulse relays P0..P1");
-    pcfOut.digitalWrite(P0, LOW); delay(120); pcfOut.digitalWrite(P0, HIGH);
-    pcfOut.digitalWrite(P1, LOW); delay(120); pcfOut.digitalWrite(P1, HIGH);
 
     // >>> ONE-TIME I2C HEALTH CHECK (runs only at startup)
     #ifdef DEBUG
@@ -1831,6 +1832,7 @@ void handleConfigure() {
     ESP.restart();
   }
 }
+
 
 
 
