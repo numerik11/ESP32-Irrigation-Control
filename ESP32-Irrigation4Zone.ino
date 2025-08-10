@@ -55,7 +55,6 @@ uint8_t zonePins[Zone] = {16, 17, 18, 19};
 uint8_t mainsPin       = 21;
 uint8_t tankPin        = 22;
 
-
 // On-board LED & tank sensor
 const int LED_PIN  = 2;
 const int TANK_PIN = 36; // A1
@@ -105,7 +104,7 @@ static const uint32_t I2C_CHECK_MS      = 1000;  // only if not useGpioFallback
 static const uint32_t TIME_QUERY_MS     = 1000;  // call time()/localtime() once per second
 static const uint32_t SCHEDULE_TICK_MS  = 1000;  // evaluate shouldStartZone once per second
 
-// --- Internal state for throttling ---
+// --- Internal state for throttling (GLOBAL; do not shadow in loop) ---
 static uint32_t lastI2cCheck      = 0;
 static uint32_t lastTimeQuery     = 0;
 static uint32_t lastScheduleTick  = 0;
@@ -186,13 +185,8 @@ bool initExpanders() {
 }
 
 void setup() {
-  Serial.begin(115200);    
-    
-    for (uint8_t i = 0; i < Zone; i++) {
-    pinMode(zonePins[i], OUTPUT);
-    digitalWrite(zonePins[i], LOW);
-  }
-   
+  Serial.begin(115200);
+
   // Use one bus for everything, same pins as your working demo
   I2Cbus.begin(I2C_SDA, I2C_SCL, 100000); // PCF8574 is standard-mode (100kHz)
 
@@ -225,7 +219,7 @@ void setup() {
     #ifdef DEBUG
     Serial.println("[I2C] one-time health check at startup");
     #endif
-    checkI2CHealth();    
+    checkI2CHealth();
   }
 
   pinMode(LED_PIN, OUTPUT);
@@ -245,7 +239,7 @@ void setup() {
   display.setCursor(0,30);
   display.print("ESPIrrigationAP");
   display.setCursor(0,50);
-  display.setTextSize(1.5);
+  display.setTextSize(1);
   display.print("Goto: http://192.168.4.1");
   display.display();
 
@@ -298,6 +292,8 @@ void setup() {
     for (int i = 0; i < Zone; i++) {
       JsonObject z = zones.createNestedObject();
       z["active"]    = zoneActive[i];
+      // expose current chosen source policy (same policy as actuation)
+      z["source"] = (justUseTank ? "Tank" : (justUseMains ? "Mains" : (isTankLow() ? "Mains" : "Tank")));
       unsigned long rem = 0;
       if (zoneActive[i]) {
         unsigned long elapsed = (millis() - zoneStartMs[i]) / 1000;
@@ -329,6 +325,12 @@ void setup() {
     server.on(String("/valve/on/")  + i, HTTP_POST, [i]() { turnOnValveManual(i); server.send(200, "text/plain", "OK");});
     server.on(String("/valve/off/") + i, HTTP_POST, [i]() { turnOffValveManual(i); server.send(200, "text/plain", "OK");});
   }
+
+  // Stop all (new)
+  server.on("/stopall", HTTP_POST, [](){
+    for (int z=0; z<Zone; ++z) if (zoneActive[z]) turnOffZone(z);
+    server.send(200, "text/plain", "OK");
+  });
 
   // Backlight toggle
   server.on("/toggleBacklight", HTTP_POST, [](){
@@ -372,6 +374,17 @@ void setup() {
     server.send(200, "text/plain", s);
   });
 
+  // Download events CSV (new)
+  server.on("/download/events.csv", HTTP_GET, [](){
+    if (LittleFS.exists("/events.csv")) {
+      File f = LittleFS.open("/events.csv", "r");
+      server.streamFile(f, "text/csv");
+      f.close();
+    } else {
+      server.send(404, "text/plain", "No event log");
+    }
+  });
+
   server.begin();
 }
 
@@ -404,11 +417,8 @@ void loop() {
     return;
   }
 
-  // --- Midnight reset (once per day) ---
-  static bool midnightDone = false;
-  static tm cachedTm = {};
-  static uint32_t lastTimeQuery = 0;
-  if (now - lastTimeQuery >= 1000) {
+  // --- Midnight reset (once per day) ---  // (uses globals declared at top)
+  if (now - lastTimeQuery >= TIME_QUERY_MS) {
     lastTimeQuery = now;
     time_t nowTime = time(nullptr);
     localtime_r(&nowTime, &cachedTm);
@@ -422,6 +432,12 @@ void loop() {
     midnightDone = false;
   }
 
+  // --- I2C health check (once per I2C_CHECK_MS) ---
+  if (!useGpioFallback && (now - lastI2cCheck >= I2C_CHECK_MS)) {
+    lastI2cCheck = now;
+    checkI2CHealth();
+  }
+
   // --- Any zone active? ---
   bool anyActive = false;
   for (int z = 0; z < Zone; ++z) {
@@ -429,8 +445,7 @@ void loop() {
   }
 
   // --- Scheduled actions (throttled to once per second) ---
-  static uint32_t lastScheduleTick = 0;
-  if (now - lastScheduleTick >= 1000) {
+  if (now - lastScheduleTick >= SCHEDULE_TICK_MS) {
     lastScheduleTick = now;
 
     for (int z = 0; z < Zone; ++z) {
@@ -484,7 +499,7 @@ void loop() {
     HomeScreen();
   }
 
-  delay(20); // light idle sleep
+  delay(LOOP_SLEEP_MS); // light idle sleep
 }
 
 void wifiCheck() {
@@ -686,7 +701,7 @@ void logEvent(int zone, const char* eventType, const char* source, bool rainDela
   float temp = NAN, wind = NAN;
   int hum = 0;
   String cond = "?";
-  if (!deserializeJson(js, cachedWeatherData)) {
+  if (deserializeJson(js, cachedWeatherData) == DeserializationError::Ok) {
     temp = js["main"]["temp"].as<float>();
     hum  = js["main"]["humidity"].as<int>();
     wind = js["wind"]["speed"].as<float>();
@@ -732,6 +747,9 @@ void updateCachedWeather() {
 }
 
 String fetchWeather() {
+  // guard: skip request if not configured
+  if (apiKey.length() < 5 || city.length() < 1) return "{}";
+
   HTTPClient http;
   http.setTimeout(5000);
   String url = "http://api.openweathermap.org/data/2.5/weather?id=" + city + "&appid=" + apiKey + "&units=metric";
@@ -868,7 +886,7 @@ bool checkWindRain() {
   updateCachedWeather();
 
   DynamicJsonDocument js(1024);
-  if (deserializeJson(js, cachedWeatherData)) {
+  if (deserializeJson(js, cachedWeatherData) != DeserializationError::Ok) {
     rainActive = false;
     windActive = false;
     return true; // fail-open (no data)
@@ -876,9 +894,11 @@ bool checkWindRain() {
 
   // Rain
   bool raining = false;
+  lastRainAmount = 0.0f; // update tracked mm
   if (rainDelayEnabled) {
     float rain1h = js["rain"]["1h"] | 0.0f;
     String wmain = js["weather"][0]["main"] | "";
+    lastRainAmount = rain1h;
     raining = (rain1h > 0.0f) || (wmain == "Rain" || wmain == "Thunderstorm" || wmain == "Drizzle");
   }
   rainActive = raining;
@@ -1022,42 +1042,50 @@ void turnOnZone(int z) {
   zoneStartMs[z] = millis();
   zoneActive[z]  = true;
 
+  const char* src = nullptr;
+
   if (useGpioFallback) {
-    digitalWrite(zonePins[z], HIGH);
+    digitalWrite(zonePins[z], HIGH); // ON (fallback = active-HIGH)
+
     if (justUseTank) {
+      src = "Tank";
       digitalWrite(mainsPin, LOW);
       digitalWrite(tankPin, HIGH);
     } else if (justUseMains) {
+      src = "Mains";
       digitalWrite(mainsPin, HIGH);
       digitalWrite(tankPin, LOW);
     } else if (isTankLow()) {
+      src = "Mains";
       digitalWrite(mainsPin, HIGH);
       digitalWrite(tankPin, LOW);
     } else {
+      src = "Tank";
       digitalWrite(mainsPin, LOW);
       digitalWrite(tankPin, HIGH);
     }
   } else {
-    pcfOut.digitalWrite(valveChannel[z], LOW);
+    pcfOut.digitalWrite(valveChannel[z], LOW); // ON (active-LOW)
+
     if (justUseTank) {
+      src = "Tank";
       pcfOut.digitalWrite(mainsChannel, HIGH);
       pcfOut.digitalWrite(tankChannel, LOW);
     } else if (justUseMains) {
+      src = "Mains";
       pcfOut.digitalWrite(mainsChannel, LOW);
       pcfOut.digitalWrite(tankChannel, HIGH);
     } else if (isTankLow()) {
+      src = "Mains";
       pcfOut.digitalWrite(mainsChannel, LOW);
       pcfOut.digitalWrite(tankChannel, HIGH);
     } else {
+      src = "Tank";
       pcfOut.digitalWrite(mainsChannel, HIGH);
       pcfOut.digitalWrite(tankChannel, LOW);
     }
   }
 
-  const char* src = justUseTank   ? "Tank"
-                   : justUseMains ? "Mains"
-                   : isTankLow()   ? "Mains"
-                                   : "Tank";
   logEvent(z, "START", src, false);
   Serial.printf("Zone %d activated\n", z + 1);
 
@@ -1109,38 +1137,49 @@ void turnOnValveManual(int z) {
     zoneStartMs[z] = millis();
     zoneActive[z]  = true;
 
+    const char* src = nullptr;
+
     if (useGpioFallback) {
       digitalWrite(zonePins[z], HIGH);
       if (justUseTank) {
+        src = "Tank";
         digitalWrite(mainsPin, LOW);
         digitalWrite(tankPin, HIGH);
       } else if (justUseMains) {
+        src = "Mains";
         digitalWrite(mainsPin, HIGH);
         digitalWrite(tankPin, LOW);
       } else if (isTankLow()) {
+        src = "Mains";
         digitalWrite(mainsPin, HIGH);
         digitalWrite(tankPin, LOW);
       } else {
+        src = "Tank";
         digitalWrite(mainsPin, LOW);
         digitalWrite(tankPin, HIGH);
       }
     } else {
       pcfOut.digitalWrite(valveChannel[z], LOW);
       if (justUseTank) {
+        src = "Tank";
         pcfOut.digitalWrite(mainsChannel, HIGH);
         pcfOut.digitalWrite(tankChannel, LOW);
       } else if (justUseMains) {
+        src = "Mains";
         pcfOut.digitalWrite(mainsChannel, LOW);
         pcfOut.digitalWrite(tankChannel, HIGH);
       } else if (isTankLow()) {
+        src = "Mains";
         pcfOut.digitalWrite(mainsChannel, LOW);
         pcfOut.digitalWrite(tankChannel, HIGH);
       } else {
+        src = "Tank";
         pcfOut.digitalWrite(mainsChannel, HIGH);
         pcfOut.digitalWrite(tankChannel, LOW);
       }
     }
 
+    logEvent(z, "MANUAL START", src, false);
     Serial.printf("Manual zone %d ON\n", z+1);
   }
 }
@@ -1302,12 +1341,12 @@ void handleRoot() {
       <div class='summary-block'><span class='icon'>💧</span><br>)" + (isnan(hum) ? String("--") : String(hum) + " %") + R"(</div>
       <div class='summary-block'><span class='icon'>🌤</span><br>)" + cond + R"(</div>
       <div class='summary-block tank-row'><span class='icon'>🚰</span><progress value=')" + String(tankPct) + R"(' max='100'></progress>)" + String(tankPct) + R"(%<br>)" + tankStatusStr + R"(</div>
-      <div class='summary-block'><span class='icon' title='Rain Delay'>🌧</span><br>)";
+      <div class='summary-block'><span class='icon' title='Rain Delay'>🌧</span><br))";
 
-  html += (rainActive ? "<span class='active-badge'>Active</span>" : "<span class='inactive-badge'>Off</span>");
+  html += (rainActive ? String("><span class='active-badge'>Active</span>") : String("><span class='inactive-badge'>Off</span>"));
   html += R"(</div>
-      <div class='summary-block'><span class='icon' title='Wind Delay'>💨</span><br>)";
-  html += (windActive ? "<span class='active-badge'>Active</span>" : "<span class='inactive-badge'>Off</span>");
+      <div class='summary-block'><span class='icon' title='Wind Delay'>💨</span><br)";
+  html += (windActive ? String("><span class='active-badge'>Active</span>") : String("><span class='inactive-badge'>Off</span>"));
   html += R"(</div>
     </div>
     <form action='/submit' method='POST'><div class='zones-wrapper'>)";
@@ -1370,6 +1409,11 @@ void handleRoot() {
           "<button type='button' id='toggle-backlight-btn' style='min-width:170px;'>Toggle LCD Backlight</button>"
           "</div>";
 
+  // NEW: Stop All
+  html += "<div style='text-align:center; margin:10px 0 0 0;'>"
+          "<button type='button' id='stop-all-btn' style='min-width:170px;background:#e03e36;'>Stop All</button>"
+          "</div>";
+
   html += "<div class='footer-links'>"
           "<a href='/events'>📒 Event Log</a>"
           "<span style='margin:0 9px;color:#b3b3b3;'>|</span>"
@@ -1412,6 +1456,35 @@ void handleRoot() {
   else if(window.matchMedia('(prefers-color-scheme: dark)').matches) setTheme('dark');
   else setTheme('light');
  }
+ async function refreshStatus(){
+  try{
+    const res = await fetch('/status');
+    const st = await res.json();
+    // rain/wind badges are summary-block[6] and [7]
+    const blocks = document.querySelectorAll('.summary-block');
+    if(blocks[6]) blocks[6].innerHTML = "<span class='icon' title='Rain Delay'>🌧</span><br>" + (st.rainDelayActive ? "<span class='active-badge'>Active</span>" : "<span class='inactive-badge'>Off</span>");
+    if(blocks[7]) blocks[7].innerHTML = "<span class='icon' title='Wind Delay'>💨</span><br>" + (st.windDelayActive ? "<span class='active-badge'>Active</span>" : "<span class='inactive-badge'>Off</span>");
+
+    // zones
+    (st.zones||[]).forEach((z,i)=>{
+      const cont = document.querySelectorAll('.zone-container')[i];
+      if(!cont) return;
+      const p = cont.querySelector('p:nth-of-type(2) span');
+      if(p){
+        p.className = z.active ? 'zone-status-on' : 'zone-status-off';
+        p.textContent = z.active ? 'Running' : 'Off';
+      }
+      const onBtn  = cont.querySelector('.turn-on-btn');
+      const offBtn = cont.querySelector('.turn-off-btn');
+      if(onBtn && offBtn){
+        onBtn.disabled  = z.active;
+        offBtn.disabled = !z.active;
+      }
+    });
+  }catch(e){}
+ }
+ setInterval(refreshStatus, 2000);
+
  window.addEventListener('DOMContentLoaded',()=>{
   autoTheme();
   document.getElementById('toggle-darkmode-btn').onclick = function() {
@@ -1433,6 +1506,10 @@ void handleRoot() {
   });
   const tb=document.getElementById('toggle-backlight-btn');
   if(tb){tb.addEventListener('click',()=>{fetch('/toggleBacklight',{method:'POST'}).then(r=>r.text()).then(alert);});}
+
+  // NEW: Stop All
+  const sab=document.getElementById('stop-all-btn');
+  if(sab){ sab.addEventListener('click',()=>{ fetch('/stopall',{method:'POST'}).then(()=>location.reload()); }); }
  });
     </script></body></html>)";
   server.send(200, "text/html", html);
@@ -1777,6 +1854,8 @@ void handleLogPage() {
 
   html += "</table>"
           "<a class='back-link' href='/'>⬅ Back to Home</a>"
+          "<span style='margin:0 9px;color:#b3b3b3;'>|</span>"
+          "<a class='back-link' href='/download/events.csv'>⬇ Download CSV</a>"
           "</div></body></html>";
 
   server.send(200, "text/html", html);
@@ -1832,6 +1911,8 @@ void handleConfigure() {
     ESP.restart();
   }
 }
+
+
 
 
 
