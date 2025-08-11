@@ -35,6 +35,43 @@ PCF8574 pcfOut(&I2Cbus, 0x24, I2C_SDA, I2C_SCL);   // Relays        (P0 - P5)
 #define SCREEN_ADDRESS 0x3C
 #define SCREEN_WIDTH   128
 #define SCREEN_HEIGHT  64
+#define OLED_RESET  //ESP32 4 Zone Control w/Tank And Mains control
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include <ArduinoOTA.h>
+#include <DNSServer.h>
+#include <WiFiManager.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <HTTPClient.h>
+#include <Wire.h>
+#include <LittleFS.h>
+#include <PCF8574.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include "esp_log.h"
+#include <math.h>
+
+// -------------------------------
+// Constants
+// -------------------------------
+static const uint8_t Zone = 4;
+
+// KC868-A6 I2C pins (ESP32)
+constexpr uint8_t I2C_SDA = 4;
+constexpr uint8_t I2C_SCL = 15;
+
+// Single shared I2C bus (bus 0), used by OLED + both PCF8574s
+TwoWire I2Cbus = TwoWire(0);
+
+// PCF8574 devices on A6 (inputs=0x22, relays=0x24, active-LOW)
+PCF8574 pcfIn (&I2Cbus, 0x22, I2C_SDA, I2C_SCL);   // Digital Inputs (P0 - P5)
+PCF8574 pcfOut(&I2Cbus, 0x24, I2C_SDA, I2C_SCL);   // Relays        (P0 - P5)
+
+#define SCREEN_ADDRESS 0x3C
+#define SCREEN_WIDTH   128
+#define SCREEN_HEIGHT  64
 #define OLED_RESET    -1
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &I2Cbus, OLED_RESET);
@@ -240,7 +277,7 @@ void setup() {
   display.print("ESPIrrigationAP");
   display.setCursor(0,50);
   display.setTextSize(1);
-  display.print("Goto: http://192.168.4.1");
+  display.print("http://192.168.4.1");
   display.display();
 
   // Wi-Fi Setup
@@ -257,7 +294,7 @@ void setup() {
     display.setTextSize(2);
     display.setCursor(0,0);
     display.print("Connected!");
-    display.setTextSize(2);
+    display.setTextSize(1);
     display.setCursor(0,20);
     display.print(WiFi.localIP().toString());
     display.display();
@@ -283,45 +320,28 @@ void setup() {
   server.on("/clearevents", HTTP_POST, handleClearEvents);
   server.on("/tank",        HTTP_GET,  handleTankCalibration);
 
-// Status JSON
-server.on("/status", HTTP_GET, [](){
-  DynamicJsonDocument doc(512);
-  doc["rainDelayActive"] = rainActive;
-  doc["windDelayActive"] = windActive;
-
-  // --- Tank snapshot for UI ---
-  int tankRaw = analogRead(TANK_PIN);
-  int tankPct = map(tankRaw, tankEmptyRaw, tankFullRaw, 0, 100);
-  tankPct = constrain(tankPct, 0, 100);
-  bool tankLow = tankRaw < (tankEmptyRaw + (tankFullRaw - tankEmptyRaw) * 0.15f);
-  doc["tankPct"] = tankPct;
-  doc["tankLow"] = tankLow;
-
-  // --- WiFi signal ---
-  long rssi = WiFi.RSSI();                         // dBm (e.g. -70)
-  int rssiPct = map((int)rssi, -90, -50, 0, 100);  // rough quality
-  rssiPct = constrain(rssiPct, 0, 100);
-  doc["rssi"]    = rssi;
-  doc["rssiPct"] = rssiPct;
-
-  // --- Zones ---
-  JsonArray zones = doc.createNestedArray("zones");
-  for (int i = 0; i < Zone; i++) {
-    JsonObject z = zones.createNestedObject();
-    z["active"] = zoneActive[i];
-    unsigned long rem = 0;
-    if (zoneActive[i]) {
-      unsigned long elapsed = (millis() - zoneStartMs[i]) / 1000UL;
-      unsigned long total   = (unsigned long)durationMin[i]*60UL + (unsigned long)durationSec[i];
-      rem = (elapsed < total ? total - elapsed : 0);
+  // Status JSON
+  server.on("/status", HTTP_GET, [](){
+    DynamicJsonDocument doc(256);
+    doc["rainDelayActive"] = rainActive;
+    doc["windDelayActive"] = windActive;
+    JsonArray zones = doc.createNestedArray("zones");
+    for (int i = 0; i < Zone; i++) {
+      JsonObject z = zones.createNestedObject();
+      z["active"]    = zoneActive[i];
+      // expose current chosen source policy (same policy as actuation)
+      z["source"] = (justUseTank ? "Tank" : (justUseMains ? "Mains" : (isTankLow() ? "Mains" : "Tank")));
+      unsigned long rem = 0;
+      if (zoneActive[i]) {
+        unsigned long elapsed = (millis() - zoneStartMs[i]) / 1000;
+        unsigned long total   = (unsigned long)durationMin[i]*60 + durationSec[i];
+        rem = (elapsed < total ? total - elapsed : 0);
+      }
+      z["remaining"] = rem;
     }
-    z["remaining"] = rem;
-  }
-
-  String out; serializeJson(doc, out);
-  server.send(200, "application/json", out);
-});
-
+    String out; serializeJson(doc, out);
+    server.send(200, "application/json", out);
+  });
 
   // Tank calibration set points
   server.on("/setTankEmpty", HTTP_POST, [](){
@@ -1240,13 +1260,6 @@ void handleRoot() {
   char timeStr[9], dateStr[11];
   strftime(timeStr, sizeof(timeStr), "%H:%M:%S", timeinfo);
   strftime(dateStr, sizeof(dateStr), "%d/%m/%Y", timeinfo);
-  // Wi-Fi strength
-  const wifiBar  = document.getElementById('wifi-bar');
-  const wifiText = document.getElementById('wifi-text');
-  if (wifiBar)  wifiBar.value = Number(st.rssiPct || 0);
-  if (wifiText) wifiText.textContent = (typeof st.rssi === 'number')
-  ? `${st.rssi} dBm (${st.rssiPct}%)`
-  : '-- dBm (--)';
 
   loadSchedule();
 
@@ -1366,13 +1379,7 @@ void handleRoot() {
       <div class='summary-block'><span class='icon'>🌤</span><br>)" + cond + R"(</div>
       <div class='summary-block tank-row'><span class='icon'>🚰</span><progress value=')" + String(tankPct) + R"(' max='100'></progress>)" + String(tankPct) + R"(%<br>)" + tankStatusStr + R"(</div>
       <div class='summary-block'><span class='icon' title='Rain Delay'>🌧</span><br))";
-      <div class='summary-block'>
-    <span class='icon' title='Wi-Fi'>📶</span>
-    <div style='display:flex;flex-direction:column;align-items:center;gap:4px;min-width:120px;'>
-      <progress id='wifi-bar' value='0' max='100' style='width:90px;height:13px;border-radius:8px;'></progress>
-      <span id='wifi-text'>-- dBm (--)</span>
-    </div>
-              
+
   html += (rainActive ? String("><span class='active-badge'>Active</span>") : String("><span class='inactive-badge'>Off</span>"));
   html += R"(</div>
       <div class='summary-block'><span class='icon' title='Wind Delay'>💨</span><br)";
@@ -1941,6 +1948,7 @@ void handleConfigure() {
     ESP.restart();
   }
 }
+
 
 
 
