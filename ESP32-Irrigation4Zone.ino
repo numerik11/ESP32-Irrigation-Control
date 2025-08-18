@@ -1,42 +1,3 @@
-//ESP32 4 Zone Control w/Tank And Mains control
-
-#include <Arduino.h>
-#include <ArduinoJson.h>
-#include <ArduinoOTA.h>
-#include <DNSServer.h>
-#include <WiFiManager.h>
-#include <WiFi.h>
-#include <WebServer.h>
-#include <HTTPClient.h>
-#include <Wire.h>
-#include <LittleFS.h>
-#include <PCF8574.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-#include "esp_log.h"
-#include <math.h>
-
-// -------------------------------
-// Constants
-// -------------------------------
-static const uint8_t Zone = 4;
-
-// KC868-A6 I2C pins (ESP32)
-constexpr uint8_t I2C_SDA = 4;
-constexpr uint8_t I2C_SCL = 15;
-
-// Single shared I2C bus (bus 0), used by OLED + both PCF8574s
-TwoWire I2Cbus = TwoWire(0);
-
-// PCF8574 devices on A6 (inputs=0x22, relays=0x24, active-LOW)
-PCF8574 pcfIn (&I2Cbus, 0x22, I2C_SDA, I2C_SCL);   // Digital Inputs (P0 - P5)
-PCF8574 pcfOut(&I2Cbus, 0x24, I2C_SDA, I2C_SCL);   // Relays        (P0 - P5)
-
-#define SCREEN_ADDRESS 0x3C
-#define SCREEN_WIDTH   128
-#define SCREEN_HEIGHT  64
-#define OLED_RESET  //ESP32 4 Zone Control w/Tank And Mains control
-
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
@@ -1948,6 +1909,7 @@ void handleConfigure() {
     ESP.restart();
   }
 }
+
 
 
 
