@@ -1,7 +1,6 @@
-Irrigation controller degsined to use KC868-A6 6 relay module from Aliexpress.
+4/6 Zone Irrigation controller useing KC868-A6 6 relay controller from Aliexpress to control solenoids and program.
 
-
-Can also be used with any ESP32 module with the addition of a 6 relay module, you can assign pins in the setup page.
+Can be used with any ESP32 module with the addition of a 6 relay module, you can assign pins in the setup page.
 IO36 is Default Analog pin for Tank Level Sensor on K6-KC868 and with ESP32 Boards.
 
 Youll need to get a free API Key for weather data at: 
