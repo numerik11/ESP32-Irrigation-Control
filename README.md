@@ -3,7 +3,7 @@
 Can be used with any ESP32 module with the addition of a 6 relay module, you can assign pins in the setup page.
 IO36 is Default Analog pin for Tank Level Sensor on K6-KC868 and with ESP32 Boards.
 
-Youll need to get a free API Key for weather data at: 
+Youll need wifi signal and a free API Key for weather data at: 
 
 [openweathermap.org ](https://home.openweathermap.org/users/sign_up)
 
