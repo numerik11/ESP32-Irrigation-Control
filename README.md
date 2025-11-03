@@ -143,9 +143,6 @@ Home page: configure days, start times, and durations per zone.
 
 - Useful Endpoints
   
-Endpoint	Description
-/	Dashboard -  schedule editor, manual controls
-
 /status -	JSON snapshot: device time/TZ - Next Water, zones, tank, weather roll-ups
 
 /setup -	Setup page (API keys, zones, GPIO, rain/wind, sensor, etc.)
