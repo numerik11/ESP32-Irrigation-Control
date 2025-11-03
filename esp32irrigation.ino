@@ -1,5 +1,5 @@
 /*TODO mDNS http://espirrigation.local not connecting
- *     "Forecast Card Data no rainfall or min/max"
+ *     "Forecast Card Data no rainfall or min/max check api"
  *         
  * ESP32 Irrigation (KC868-A6 / ESP32)
  * - 4/6 zone selectable
