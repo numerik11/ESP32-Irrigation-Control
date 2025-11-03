@@ -1,176 +1,186 @@
-4/6 Zone Irrigation controller useing KC868-A6 6 relay controller from Aliexpress to control solenoids and program.
+Key Features
+Dashboard
 
-Can be used with any ESP32 module with the addition of a 6 relay module, you can assign pins in the setup page.
-IO36 is Default Analog pin for Tank Level Sensor on K6-KC868 and with ESP32 Boards.
+Current time/date with ACST/ACDT tag (auto DST via SNTP; Adelaide TZ baked in by default).
 
-Youll need wifi signal and a free API Key for weather data at: 
+Tank level (percent) with Auto:Mains / Auto:Tank / Force state.
 
-[openweathermap.org ](https://home.openweathermap.org/users/sign_up)
+Live weather (OpenWeather Current): temp, humidity, wind, condition.
 
-Key Features:
-----
-Dashboard:
-----
-Days, Start Times, Runtime, Tank level, Weather(OpenWeatherMap), Zone status, Rain/wind delays.
+Forecast roll-ups (OneCall): rain next 12/24h, POP(12h), max gust (24h), today min/max, sunrise/sunset.
 
-Zones:
-----
-Configure schedules for up to 6 irrigation zones.
+Next Water: server-computed next run (zone, start time, ETA, duration).
 
-Manual override buttons for each zone (“On”/“Off”).
+Rain delay (sensor + weather) and wind delay badges with cause.
 
-Setup Page:
-----
-Set API keys, city/region, time offsets, wind/rain/tank options, and GPIO assignments.
+Live zone status/progress bars and manual On/Off buttons.
 
-Other:
-----
-Works with ESP32 (Arduino IDE framework).
+Zones & Schedules
 
-Tank Level calibration, save Empty and Full Readings.
+4-zone mode (Zones 1-4 + Mains and Tank master valves on relays 5&6).
 
-----
-Materials Required:
-----
+6-zone mode (six real zones).
 
-- 7 Core irrigation wire to run from controller to solenoid valve box
-  
-- 6 Irrigation Solenoids (Powered by seperate AC12/24V source, depending on irrigation solenoid power reqirements) Ive used 20mm 12v DC Microsolenoids using the same power input scource of 12v 1.5a.
-  
-- KC868 6 Channel relay board with case. Or ESP32 Controller with 6 Relay Module
-  
+Two start times per zone (optional Start 2), per-day enable, minute-precision.
 
-----
-Wiring Instrustions:
-----
+Per-zone duration (min + sec).
 
-- Wire all solenoid wires/grounds to power source ground.
-- Wire 24/12v to all "COM" screw termials for relays, then wire irrigation solenoids to the N.O screw terminals
-- Relays 1 - 4 = Zones 1 - 4 - Relay 5 - Mains, Relay 6 - Tank.
-- Tank level sensor to A1. (3.3V MAX?)
+Queued starts: if a zone is delayed by rain/wind or an active run, it auto-starts later.
 
-----
-Flashing Code to Controller:
-----
+Zone names stored in LittleFS (editable in UI).
 
-- To upload the project to the Kilcony A6 or ESP32 board use Arduino IDE software, follow these steps.
+Weather, Rain & Wind
 
-----
+OpenWeather Current + OneCall:
 
-1. Install/Add the ESP32 Board in Arduino IDE
+rain12h, rain24h, pop12h, nextRainInH, gust24h, tmin/tmax, sunrise/sunset.
 
-Open Arduino IDE.
-Go to File > Preferences.
-In the Additional Boards Manager URLs field, add the following link (if it's not already there):
+Rain delay sources: physical sensor (invert option) + weather conditions (Rain/Drizzle/Thunderstorm or rain amount).
 
+Wind delay: configurable threshold (m/s).
+
+Live cause text (Sensor, OpenWeather, Both, Disabled).
+
+Hardware & I/O
+
+Works with KC868-A6 (PCF8574 at 0x24 relays, 0x22 inputs).
+
+Automatic I²C health check with debounce → GPIO fallback if unstable.
+
+All zone/mains/tank GPIO pins configurable in Setup (fallback mode).
+
+OLED status screens (Home / Rain Delay).
+
+Web, OTA & Services
+
+Modern Web UI (responsive, light/dark toggle).
+
+mDNS: http://espirrigation.local (plus raw IP).
+
+WiFiManager captive portal: ESPIrrigationAP (first boot or failure).
+
+OTA updates enabled (ESP32-Irrigation host).
+
+Event Logger to CSV with weather snapshot per event (downloadable).
+
+What’s New (vs. older versions)
+
+Server-authored time for the UI (authoritative /status fields):
+deviceEpoch, utcOffsetMin, isDST, tzAbbrev, plus server-formatted sunriseLocal/sunsetLocal.
+
+Next Water now computed on the controller and exposed at /status:
+
+nextWaterEpoch, nextWaterZone, nextWaterName, nextWaterDurSec.
+
+Cleaner rain/wind logic with explicit cause reporting and sensor + weather fusion.
+
+I²C→GPIO fallback with health debounce and one-click I²C tools (/i2c-test, /i2c-scan).
+
+Manual control endpoints per zone (/valve/on/<z>, /valve/off/<z>), Stop All, and Toggle OLED backlight.
+
+Downloads for config, schedule, and events (/download/*), plus tiny time probe (/api/time) and whereami endpoint.
+
+UI polish: progress bars, badges, light/dark theme, improved tank meter, better error defaults.
+
+Materials
+
+7-core irrigation cable from controller to solenoid pit/box.
+
+6 irrigation solenoids (match your supply; e.g. 12V DC or 24V AC).
+Example: 12V DC micro-solenoids powered by the same 12V 1.5A input supply.
+
+KC868-A6 (recommended) or ESP32 dev board + 6-relay module.
+
+Tank level sensor (0–3.3V output to ESP32 ADC).
+
+Wiring Instructions (Typical)
+
+Tie all solenoid grounds/returns to the power supply GND/COM.
+
+Feed 12/24V into each relay COM terminal; wire the solenoid’s hot lead to N.O..
+
+Relays 1–4 → Zones 1–4. Relay 5 → Mains, Relay 6 → Tank (4-zone master valves).
+
+Tank level sensor → IO36 (A1). Do not exceed 3.3V.
+
+Flashing the Controller
+1) Install ESP32 Boards in Arduino IDE
+
+File → Preferences → Additional Boards URLs:
 https://dl.espressif.com/dl/package_esp32_index.json
 
-Once added You should now be able to Search for ESP32 in boards manager,
-click Install on the esp32 by Espressif Systems package.
+Tools → Board → Boards Manager… → search ESP32 by Espressif Systems → Install.
 
-Go to: Tools > Board > Board Manager.
----
+2) Select a Board
 
-2. Select the ESP32 Dev Module Board for K6 or select your esp module if using a different module.
+Tools → Board → ESP32 Dev Module (works for KC868-A6 too)
 
-After installing the ESP32 board package, go to Tools > Board ESP32 Dev Module from the list of boards.
-Set the following options:
+Suggested options: Flash 80 MHz, Upload 115200–921600, Partition: Default (4MB), correct COM port.
 
-Port: Select the COM port corresponding to your ESP32 board.
-Flash Frequency: 80 MHz (default).
-Upload Speed: 115200 or 921600.
-Partition Scheme: Default (4MB).
+3) (KC868-A6) Install PCF8574 Library
 
----
+Download Kincony PCF8574 zip: https://www.kincony.com/forum/attachment.php?aid=1697
 
-3. Install the PCF8574 Library (FOR K6-KC868 I2C)
+Sketch → Include Library → Add .ZIP Library… → pick the file.
 
-Go to PCF8574 Library Download below:
+4) Upload
 
-https://www.kincony.com/forum/attachment.php?aid=1697
+Open the sketch (single .ino) and click Upload.
 
-Download the library file (it should be in .zip format).
-In Arduino IDE, go to Sketch > Include Library > Add .ZIP Library....
-Select the downloaded .zip file and click Open.
+5) First-Run Wi-Fi
 
-This will add the PCF8574 (K6-KC868) library to your Arduino IDE.
+Open Serial Monitor @ 115200 to watch logs.
 
+Connect to ESPIrrigationAP; the portal should pop up.
+If not: browse to https://192.168.4.1
+ → select your Wi-Fi + password.
 
----
+6) Access & Configure
 
-4. Upload Your Code
+OLED shows the assigned IP on boot; or run arp -a to find it.
 
-Now that your ESP32 board (ESP32 Dev Module Board for K6) is selected and all necessary libraries are installed, you can upload the code.
-Open ESP32-Irrigation4Zone.ino or ESP323-Irrigation6Zone.ino file with Arduino IDE.
-Click the Upload arrow button in the Arduino IDE to upload the code to your ESP32 board.
+Browse to the IP (or http://espirrigation.local).
 
+Go to Setup:
 
----
+Enter OpenWeather API Key and City ID.
 
-5. Check for Successful Upload
+Adjust zones (4/6), wind/rain/tank options, GPIO pins, and sensor settings.
 
-After the code is successfully uploaded, you can open the Serial Monitor (set to 115200 baud rate) to check for any output or errors.
-You should now also see "ESPIrrigationAP" in your wifi menu on your phone or pc connect to it,
-Wifi manager page should popup automatically if not got Goto: https://192.168.4.1 then scan for your wifi router name select and input your password.
+Return to Home and configure days, start times, and durations per zone.
 
----
+Useful Endpoints
 
-6. Access the System
+/ – Dashboard + schedule editor + manual controls
 
-The OLED will show the IP its connected to on startup. 
-Or type "arp -a" into command prompt and find it in the list.
-Type this IP into a browser to access the irrigation control homepage goto setup page,
-Enter your details into the setup page (City ID, API Key and Timezone) Once setup is saved goto home page to setup and save times, days, ect.
+/status – JSON snapshot (all state + Next Water, weather roll-ups, time/TZ)
 
-<img width="236" height="58" alt="image" src="https://github.com/user-attachments/assets/eb369697-5fc7-436d-93eb-d64fb0faf5b2" /> - City ID
+/setup – Setup page (API keys, zones, GPIO, rain/wind, sensor, etc.)
 
-By following these steps, your ESP32-based smart irrigation system will be configured. If you encounter any issues or need further clarification, feel free to ask!
+/events – Event log (download via /download/events.csv)
 
+/tank – Tank calibration (Set Empty / Set Full)
 
----
+/download/config.txt, /download/schedule.txt, /download/events.csv
 
-https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
-<img width="791" height="754" alt="image" src="https://github.com/user-attachments/assets/ed356fc6-4ed2-4b8e-8a93-de206ef08a92" />
+/i2c-test, /i2c-scan, /api/time, /whereami, /reboot, /stopall
 
-Kincony KC868-K6
+/valve/on/<z>, /valve/off/<z> (0-based index)
 
----
+Notes & Tips
 
-![51BA8viI0BL _SX522_](https://github.com/user-attachments/assets/3ca35811-27b2-4bfd-a91e-8748b7463eb3) 
-Tank level sensor
+KC868-A6 mapping: I²C PCF8574 relays at 0x24, inputs at 0x22; active-LOW relay logic is handled in code.
 
----
+If I²C becomes unstable, the controller auto-switches to GPIO fallback using pins set in Setup.
 
-![download](https://github.com/user-attachments/assets/634f39fa-968c-493c-b1b5-f588702cd1ed) 
-Relays
+Start 2 is optional per zone—handy for split runs or morning/evening watering.
 
----
+Event CSV includes a weather snapshot (temp, humidity, wind, condition, city) at the time of each event.
 
-![download](https://github.com/user-attachments/assets/b3d3e541-8df6-4f3f-af2c-38f72cae96a2)  
+DST & clocks: The device is the single source of truth; the web UI never guesses time.
 
-ESP32 NodeMCU
+Credits & Links
 
----
+KC868-A6: https://www.kincony.com/esp32-6-channel-relay-module-kc868-a6.html
 
-<img width="491" height="793" alt="image" src="https://github.com/user-attachments/assets/f79826b6-1607-4128-b457-18ad0a56ca95" />
-4 Zone w/Tank/Main Master Control
-
-<img width="621" height="816" alt="image" src="https://github.com/user-attachments/assets/55c5281c-fc18-4f83-958a-1e78213eee66" />
-6 Zone
-
----
-
-<img width="354" height="638" alt="image" src="https://github.com/user-attachments/assets/531b57cc-fbef-48b7-88c3-558be41420d7" />
-Setup
-
----
-
-<img width="343" height="294" alt="image" src="https://github.com/user-attachments/assets/64398358-6fa6-4831-9fb2-2bdc4a0b0a8e" />
-Tank Calibration
-
----
-
-<img width="758" height="584" alt="image" src="https://github.com/user-attachments/assets/c8ee1952-1950-4785-acd9-3eb0f2e94e7e" />
-Event Logger
-
----
+OpenWeather: https://openweathermap.org
