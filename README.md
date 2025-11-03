@@ -144,21 +144,39 @@ Home page: configure days, start times, and durations per zone.
 - Useful Endpoints
   
 Endpoint	Description
-/	Dashboard, schedule editor, manual controls
-/status	JSON snapshot: device time/TZ, Next Water, zones, tank, weather roll-ups
-/setup	Setup page (API keys, zones, GPIO, rain/wind, sensor, etc.)
-/events	Event log (table view)
-/tank	Tank calibration (Set Empty / Full)
-/download/config.txt	Download raw config
-/download/schedule.txt	Download schedule
-/download/events.csv	Download event log CSV
-/i2c-test / /i2c-scan	I²C relay pulse test / I²C bus scan
-/api/time	Tiny time probe (local/UTC)
-/whereami	IP/SSID/RSSI/Mode snapshot
-/reboot	Reboot controller
-/stopall	Stop all running zones
-/valve/on/<z>	Manual start zone <z> (0-based)
-/valve/off/<z>	Manual stop zone <z> (0-based)
+/	Dashboard -  schedule editor, manual controls
+
+/status -	JSON snapshot: device time/TZ - Next Water, zones, tank, weather roll-ups
+
+/setup -	Setup page (API keys, zones, GPIO, rain/wind, sensor, etc.)
+
+/events -	Event log (table view)
+
+/tank -	Tank calibration (Set Empty / Full)
+
+/download/config.txt -	Download raw config
+
+/download/schedule.txt - Download schedule
+
+/download/events.csv -Download event log CSV
+
+/i2c-test - I²C relay pulse test 
+
+/i2c-scan -	I²C bus scan
+
+/api/time	- Tiny time probe (local/UTC)
+
+/whereami -	IP/SSID/RSSI/Mode snapshot
+
+/reboot	- Reboot controller
+
+/stopall - Stop all running zones
+
+/valve/on/<z>	- Manual start zone <z> (0-based)
+
+/valve/off/<z> -	Manual stop zone <z> (0-based)
+
+--------------------------------------------------------------------------------------------------------------------
 
 - Credits & Links
 
