@@ -1,5 +1,5 @@
 ESP32 4/6-Zone Irrigation Controller
-------------------------------------
+--------------------------------------------------------------------------------------------------------------------
 
 Smart irrigation controller for ESP32 that drives up to 6 zones, supports Tank/Mains selection, 
 shows live weather and tank status and serves a modern web UI with manual overrides and scheduling.
@@ -10,7 +10,7 @@ Max input: Tank sensor output must be ≤ 3.3V to the ESP32 ADC.
 Weather API: You’ll need Wi-Fi and a free OpenWeather API key → https://home.openweathermap.org/users/sign_up
 
 Key Features
-------------
+--------------------------------------------------------------------------------------------------------------------
 
 - Dashboard
 
@@ -26,7 +26,9 @@ Rain delay (sensor + weather) and wind delay badges with cause.
 
 Zone status/progress bars and manual On/Off buttons.
 
-Zones & Schedules
+--------------------------------------------------------------------------------------------------------------------
+
+- Zones & Schedules
 
 4-zone mode (Zones 1–4) + Mains and Tank master valves on relays 5 & 6.
 
@@ -75,7 +77,9 @@ KC868-A6 (recommended) or ESP32 dev board + 6-relay module.
 
 Tank level sensor with 0–3.3V output (to ESP32 ADC).
 
-Wiring (Typical)
+--------------------------------------------------------------------------------------------------------------------
+
+- Wiring (Typical)
 
 Tie all solenoid grounds/returns to the power supply GND/COM.
 
@@ -84,6 +88,10 @@ Feed 12/24V into each relay COM terminal; wire the solenoid hot lead to N.O..
 Relays 1–4 → Zones 1–4. Relay 5 → Mains, Relay 6 → Tank (4-zone master valves).
 
 Tank level sensor → IO36 (A1). Do not exceed 3.3V.
+
+Rain sensor IO27
+
+--------------------------------------------------------------------------------------------------------------------
 
 Flashing the Controller
 1) Install ESP32 Boards in Arduino IDE
