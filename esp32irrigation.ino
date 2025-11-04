@@ -3,15 +3,13 @@
  * - 4/6 zone selectable
  * - Tank vs Mains (4-zone mode) with threshold + force toggles
  * - OpenWeather current + OneCall forecast (12/24h rain, POP, next-rain ETA, gusts)
- * - Physical rain sensor (invert option) — independent toggle from forecast delay
+ * - Physical rain sensor (invert option) — independent toggle from Openweather delay.
  * - I2C health → GPIO fallback (PCF8574 @ 0x24 relays, @0x22 inputs)
- * - OLED status, Web UI, /status JSON (queue-first Next Water + sunrise/sunset)
  * - Event logging to LittleFS
- * - System Pause (persisted), Reset Delays, Forecast-delay toggle
+ * - System Pause (persisted), Reset Delays (Wont allow watering if currenlty raining) 
  * - Zone names in LittleFS; config/schedule download
- * - mDNS http://espirrigation.local (safe re-begin on IP events), OTA
- * - Adelaide TZ/DST via SNTP
- ****************************************************/
+ * - mDNS http://espirrigation.local(Not Working), OTA
+  ****************************************************/
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
