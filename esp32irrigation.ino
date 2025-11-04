@@ -1,18 +1,3 @@
-/****************************************************
- * ESP32 Irrigation (KC868-A6 / ESP32)
- * - 4/6 zone selectable
- * - Tank vs Mains (4-zone mode) with threshold + force toggles
- * - OpenWeather current + OneCall forecast (12/24h rain, POP, next-rain ETA, gusts)
- * - Physical rain sensor (invert option) — independent toggle from forecast delay
- * - I2C health → GPIO fallback (PCF8574 @ 0x24 relays, @0x22 inputs)
- * - OLED status, Web UI, /status JSON (queue-first Next Water + sunrise/sunset)
- * - Event logging to LittleFS
- * - System Pause (persisted), Reset Delays, Forecast-delay toggle
- * - Zone names in LittleFS; config/schedule download
- * - mDNS http://espirrigation.local (safe re-begin on IP events), OTA
- * - User-selectable Timezone (POSIX/IANA/FIXED) with SNTP
- ****************************************************/
-
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
@@ -1316,13 +1301,14 @@ void handleRoot() {
   html += F("<div class='chip'>🌡️ "); html += (isnan(temp) ? String("--") : String(temp,1)+" ℃"); html += F("</div>");
   html += F("<div class='chip'>💧 ");  html += (isnan(hum)  ? String("--") : String((int)hum)+" %"); html += F("</div>");
   html += F("<div class='chip'>🌬️ "); html += (isnan(ws)   ? String("--") : String(ws,1)+" m/s"); html += F("</div>");
-  html += F("</div><div class='hint'>Cond: <b>"); html += cond; html += F("</b></div></div>");
+  html += F("</div><div class='hint'>Cond: <b>"); html += cond; 
+  html += F("</b></div></div>");
 
   // Delays card
   html += F("<div class='card'><h3>Delays</h3><div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px'>");
   html += F("<div id='rainBadge' class='badge "); html += (rainActive ? "b-bad" : "b-ok"); html += F("'>🌧️ Rain: <b>"); html += (rainActive?"Active":"Off"); html += F("</b></div>");
-  html += F("<div class='badge'>Cause: <b id='rainCauseBadge'>"); html += causeText; html += F("</b></div>");
   html += F("<div id='windBadge' class='badge "); html += (windActive ? "b-warn" : "b-ok"); html += F("'>💨 Wind: <b>"); html += (windActive?"Active":"Off"); html += F("</b></div>");
+  html += F("<div class='badge'>Cause: <b id='rainCauseBadge'>"); html += causeText; html += F("</b></div>");
   html += F("</div></div>");
 
   // Forecast/Stats card
@@ -1555,11 +1541,11 @@ void handleSetupPage() {
 
   // Physical rain sensor
   html += F("<div class='card'><h3>Physical Rain Sensor</h3>");
-  html += F("<div class='row switchline'><label>Disable OpenWeather Rain Delay</label>"
+  html += F("<div class='row switchline'><label>Disable OpenWeatherMap Rain Delay</label>"
           "<input type='checkbox' name='rainForecastDisabled' ");
   html += (!rainDelayFromForecastEnabled ? "checked" : "");
-  html += F("><small>Checked = ignore OWM rain; physical sensor still works</small></div>");
-  html += F("<div class='row switchline'><label>Enable</label><input type='checkbox' name='rainSensorEnabled' "); html += (rainSensorEnabled?"checked":""); html += F("></div>");
+  html += F("><small>Checked = ignore OpenWeatherMap rain.</small></div>");
+  html += F("<div class='row switchline'><label>Enable Rain Sensor</label><input type='checkbox' name='rainSensorEnabled' "); html += (rainSensorEnabled?"checked":""); html += F("></div>");
   html += F("<div class='row'><label>GPIO</label><input type='number' min='0' max='39' name='rainSensorPin' value='"); html += String(rainSensorPin); html += F("'><small>Use INPUT_PULLUP (e.g., 27)</small></div>");
   html += F("<div class='row switchline'><label>Invert</label><input type='checkbox' name='rainSensorInvert' "); html += (rainSensorInvert?"checked":""); html += F("><small>Enable if sensor board is NO</small></div>");
   html += F("<div class='row'><small>Dry = contact closed to GND (LOW), Wet = open (HIGH) with PULLUP</small></div>");
