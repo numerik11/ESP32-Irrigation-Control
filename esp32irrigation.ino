@@ -1930,7 +1930,7 @@ void handleConfigure() {
   rainSensorInvert  = server.hasArg("rainSensorInvert");
 
   // Forecast rain toggle (saved)
-  rainDelayFromForecastEnabled = server.hasArg("rainForecastEnabled");
+  rainDelayFromForecastEnabled = !server.hasArg("rainForecastDisabled");
 
   // Pause controls
   if (server.hasArg("resumeNow")) {
