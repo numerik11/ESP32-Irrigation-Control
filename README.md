@@ -14,8 +14,6 @@ Key Features
 
 - Dashboard
 
-Current time/date with ACST/ACDT tag (auto DST via SNTP).
-
 Tank level (%) with Auto:Mains / Auto:Tank / Force state.
 
 Live weather (OpenWeather Current): temperature, humidity, wind, condition.
