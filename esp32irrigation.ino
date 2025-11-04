@@ -3,13 +3,15 @@
  * - 4/6 zone selectable
  * - Tank vs Mains (4-zone mode) with threshold + force toggles
  * - OpenWeather current + OneCall forecast (12/24h rain, POP, next-rain ETA, gusts)
- * - Physical rain sensor (invert option) — independent toggle from Openweather delay.
+ * - Physical rain sensor (invert option) — independent toggle from forecast delay
  * - I2C health → GPIO fallback (PCF8574 @ 0x24 relays, @0x22 inputs)
+ * - OLED status, Web UI, /status JSON (queue-first Next Water + sunrise/sunset)
  * - Event logging to LittleFS
- * - System Pause (persisted), Reset Delays (Wont allow watering if currenlty raining) 
+ * - System Pause (persisted), Reset Delays, Forecast-delay toggle
  * - Zone names in LittleFS; config/schedule download
- * - mDNS http://espirrigation.local(Not Working), OTA
-  ****************************************************/
+ * - mDNS http://espirrigation.local (safe re-begin on IP events), OTA
+ * - User-selectable Timezone (POSIX/IANA/FIXED) with SNTP
+ ****************************************************/
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -154,6 +156,50 @@ static tm cachedTm = {};
 
 // Uptime
 uint32_t bootMillis = 0;
+
+// ===================== Timezone config (NEW) =====================
+enum TZMode : uint8_t { TZ_POSIX = 0, TZ_IANA = 1, TZ_FIXED = 2 };
+TZMode tzMode = TZ_POSIX;
+String tzPosix = "ACST-9:30ACDT-10:30,M10.1.0/2,M4.1.0/3"; // default
+String tzIANA  = "Australia/Adelaide";                     // optional
+int16_t tzFixedOffsetMin = 570;                            // +09:30 = 570 minutes
+
+static void applyTimezoneAndSNTP() {
+  // Always set NTP servers
+  const char* ntp1 = "pool.ntp.org";
+  const char* ntp2 = "time.google.com";
+  const char* ntp3 = "time.cloudflare.com";
+
+  switch (tzMode) {
+    case TZ_IANA:
+      // If firmware has zoneinfo, this gives proper DST per IANA; if not, behaves like POSIX.
+      configTzTime(tzIANA.c_str(), ntp1, ntp2, ntp3);
+      break;
+    case TZ_POSIX:
+      configTzTime(tzPosix.c_str(), ntp1, ntp2, ntp3);
+      break;
+    case TZ_FIXED: {
+      long offSec = (long)tzFixedOffsetMin * 60L;
+      // daylightOffset_sec set to 0 → no DST
+      configTime(offSec, 0, ntp1, ntp2, ntp3);
+
+      // Also set TZ so strftime has a consistent label (build POSIX-like “GMT±hh:mm”).
+      int m = tzFixedOffsetMin;
+      int sign = (m >= 0) ? -1 : 1; // +09:30 → "GMT-9:30"
+      m = abs(m);
+      int hh = m/60, mm = m%60;
+      char buf[32];
+      snprintf(buf, sizeof(buf), "GMT%+d:%02d", sign*hh, sign*mm);
+      setenv("TZ", buf, 1);
+      tzset();
+      break;
+    }
+  }
+
+  // Wait for time sync
+  time_t now = time(nullptr);
+  for (int i=0; i<50 && now < 1000000000; ++i) { delay(200); now = time(nullptr); }
+}
 
 // ---------- Helpers ----------
 static inline int i_min(int a, int b) { return (a < b) ? a : b; }
@@ -358,16 +404,16 @@ void setup() {
     Serial.println("mDNS start failed");
   }
 
-  // TZ + SNTP: Adelaide with DST
-  configTzTime("ACST-9:30ACDT-10:30,M10.1.0/2,M4.1.0/3",
-               "pool.ntp.org","time.google.com","time.cloudflare.com");
-
-  // Wait for time
-  time_t now = time(nullptr);
-  while (now < 1000000000) { delay(200); now = time(nullptr); }
-  struct tm tcheck; localtime_r(&now, &tcheck);
-  Serial.printf("[TIME] NTP sync ok: %04d-%02d-%02d %02d:%02d:%02d (wd=%d)\n",
-    tcheck.tm_year+1900,tcheck.tm_mon+1,tcheck.tm_mday,tcheck.tm_hour,tcheck.tm_min,tcheck.tm_sec,tcheck.tm_wday);
+  // ---- TZ + SNTP: apply user-selected mode (NEW) ----
+  applyTimezoneAndSNTP();
+  {
+    time_t now = time(nullptr);
+    struct tm tcheck; localtime_r(&now, &tcheck);
+    Serial.printf("[TIME] NTP ok: %04d-%02d-%02d %02d:%02d:%02d tz=%s mode=%d\n",
+      tcheck.tm_year+1900, tcheck.tm_mon+1, tcheck.tm_mday,
+      tcheck.tm_hour, tcheck.tm_min, tcheck.tm_sec,
+      (tcheck.tm_isdst>0) ? "DST" : "STD", (int)tzMode);
+  }
 
   ArduinoOTA.setHostname("ESP32-Irrigation");
   ArduinoOTA.begin();
@@ -425,9 +471,15 @@ void setup() {
     doc["deviceEpoch"]  = (uint32_t)nowEpoch;
     doc["utcOffsetMin"] = deltaMin;
     doc["isDST"]        = (ltm.tm_isdst > 0);
-    doc["tzAbbrev"]     = (ltm.tm_isdst>0) ? "ACDT" : "ACST";
+    doc["tzAbbrev"]     = (ltm.tm_isdst>0) ? "DST" : "STD";
     doc["sunriseLocal"] = hhmm((time_t)todaySunrise);
     doc["sunsetLocal"]  = hhmm((time_t)todaySunset);
+
+    // ---- Timezone reporting (NEW) ----
+    doc["tzMode"]      = (int)tzMode;
+    doc["tzPosix"]     = tzPosix;
+    doc["tzIANA"]      = tzIANA;
+    doc["tzFixedMin"]  = tzFixedOffsetMin;
 
     // Zones snapshot
     JsonArray zones = doc.createNestedArray("zones");
@@ -500,7 +552,7 @@ void setup() {
     strftime(buf,sizeof(buf),"%Y-%m-%d %H:%M:%S",&lt); d["local"] = buf;
     strftime(buf,sizeof(buf),"%Y-%m-%d %H:%M:%S",&gt); d["utc"]   = buf;
     d["isDST"] = (lt.tm_isdst>0);
-    d["tz"]    = (lt.tm_isdst>0) ? "ACDT" : "ACST";
+    d["tz"]    = (lt.tm_isdst>0) ? "DST" : "STD";
     String out; serializeJson(d,out);
     server.send(200,"application/json",out);
   });
@@ -923,7 +975,7 @@ void HomeScreen() {
   display.setCursor(0,0); display.printf("%02d:%02d", t->tm_hour, t->tm_min);
   display.setTextSize(1);
   display.setCursor(80,3); display.printf("%02d/%02d", t->tm_mday, t->tm_mon+1);
-  display.setCursor(66,3); display.print( (t->tm_isdst>0) ? "ACDT" : "ACST" );
+  display.setCursor(66,3); display.print( (t->tm_isdst>0) ? "DST" : "STD" );
 
   display.setCursor(0,20);
   if (!isnan(temp) && hum>=0) display.printf("T:%2.0fC H:%02d%%", temp, hum);
@@ -1232,6 +1284,7 @@ void handleRoot() {
   html += F("<div class='meta'>");
   html += F("<span class='pill' id='clock'>"); html += timeStr; html += F("</span>");
   html += F("<span class='pill'>"); html += dateStr; html += F("</span>");
+  html += F("<span class='pill'>"); html += ((ti && ti->tm_isdst>0) ? "DST" : "STD"); html += F("</span>");
   html += F("<span class='pill'>espirrigation.local</span>");
   html += F("<button id='themeBtn' class='btn-ghost' title='Toggle theme'>Theme</button>");
   html += F("</div></div></div>");
@@ -1275,8 +1328,8 @@ void handleRoot() {
   // Forecast/Stats card
   html += F("<div class='card'><h3>Weather Stats</h3>");
   html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px'>");
-  html += F("<div class='chip'><b>Low</b>&nbsp;<b id='tmin'>--</b> ℃</div>");
-  html += F("<div class='chip'><b>High</b>&nbsp;<b id='tmax'>--</b> ℃</div>");
+  html += F("<div class='chip'><b>Low</b>&nbsp;<b id='tmin'>---</b> ℃</div>");
+  html += F("<div class='chip'><b>High</b>&nbsp;<b id='tmax'>---</b> ℃</div>");
   html += F("<div class='chip'><b>Pressure</b>&nbsp;<b id='press'>--</b> hPa</div>");
   html += F("<div class='chip'>🌅 <span class='sub'>Sunrise</span>&nbsp;<b id='sunr'>--:--</b></div>");
   html += F("<div class='chip'>🌇 <span class='sub'>Sunset</span>&nbsp;<b id='suns'>--:--</b></div>");
@@ -1462,7 +1515,7 @@ void handleRoot() {
 // ---------- Setup Page ----------
 void handleSetupPage() {
   loadConfig();
-  String html; html.reserve(14000);
+  String html; html.reserve(18000);
 
   html += F("<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>");
   html += F("<title>Setup — ESP32 Irrigation</title>");
@@ -1488,20 +1541,24 @@ void handleSetupPage() {
   html += F("<div class='row switchline'><label>Zones</label>");
   html += F("<label><input type='radio' name='zonesMode' value='4' "); html += (zonesCount==4?"checked":""); html += F("> 4 + (Mains/Tank)</label>");
   html += F("<label><input type='radio' name='zonesMode' value='6' "); html += (zonesCount==6?"checked":""); html += F("> 6 real zones</label></div>");
-  html += F("<div class='row'><label>Tank Threshold %</label><input type='number' min='0' max='100' name='tankThresh' value='"); html += String(tankLowThresholdPct); html += F("'><small>Auto:Mains if ≤ threshold</small></div>");
   html += F("</div>");
 
   // Features
   html += F("<div class='card'><h3>Features</h3>");
-  html += F("<div class='row switchline'><label>Rain Delay (master)</label><input type='checkbox' name='rainDelay' "); html += (rainDelayEnabled?"checked":""); html += F("></div>");
+  html += F("<div class='row switchline'><label>Rain Delay</label><input type='checkbox' name='rainDelay' "); html += (rainDelayEnabled?"checked":""); html += F("></div>");
   html += F("<div class='row switchline'><label>Wind Delay</label><input type='checkbox' name='windCancelEnabled' "); html += (windDelayEnabled?"checked":""); html += F("></div>");
   html += F("<div class='row'><label>Wind Threshold</label><input type='number' step='0.1' name='windSpeedThreshold' value='"); html += String(windSpeedThreshold,1); html += F("'></div>");
+  html += F("<div class='row'><label>Tank Threshold %</label><input type='number' min='0' max='100' name='tankThresh' value='"); html += String(tankLowThresholdPct); html += F("'><small>Auto:Mains if ≤ threshold</small></div>");
   html += F("<div class='row switchline'><label>Only Tank</label><input type='checkbox' name='justUseTank' "); html += (justUseTank?"checked":""); html += F("> ");
   html += F("<label>Only Mains</label><input type='checkbox' name='justUseMains' "); html += (justUseMains?"checked":""); html += F("><small>(4-zone only)</small></div>");
   html += F("</div>");
 
   // Physical rain sensor
   html += F("<div class='card'><h3>Physical Rain Sensor</h3>");
+  html += F("<div class='row switchline'><label>OpenWeather Rain Delay</label>"
+          "<input type='checkbox' name='rainForecastEnabled' ");
+  html += (rainDelayFromForecastEnabled ? "checked" : "");
+  html += F("><small>Uncheck to ignore OWM rain; physical sensor still works</small></div>");
   html += F("<div class='row switchline'><label>Enable</label><input type='checkbox' name='rainSensorEnabled' "); html += (rainSensorEnabled?"checked":""); html += F("></div>");
   html += F("<div class='row'><label>GPIO</label><input type='number' min='0' max='39' name='rainSensorPin' value='"); html += String(rainSensorPin); html += F("'><small>Use INPUT_PULLUP (e.g., 27)</small></div>");
   html += F("<div class='row switchline'><label>Invert</label><input type='checkbox' name='rainSensorInvert' "); html += (rainSensorInvert?"checked":""); html += F("><small>Enable if sensor board is NO</small></div>");
@@ -1510,10 +1567,6 @@ void handleSetupPage() {
 
   // Delays & Pause
   html += F("<div class='card'><h3>Delays & Pause</h3>");
-  // Forecast rain toggle (independent from master)
-  html += F("<div class='row switchline'><label>Rain Delay</label><input type='checkbox' name='rainForecastEnabled' ");
-  html += (rainDelayFromForecastEnabled ? "checked" : "");
-  html += F("><small>Use OpenWeather to trigger rain delay</small></div>");
 
   // System Pause
   html += F("<div class='row switchline'><label>System Pause</label><input type='checkbox' name='pauseEnable' ");
@@ -1563,6 +1616,42 @@ void handleSetupPage() {
   html += F("<div class='row'><label>Main Pin</label><input type='number' min='0' max='39' name='mainsPin' value='"); html += String(mainsPin); html += F("'><small>4-zone fallback</small></div>");
   html += F("<div class='row'><label>Tank Pin</label><input type='number' min='0' max='39' name='tankPin' value='"); html += String(tankPin); html += F("'><small>4-zone fallback</small></div>");
   html += F("</div></div>");
+
+  // ----- Timezone (NEW) -----
+  html += F("<div class='card'><h3>Timezone</h3>");
+
+  html += F("<div class='row switchline'><label>Mode</label>");
+  html += F("<label><input type='radio' name='tzMode' value='0' ");
+  html += (tzMode==TZ_POSIX?"checked":"");
+  html += F("> POSIX (DST-capable)</label>");
+  html += F("<label><input type='radio' name='tzMode' value='1' ");
+  html += (tzMode==TZ_IANA?"checked":"");
+  html += F("> IANA (e.g., Australia/Adelaide)</label>");
+  html += F("<label><input type='radio' name='tzMode' value='2' ");
+  html += (tzMode==TZ_FIXED?"checked":"");
+  html += F("> Fixed Offset (no DST)</label></div>");
+
+  html += F("<div class='row'><label>POSIX TZ</label>"
+            "<input type='text' name='tzPosix' value='");
+  html += tzPosix;
+  html += F("'><small>e.g. ACST-9:30ACDT-10:30,M10.1.0/2,M4.1.0/3</small></div>");
+
+  html += F("<div class='row'><label>IANA Zone</label>"
+            "<input type='text' name='tzIANA' value='");
+  html += tzIANA;
+  html += F("'><small>e.g. Australia/Adelaide</small></div>");
+
+  html += F("<div class='row'><label>Fixed Offset (min)</label>"
+            "<input type='number' name='tzFixed' value='");
+  html += String(tzFixedOffsetMin);
+  html += F("'><small>Minutes from UTC (e.g., 570 = +09:30)</small></div>");
+
+  html += F("<div class='row'><small>"
+            "Use <b>POSIX</b> for robust DST rules anywhere. "
+            "Use <b>IANA</b> if your firmware supports zoneinfo. "
+            "<b>Fixed</b> is simplest (no DST).</small></div>");
+
+  html += F("</div>");
 
   html += F("</form>");
 
@@ -1707,6 +1796,12 @@ void loadConfig() {
     if ((s=_safeReadLine(f)).length()) pauseUntilEpoch = (uint32_t)s.toInt();
   }
 
+  // --- Timezone (trailing, optional) (NEW) ---
+  if (f.available()) { String sx=_safeReadLine(f); if (sx.length()) tzMode=(TZMode)sx.toInt(); }
+  if (f.available()) { String sx=_safeReadLine(f); if (sx.length()) tzPosix=sx; }
+  if (f.available()) { String sx=_safeReadLine(f); if (sx.length()) tzIANA=sx; }
+  if (f.available()) { String sx=_safeReadLine(f); if (sx.length()) tzFixedOffsetMin=(int16_t)sx.toInt(); }
+
   f.close();
 }
 
@@ -1741,6 +1836,12 @@ void saveConfig() {
   f.println(rainDelayFromForecastEnabled ? "1" : "0");
   f.println(systemPaused ? "1" : "0");
   f.println(pauseUntilEpoch);
+
+  // --- Timezone (keep at end) (NEW) ---
+  f.println((int)tzMode);
+  f.println(tzPosix);
+  f.println(tzIANA);
+  f.println((int)tzFixedOffsetMin);
 
   f.close();
 }
@@ -1864,6 +1965,24 @@ void handleConfigure() {
   for (int i=0;i<MAX_ZONES;i++) if (server.hasArg("zonePin"+String(i))) zonePins[i]=server.arg("zonePin"+String(i)).toInt();
   if (server.hasArg("mainsPin")) mainsPin = server.arg("mainsPin").toInt();
   if (server.hasArg("tankPin"))  tankPin  = server.arg("tankPin").toInt();
+
+  // ---- Timezone fields (NEW) ----
+  if (server.hasArg("tzMode")) {
+    int m = server.arg("tzMode").toInt();
+    tzMode = (m==1) ? TZ_IANA : (m==2) ? TZ_FIXED : TZ_POSIX;
+  }
+  if (server.hasArg("tzPosix")) {
+    String s = server.arg("tzPosix"); s.trim();
+    if (s.length() > 0) tzPosix = s;
+  }
+  if (server.hasArg("tzIANA")) {
+    String s = server.arg("tzIANA"); s.trim();
+    if (s.length() > 0) tzIANA = s;
+  }
+  if (server.hasArg("tzFixed")) {
+    tzFixedOffsetMin = (int16_t)server.arg("tzFixed").toInt(); // may be negative
+  }
+  needRestart = true; // apply on reboot for clean SNTP
 
   saveConfig(); loadConfig();
 
