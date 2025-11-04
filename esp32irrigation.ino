@@ -1,16 +1,17 @@
-/*TODO mDNS http://espirrigation.local not connecting
- *     
- *         
+/****************************************************
  * ESP32 Irrigation (KC868-A6 / ESP32)
  * - 4/6 zone selectable
  * - Tank vs Mains (4-zone mode) with threshold + force toggles
  * - OpenWeather current + OneCall forecast (12/24h rain, POP, next-rain ETA, gusts)
- * - Physical rain sensor (invert option)
+ * - Physical rain sensor (invert option) — independent toggle from forecast delay
  * - I2C health → GPIO fallback (PCF8574 @ 0x24 relays, @0x22 inputs)
- * - OLED status, Web UI, /status JSON (includes sunriseLocal/sunsetLocal and next-water info)
+ * - OLED status, Web UI, /status JSON (queue-first Next Water + sunrise/sunset)
+ * - Event logging to LittleFS
+ * - System Pause (persisted), Reset Delays, Forecast-delay toggle
  * - Zone names in LittleFS; config/schedule download
- * - mDNS http://espirrigation.local , OTA
- */
+ * - mDNS http://espirrigation.local (safe re-begin on IP events), OTA
+ * - Adelaide TZ/DST via SNTP
+ ****************************************************/
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -97,6 +98,11 @@ bool windDelayEnabled = false;
 bool justUseTank = false;
 bool justUseMains = false;
 
+// New saved features
+bool systemPaused = false;
+uint32_t pauseUntilEpoch = 0;
+bool rainDelayFromForecastEnabled = true;  // NEW: separate gate
+
 bool enableStartTime2[MAX_ZONES] = {false};
 bool days[MAX_ZONES][7] = {{false}};
 bool zoneActive[MAX_ZONES] = {false};
@@ -154,6 +160,11 @@ uint32_t bootMillis = 0;
 // ---------- Helpers ----------
 static inline int i_min(int a, int b) { return (a < b) ? a : b; }
 
+static inline bool isPausedNow() {
+  time_t now = time(nullptr);
+  return systemPaused && (pauseUntilEpoch == 0 || now < (time_t)pauseUntilEpoch);
+}
+
 static bool i2cPing(uint8_t addr) {
   I2Cbus.beginTransmission(addr);
   return (I2Cbus.endTransmission() == 0);
@@ -196,12 +207,12 @@ String rainDelayCauseText() {
   if (!rainDelayEnabled) return "Disabled";
   if (!rainActive) return "No Rain";
   if (rainByWeatherActive && rainBySensorActive) return "Both";
-  if (rainByWeatherActive) return "OpenWeather";
+  if (rainByWeatherActive) return "Forecast";
   if (rainBySensorActive)  return "Sensor";
   return "Active";
 }
 
-// ---------- Next Water type + forward decl (must be before setup/handlers) ----------
+// ---------- Next Water type + forward decl ----------
 struct NextWaterInfo {
   time_t   epoch;    // local epoch for the next start
   int      zone;     // zone index
@@ -259,7 +270,7 @@ bool initExpanders() {
 
 // ---------- Setup ----------
 void setup() {
-  Serial.begin(115200);                 // Tame ESP-IDF logs
+  Serial.begin(115200);
   esp_log_level_set("*", ESP_LOG_WARN);
   esp_log_level_set("i2c", ESP_LOG_NONE);
   esp_log_level_set("i2c.master", ESP_LOG_NONE);
@@ -312,7 +323,7 @@ void setup() {
 
   WiFi.setHostname("espirrigation");
 
-  // Re-arm mDNS every time we (re)gain an IP
+  // Re-arm mDNS every time we gain an IP
   WiFi.onEvent([](WiFiEvent_t e, WiFiEventInfo_t){
     if (e == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
       MDNS.end();          // safe even if not started
@@ -331,15 +342,15 @@ void setup() {
   wifiManager.setTimeout(180);
   if (!wifiManager.autoConnect("ESPIrrigationAP")) ESP.restart();
 
-  // Connected screen (show IP + mDNS name)
+  // Connected screen
   display.clearDisplay();
   display.setTextSize(2); display.setCursor(0, 0); display.print("Connected!");
   display.setTextSize(1); display.setCursor(0, 20); display.print(WiFi.localIP().toString());
-  display.setCursor(0, 32); display.print("espirrigation.local");   // NEW: show mDNS name
+  display.setCursor(0, 32); display.print("espirrigation.local");
   display.display();
   delay(900);
 
-  // First mDNS bring-up (event handler will keep it alive on future re-connects)
+  // First mDNS bring-up
   delay(250);
   if (MDNS.begin("espirrigation")) {
     MDNS.addService("http", "tcp", 80);
@@ -349,7 +360,7 @@ void setup() {
     Serial.println("mDNS start failed");
   }
 
-  // Proper TZ + SNTP: Adelaide with DST
+  // TZ + SNTP: Adelaide with DST
   configTzTime("ACST-9:30ACDT-10:30,M10.1.0/2,M4.1.0/3",
                "pool.ntp.org","time.google.com","time.cloudflare.com");
 
@@ -454,7 +465,7 @@ void setup() {
       }
     }
 
-    // Next Water (server-computed for UI)
+    // Next Water (queue-first)
     {
       NextWaterInfo nw = computeNextWatering();
       if (nw.zone >= 0) {
@@ -470,11 +481,17 @@ void setup() {
       }
     }
 
+    // New feature flags
+    doc["systemPaused"] = isPausedNow();
+    doc["pauseUntil"]   = pauseUntilEpoch;
+    doc["rainForecastEnabled"] = rainDelayFromForecastEnabled;
+    doc["rainSensorEnabled"]   = rainSensorEnabled;
+
     String out; serializeJson(doc, out);
     server.send(200, "application/json", out);
   });
 
-  // Tiny time probe
+  // Tiny time probe (optional)
   server.on("/api/time", HTTP_GET, [](){
     time_t nowEpoch = time(nullptr);
     struct tm lt; localtime_r(&nowEpoch, &lt);
@@ -564,6 +581,35 @@ void setup() {
     server.send(200,"text/plain",s);
   });
 
+  // --- New: Reset Delays / Pause / Resume / Forecast toggle ---
+  server.on("/clear_delays", HTTP_POST, [](){
+    for (int z=0; z<(int)zonesCount; ++z) pendingStart[z] = false;
+    for (int z=0; z<(int)zonesCount; ++z) if (zoneActive[z]) turnOffZone(z);
+    dbgForceRain = false; dbgForceWind = false;
+    for (int z=0; z<(int)zonesCount; ++z) lastCheckedMinute[z] = -1;
+    server.send(200,"text/plain","OK");
+  });
+  server.on("/pause", HTTP_POST, [](){
+    time_t nowEp = time(nullptr);
+    String secStr = server.arg("sec");
+    uint32_t sec = secStr.length()? secStr.toInt() : (24u*3600u);
+    systemPaused = true;
+    pauseUntilEpoch = sec ? (nowEp + sec) : 0;
+    saveConfig();
+    server.send(200,"text/plain","OK");
+  });
+  server.on("/resume", HTTP_POST, [](){
+    systemPaused = false;
+    pauseUntilEpoch = 0;
+    saveConfig();
+    server.send(200,"text/plain","OK");
+  });
+  server.on("/set_rain_forecast", HTTP_POST, [](){
+    rainDelayFromForecastEnabled = server.hasArg("on");
+    saveConfig();
+    server.send(200,"text/plain", rainDelayFromForecastEnabled ? "on" : "off");
+  });
+
   server.begin();
 }
 
@@ -575,6 +621,14 @@ void loop() {
   wifiCheck();
 
   checkWindRain();
+
+  // Hard block while paused
+  if (isPausedNow()) {
+    for (int z=0; z<(int)zonesCount; ++z) if (zoneActive[z]) turnOffZone(z);
+    if (now - lastScreenRefresh >= 1000) { lastScreenRefresh = now; RainScreen(); }
+    delay(15); return;
+  }
+
   if (rainActive || windActive) {
     for (int z=0; z<(int)zonesCount; ++z) if (zoneActive[z]) turnOffZone(z);
     if (now - lastScreenRefresh >= 1000) { lastScreenRefresh = now; RainScreen(); }
@@ -603,20 +657,23 @@ void loop() {
 
   if (now - lastScheduleTick >= SCHEDULE_TICK_MS) {
     lastScheduleTick = now;
-    for (int z=0; z<(int)zonesCount; z++) {
-      if (shouldStartZone(z)) {
-        if (rainActive) { pendingStart[z]=true; logEvent(z,"RAIN DELAY","N/A",true); continue; }
-        if (windActive) { pendingStart[z]=true; logEvent(z,"WIND DELAY","N/A",false); continue; }
 
-        if (zonesCount==4 && isTankLow()) {
-          if (anyActive) pendingStart[z]=true;
-          else { turnOnZone(z); anyActive=true; }
-        } else { turnOnZone(z); anyActive=true; }
+    if (!isPausedNow()) {
+      for (int z=0; z<(int)zonesCount; z++) {
+        if (shouldStartZone(z)) {
+          if (rainActive) { pendingStart[z]=true; logEvent(z,"RAIN DELAY","N/A",true); continue; }
+          if (windActive) { pendingStart[z]=true; logEvent(z,"WIND DELAY","N/A",false); continue; }
+
+          if (zonesCount==4 && isTankLow()) {
+            if (anyActive) pendingStart[z]=true;
+            else { turnOnZone(z); anyActive=true; }
+          } else { turnOnZone(z); anyActive=true; }
+        }
+        if (zoneActive[z] && hasDurationCompleted(z)) turnOffZone(z);
       }
-      if (zoneActive[z] && hasDurationCompleted(z)) turnOffZone(z);
-    }
-    if (!anyActive) {
-      for (int z=0; z<(int)zonesCount; z++) if (pendingStart[z]) { pendingStart[z]=false; turnOnZone(z); break; }
+      if (!anyActive) {
+        for (int z=0; z<(int)zonesCount; z++) if (pendingStart[z]) { pendingStart[z]=false; turnOnZone(z); break; }
+      }
     }
   }
 
@@ -749,7 +806,7 @@ void updateCachedWeather() {
     if (sr > 0) todaySunrise = sr;
     if (ss > 0) todaySunset  = ss;
 
-    // NEW: fallback for today's min/max if One Call didn't set them
+    // Fallback for today's min/max if One Call didn't set them
     if (isnan(todayMin_C)) todayMin_C = cur["main"]["temp_min"] | NAN;
     if (isnan(todayMax_C)) todayMax_C = cur["main"]["temp_max"] | NAN;
   }
@@ -760,9 +817,9 @@ bool checkWindRain() {
   DynamicJsonDocument js(1024);
   bool weatherOk = (deserializeJson(js,cachedWeatherData)==DeserializationError::Ok);
 
-  // Weather-based rain
+  // Weather-based rain (forecast) -- gated
   rainByWeatherActive = false; lastRainAmount = 0.0f;
-  if (weatherOk && rainDelayEnabled) {
+  if (weatherOk && rainDelayEnabled && rainDelayFromForecastEnabled) {
     float rain1h = js["rain"]["1h"] | 0.0f;
     String wmain  = js["weather"][0]["main"] | "";
     lastRainAmount = rain1h;
@@ -770,7 +827,7 @@ bool checkWindRain() {
   }
 
   // Physical sensor
-  rainBySensorActive = physicalRainNowRaw();
+  rainBySensorActive = (rainSensorEnabled ? physicalRainNowRaw() : false);
 
   // Combined (+ debug)
   bool rainForce = dbgForceRain, windForce = dbgForceWind;
@@ -843,13 +900,12 @@ void updateLCDForZone(int zone) {
 
 void RainScreen(){
   display.clearDisplay();
-  display.setTextSize(2); display.setCursor(0,0); display.print("Rain Delay");
+  display.setTextSize(2); display.setCursor(0,0); display.print(isPausedNow()? "System Pause" : "Rain/Wind");
   display.setTextSize(1);
   display.setCursor(0,20); display.printf("Last: %.2f mm", lastRainAmount);
   display.setCursor(0,32); display.print("Cause: "); display.print(rainDelayCauseText());
-
   int delayed=0; for (int i=0;i<(int)zonesCount;i++) if (pendingStart[i]) delayed++;
-  display.setCursor(0,46); display.printf("Zones delayed: %d", delayed);
+  display.setCursor(0,46); display.printf("Queued: %d", delayed);
   display.display();
 }
 
@@ -869,8 +925,6 @@ void HomeScreen() {
   display.setCursor(0,0); display.printf("%02d:%02d", t->tm_hour, t->tm_min);
   display.setTextSize(1);
   display.setCursor(80,3); display.printf("%02d/%02d", t->tm_mday, t->tm_mon+1);
-
-  // Show ACST/ACDT tag
   display.setCursor(66,3); display.print( (t->tm_isdst>0) ? "ACDT" : "ACST" );
 
   display.setCursor(0,20);
@@ -935,10 +989,15 @@ bool hasDurationCompleted(int zone) {
 // ---------- Valve control ----------
 void turnOnZone(int z) {
   checkWindRain();
-  Serial.printf("[VALVE] Request ON Z%d rain=%d wind=%d\n", z+1, rainActive?1:0, windActive?1:0);
+  Serial.printf("[VALVE] Request ON Z%d rain=%d wind=%d pause=%d\n", z+1, rainActive?1:0, windActive?1:0, isPausedNow()?1:0);
 
-  if (rainActive) { pendingStart[z]=true; logEvent(z,"RAIN DELAY","N/A",true); return; }
-  if (windActive) { pendingStart[z]=true; logEvent(z,"WIND DELAY","N/A",false); return; }
+  if (isPausedNow())  { pendingStart[z]=true; logEvent(z,"PAUSE DELAY","N/A",false); return; }
+  if (rainActive)     { pendingStart[z]=true; logEvent(z,"RAIN DELAY","N/A",true);  return; }
+  if (windActive)     { pendingStart[z]=true; logEvent(z,"WIND DELAY","N/A",false); return; }
+
+  // Optional: block manual/scheduled parallel runs strictly
+  bool anyOn=false; for (int i=0;i<(int)zonesCount;i++) if (zoneActive[i]) { anyOn=true; break; }
+  if (anyOn) { pendingStart[z]=true; logEvent(z,"QUEUED","ACTIVE RUN",false); return; }
 
   zoneStartMs[z] = millis();
   zoneActive[z] = true;
@@ -974,7 +1033,7 @@ void turnOffZone(int z) {
   const char* src="None";
   if (zonesCount==4) src = justUseTank ? "Tank" : justUseMains ? "Mains" : isTankLow() ? "Mains" : "Tank";
 
-  bool wasDelayed = rainActive || windActive;
+  bool wasDelayed = rainActive || windActive || isPausedNow();
   logEvent(z,"STOPPED",src,wasDelayed);
 
   if (useGpioFallback) {
@@ -995,6 +1054,12 @@ void turnOffZone(int z) {
 void turnOnValveManual(int z) {
   if (z>=zonesCount) return;
   if (zoneActive[z]) return;
+
+  // Strict single-zone-at-a-time (manual)
+  for (int i=0;i<(int)zonesCount;i++){
+    if (zoneActive[i]) { Serial.println("[VALVE] Manual start blocked: another zone is running"); return; }
+  }
+  if (isPausedNow() || rainActive || windActive) { pendingStart[z]=true; return; }
 
   zoneStartMs[z] = millis();
   zoneActive[z] = true;
@@ -1038,10 +1103,21 @@ void turnOffValveManual(int z) {
   }
 }
 
-// ---------- Next Water ----------
+// ---------- Next Water (queue-first) ----------
 static NextWaterInfo computeNextWatering() {
   NextWaterInfo best{0, -1, 0};
 
+  // 1) If anything is queued, surface that first as "now"
+  for (int z=0; z<(int)zonesCount; ++z) {
+    if (pendingStart[z]) {
+      best.epoch = time(nullptr);  // now (subject to weather/pause)
+      best.zone  = z;
+      best.durSec = (uint32_t)durationMin[z]*60u + (uint32_t)durationSec[z];
+      return best;
+    }
+  }
+
+  // 2) Fallback to scheduled computation
   time_t now = time(nullptr);
   struct tm base; localtime_r(&now, &base);
 
@@ -1054,13 +1130,12 @@ static NextWaterInfo computeNextWatering() {
     cand.tm_hour = hr;
     cand.tm_min  = mn;
 
-    time_t t = mktime(&cand);       // today @ hr:mn (local)
-    if (t <= now) t += 24*60*60;    // push to tomorrow if already passed
+    time_t t = mktime(&cand);
+    if (t <= now) t += 24*60*60;
 
-    // seek up to the next enabled weekday within a week
     for (int k = 0; k < 8; ++k) {
       struct tm tmp; localtime_r(&t, &tmp);
-      int wd = tmp.tm_wday;         // Sun=0..Sat=6
+      int wd = tmp.tm_wday;
       if (days[z][wd]) {
         if (best.zone < 0 || t < best.epoch) {
           best.epoch = t;
@@ -1073,7 +1148,7 @@ static NextWaterInfo computeNextWatering() {
     }
   };
 
-  for (int z = 0; z < (int)zonesCount; ++z) {
+  for (int z=0; z<(int)zonesCount; ++z) {
     consider(z, startHour[z],  startMin[z],  true);
     consider(z, startHour2[z], startMin2[z], enableStartTime2[z]);
   }
@@ -1108,7 +1183,7 @@ void handleRoot() {
   const String causeText = rainDelayCauseText();
 
   // HTML
-  String html; html.reserve(20000);
+  String html; html.reserve(22000);
   html += F("<!doctype html><html lang='en' data-theme='light'><head>");
   html += F("<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>");
   html += F("<title>ESP32 Irrigation</title>");
@@ -1119,9 +1194,7 @@ void handleRoot() {
   html += F("--chip:#eef4ff;--chip-brd:#cfe1ff;--ring:#dfe8fb;--ring2:#a4c6ff;--shadow:0 18px 40px rgba(19,33,68,.15)}");
   html += F(".chip{white-space:nowrap;align-items:center;line-height:1.1;min-width:fit-content}");
   html += F(".nowrap{white-space:nowrap}");
-
   html += F(":root[data-theme='dark']{--bg:#0a0f18;--bg2:#0e1624;--glass:rgba(16,26,39,.6);--glass-brd:rgba(96,120,155,.28);");
-
   html += F("--card:#101826;--text:#e8eef6;--muted:#9fb0ca;--primary:#52a7ff;--primary-2:#2f7fe0;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;");
   html += F("--chip:#0f2037;--chip-brd:#223a5e;--ring:#172a46;--ring2:#2c4f87;--shadow:0 18px 40px rgba(0,0,0,.45)}");
   html += F("*{box-sizing:border-box}html,body{margin:0;background:radial-gradient(1200px 600px at 10% -5%,var(--bg2),transparent),");
@@ -1148,10 +1221,10 @@ void handleRoot() {
   html += F(".zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,360px));gap:14px;justify-content:center;justify-items:stretch}");
   html += F(".zones > .card{width:100%;max-width:360px;margin:0 auto}");
   html += F(".sub{color:var(--muted);font-size:.92rem}a{color:#9cc4ff;text-decoration:none}.hint{font-size:.9rem;color:var(--muted)}");
-  html += F(".sched{margin-top:16px}.sched .zone{background:var(--card);border:1px solid var(--glass-brd);border-radius:16px;box-shadow:var(--shadow);padding:14px}");
+  html += F(".sched{margin-top:16px}.sched .zone{background:var(--card);border:1px solid var(--glass-brd);border-radius:16px;box-shadow:var(--shadow);padding:14px;max-width:340px;margin:0 auto}");
   html += F(".sched h3{margin:0 0 8px 0;font-size:1rem;color:var(--muted)}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:6px 0}");
   html += F(".row label{min-width:86px}.in{background:transparent;color:var(--text);border:1px solid var(--glass-brd);border-radius:10px;padding:8px 10px}");
-  html += F(".grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.days{display:flex;gap:8px;flex-wrap:wrap}.day{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--glass-brd);border-radius:999px;padding:6px 10px}");
+  html += F(".grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}.days{display:flex;gap:8px;flex-wrap:wrap}.day{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--glass-brd);border-radius:999px;padding:6px 10px}");
   html += F(".subtle{color:var(--muted);font-size:.9rem}");
   html += F("</style></head><body>");
 
@@ -1201,12 +1274,12 @@ void handleRoot() {
   html += F("<div id='windBadge' class='badge "); html += (windActive ? "b-warn" : "b-ok"); html += F("'>💨 Wind: <b>"); html += (windActive?"Active":"Off"); html += F("</b></div>");
   html += F("</div></div>");
 
-  // Forecast card
+  // Forecast/Stats card
   html += F("<div class='card'><h3>Weather Stats</h3>");
   html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px'>");
   html += F("<div class='chip'><b>Low</b>&nbsp;<b id='tmin'>--</b> ℃</div>");
   html += F("<div class='chip'><b>High</b>&nbsp;<b id='tmax'>--</b> ℃</div>");
-  html += F("<div class='chip'><b>Barometric</b>&nbsp;<b id='press'>--</b> hPa</div>");
+  html += F("<div class='chip'><b>Pressure</b>&nbsp;<b id='press'>--</b> hPa</div>");
   html += F("<div class='chip'>🌅 <span class='sub'>Sunrise</span>&nbsp;<b id='sunr'>--:--</b></div>");
   html += F("<div class='chip'>🌇 <span class='sub'>Sunset</span>&nbsp;<b id='suns'>--:--</b></div>");
   html += F("</div></div>");
@@ -1214,11 +1287,11 @@ void handleRoot() {
   // Next Water card
   html += F("<div class='card'><h3>Next Water</h3>");
   html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px'>");
-  html += F("<div class='chip'>🧭 Zone <b id='nwZone'>--</b></div>");
+  html += F("<div class='chip'>🧭 <b id='nwZone'>--</b></div>");
   html += F("<div class='chip'>🕒 <b id='nwTime'>--:--</b></div>");
   html += F("<div class='chip'>⏳ In <b id='nwETA'>--</b></div>");
   html += F("<div class='chip'>🧮 Dur <b id='nwDur'>--</b></div>");
-  html += F("</div><div class='hint'>Based on schedule & enabled days.</div></div>");
+  html += F("</div><div class='hint'>Queued starts take priority; otherwise shows schedule.</div></div>");
   html += F("</div></div>");
 
   // Zones
@@ -1313,13 +1386,10 @@ void handleRoot() {
   html += F("<a class='btn' href='/tank'>Calibrate Tank</a>");
   html += F("<a class='btn' href='/whereami' role='button' class='btn'>Connection Stats</a>");
   html += F("<button class='btn btn-danger' id='rebootBtn'>Reboot</button>");
-  html += F("<button class='btn btn-danger' id='stop-all-btn'>Stop All</button>");
-  html += F("<button class='btn' id='toggle-backlight-btn'>Toggle LCD Light</button>");
   html += F("</div></div></div>");
-
   html += F("</div>"); // wrap
 
-  // JS (device-driven time) + Next Water wiring
+  // JS
   html += F("<script>");
   html += F("function pad(n){return n<10?'0'+n:n;}");
   html += F("let _devEpoch=null; let _tickTimer=null;");
@@ -1333,11 +1403,19 @@ void handleRoot() {
   html += F("let _busy=false; async function postJson(url,payload){const body=payload?JSON.stringify(payload):\"{}\";");
   html += F("return fetch(url,{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},body});}");
 
+  html += F("async function postForm(url, body){const opts={method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'}}; if(body)opts.body=body; return fetch(url,opts);} ");
+
   html += F("async function toggleZone(z,on){if(_busy)return;_busy=true;try{await postJson('/valve/'+(on?'on/':'off/')+z,{t:Date.now()});setTimeout(()=>location.reload(),150);}catch(e){console.error(e);}finally{_busy=false;}}");
 
   html += F("const btnBack=document.getElementById('toggle-backlight-btn'); if(btnBack){btnBack.addEventListener('click',async()=>{if(_busy)return;_busy=true;try{await postJson('/toggleBacklight',{t:Date.now()});}catch(e){}finally{_busy=false;}});} ");
   html += F("const btnStopAll=document.getElementById('stop-all-btn'); if(btnStopAll){btnStopAll.addEventListener('click',async()=>{if(_busy)return;_busy=true;try{await postJson('/stopall',{t:Date.now()});setTimeout(()=>location.reload(),150);}catch(e){}finally{_busy=false;}});} ");
   html += F("const btnReboot=document.getElementById('rebootBtn'); if(btnReboot){btnReboot.addEventListener('click',async()=>{if(confirm('Reboot controller now?')){try{await postJson('/reboot',{t:Date.now()});}catch(e){}}});} ");
+
+  // Reset Delays / Pause / Resume / Forecast toggle
+  html += F("const bClr=document.getElementById('btn-clear-delays'); if(bClr){bClr.addEventListener('click',async()=>{await postForm('/clear_delays','a=1'); setTimeout(()=>location.reload(),150);});}");
+  html += F("const bP24=document.getElementById('btn-pause-24'); if(bP24){bP24.addEventListener('click',async()=>{await postForm('/pause','sec=86400'); setTimeout(()=>location.reload(),200);});}");
+  html += F("const bP7=document.getElementById('btn-pause-7d'); if(bP7){bP7.addEventListener('click',async()=>{await postForm('/pause','sec='+(7*86400)); setTimeout(()=>location.reload(),200);});}");
+  html += F("const bRes=document.getElementById('btn-resume'); if(bRes){bRes.addEventListener('click',async()=>{await postForm('/resume','x=1'); setTimeout(()=>location.reload(),150);});}");
 
   // theme toggle
   html += F("function applyTheme(t){document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');}");
@@ -1368,16 +1446,15 @@ void handleRoot() {
   html += F("if(barEl){ let p=0; const total=z.totalSec||0; const rem=z.remaining||0; p=total>0?Math.max(0,Math.min(100,Math.round(100*(total-rem)/total))):0; barEl.style.width=p+'%'; }");
   html += F("}); }");
 
-  html += F("const r12=document.getElementById('r12'); const r24=document.getElementById('r24'); const pop12=document.getElementById('pop12'); const nrin=document.getElementById('nrin'); const gust=document.getElementById('gust'); const tmin=document.getElementById('tmin'); const tmax=document.getElementById('tmax'); const sunr=document.getElementById('sunr'); const suns=document.getElementById('suns'); const press=document.getElementById('press');");
+  html += F("const tmin=document.getElementById('tmin'); const tmax=document.getElementById('tmax'); const sunr=document.getElementById('sunr'); const suns=document.getElementById('suns'); const press=document.getElementById('press');");
   html += F("if(tmin) tmin.textContent=(st.tmin??0).toFixed(0);");
   html += F("if(tmax) tmax.textContent=(st.tmax??0).toFixed(0);");
   html += F("if(sunr) sunr.textContent = st.sunriseLocal || '--:--';");
   html += F("if(suns) suns.textContent = st.sunsetLocal  || '--:--';");
   html += F("if(press) press.textContent = (st.pressure??0);");
 
-  // --- Next Water UI ---
-  html += F("(function(){\n  const zEl=document.getElementById('nwZone');\n  const tEl=document.getElementById('nwTime');\n  const eEl=document.getElementById('nwETA');\n  const dEl=document.getElementById('nwDur');\n  const epoch=st.nextWaterEpoch|0;\n  const zone=st.nextWaterZone;\n  const name=st.nextWaterName || (Number.isInteger(zone)?('Z'+(zone+1)):'--');\n  const dur=st.nextWaterDurSec|0;\n  function pad(n){return n<10?'0'+n:n;}\n  function fmtHHMM(e){ if(!e) return '--:--'; const d=new Date(e*1000); return pad(d.getHours())+':'+pad(d.getMinutes()); }\n  function fmtDur(s){ if(s<=0) return '--'; const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60; return (h? (h+'h '):'') + (m? (m+'m '):'') + (h? '' : (sec+'s')); }\n  function fmtETA(delta){ if(delta<=0) return 'now'; const d=Math.floor(delta/86400); delta%=86400; const h=Math.floor(delta/3600); delta%=3600; const m=Math.floor(delta/60); if(d>0) return d+'d '+pad(h)+':'+pad(m); if(h>0) return h+'h '+m+'m'; return m+'m'; }\n  if(zEl) zEl.textContent = (zone>=0 && zone<255) ? (name) : '--';\n  if(tEl) tEl.textContent = fmtHHMM(epoch);\n  if(dEl) dEl.textContent = fmtDur(dur);\n  let nowEpoch = (typeof st.deviceEpoch==='number' && st.deviceEpoch>0 && _devEpoch!=null) ? _devEpoch : Math.floor(Date.now()/1000);\n  if(eEl) eEl.textContent = epoch ? fmtETA(epoch - nowEpoch) : '--';\n})();");
-
+  // Next Water UI — queue-first
+  html += F("(function(){ const zEl=document.getElementById('nwZone'); const tEl=document.getElementById('nwTime'); const eEl=document.getElementById('nwETA'); const dEl=document.getElementById('nwDur'); const epoch=st.nextWaterEpoch|0; const zone=st.nextWaterZone; const name=st.nextWaterName || (Number.isInteger(zone)?('Z'+(zone+1)):'--'); const dur=st.nextWaterDurSec|0; function pad(n){return n<10?'0'+n:n;} function fmtHHMM(e){ if(!e) return '--:--'; const d=new Date(e*1000); return pad(d.getHours())+':'+pad(d.getMinutes()); } function fmtDur(s){ if(s<=0) return '--'; const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60; return (h? (h+'h '):'') + (m? (m+'m '):'') + (h? '' : (sec+'s')); } function fmtETA(delta){ if(delta<=0) return 'now'; const d=Math.floor(delta/86400); delta%=86400; const h=Math.floor(delta/3600); delta%=3600; const m=Math.floor(delta/60); if(d>0) return d+'d '+pad(h)+':'+pad(m); if(h>0) return h+'h '+m+'m'; return m+'m'; } if(zEl) zEl.textContent = (zone>=0 && zone<255) ? (name) : '--'; if(tEl) tEl.textContent = fmtHHMM(epoch); if(dEl) dEl.textContent = fmtDur(dur); let nowEpoch = (typeof st.deviceEpoch==='number' && st.deviceEpoch>0 && _devEpoch!=null) ? _devEpoch : Math.floor(Date.now()/1000); if(eEl) eEl.textContent = epoch ? fmtETA(epoch - nowEpoch) : '--'; })();");
   html += F("}catch(e){} } setInterval(refreshStatus,1200); refreshStatus();");
   html += F("</script></body></html>");
 
@@ -1387,7 +1464,7 @@ void handleRoot() {
 // ---------- Setup Page ----------
 void handleSetupPage() {
   loadConfig();
-  String html; html.reserve(8000);
+  String html; html.reserve(14000);
 
   html += F("<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>");
   html += F("<title>Setup — ESP32 Irrigation</title>");
@@ -1406,22 +1483,23 @@ void handleSetupPage() {
   html += F("<div class='card'><h3>Weather</h3>");
   html += F("<div class='row'><label>API Key</label><input type='text' name='apiKey' value='"); html += apiKey; html += F("'></div>");
   html += F("<div class='row'><label>City ID</label><input type='text' name='city' value='"); html += city; html += F("'><small>OpenWeather city id</small></div>");
-  html += F("<div class='row'><label>Delay if ≥ (mm/24h)</label><input type='number' min='0' max='100' name='rainDelayMmThreshold' value='"); html += String(rainDelayMmThreshold); html += F("'><small>Forecast rain next 24h</small></div>");
   html += F("</div>");
 
-  // Time & Zones (legacy tz input removed)
+  // Time & Zones
   html += F("<div class='card'><h3>Time & Zones</h3>");
-  html += F("<div class='row switchline'><label>Zones</label><label><input type='radio' name='zonesMode' value='4' "); html += (zonesCount==4?"checked":""); html += F("> 4 + (Mains/Tank)</label>");
-  html += F(" <label><input type='radio' name='zonesMode' value='6' "); html += (zonesCount==6?"checked":""); html += F("> 6 real zones</label></div>");
+  html += F("<div class='row switchline'><label>Zones</label>");
+  html += F("<label><input type='radio' name='zonesMode' value='4' "); html += (zonesCount==4?"checked":""); html += F("> 4 + (Mains/Tank)</label>");
+  html += F("<label><input type='radio' name='zonesMode' value='6' "); html += (zonesCount==6?"checked":""); html += F("> 6 real zones</label></div>");
   html += F("<div class='row'><label>Tank Threshold %</label><input type='number' min='0' max='100' name='tankThresh' value='"); html += String(tankLowThresholdPct); html += F("'><small>Auto:Mains if ≤ threshold</small></div>");
   html += F("</div>");
 
   // Features
   html += F("<div class='card'><h3>Features</h3>");
-  html += F("<div class='row switchline'><label>Rain Delay</label><input type='checkbox' name='rainDelay' "); html += (rainDelayEnabled?"checked":""); html += F("></div>");
+  html += F("<div class='row switchline'><label>Rain Delay (master)</label><input type='checkbox' name='rainDelay' "); html += (rainDelayEnabled?"checked":""); html += F("></div>");
   html += F("<div class='row switchline'><label>Wind Delay</label><input type='checkbox' name='windCancelEnabled' "); html += (windDelayEnabled?"checked":""); html += F("></div>");
   html += F("<div class='row'><label>Wind Threshold</label><input type='number' step='0.1' name='windSpeedThreshold' value='"); html += String(windSpeedThreshold,1); html += F("'></div>");
-  html += F("<div class='row switchline'><label>Only Tank</label><input type='checkbox' name='justUseTank' "); html += (justUseTank?"checked":""); html += F("> <label>Only Mains</label><input type='checkbox' name='justUseMains' "); html += (justUseMains?"checked":""); html += F("><small>(4-zone only)</small></div>");
+  html += F("<div class='row switchline'><label>Only Tank</label><input type='checkbox' name='justUseTank' "); html += (justUseTank?"checked":""); html += F("> ");
+  html += F("<label>Only Mains</label><input type='checkbox' name='justUseMains' "); html += (justUseMains?"checked":""); html += F("><small>(4-zone only)</small></div>");
   html += F("</div>");
 
   // Physical rain sensor
@@ -1431,6 +1509,51 @@ void handleSetupPage() {
   html += F("<div class='row switchline'><label>Invert</label><input type='checkbox' name='rainSensorInvert' "); html += (rainSensorInvert?"checked":""); html += F("><small>Enable if sensor board is NO</small></div>");
   html += F("<div class='row'><small>Dry = contact closed to GND (LOW), Wet = open (HIGH) with PULLUP</small></div>");
   html += F("</div>");
+
+  // Delays & Pause
+  html += F("<div class='card'><h3>Delays & Pause</h3>");
+  // Forecast rain toggle (independent from master)
+  html += F("<div class='row switchline'><label>Rain Delay</label><input type='checkbox' name='rainForecastEnabled' ");
+  html += (rainDelayFromForecastEnabled ? "checked" : "");
+  html += F("><small>Use OpenWeather to trigger rain delay</small></div>");
+
+  // System Pause
+  html += F("<div class='row switchline'><label>System Pause</label><input type='checkbox' name='pauseEnable' ");
+  html += (systemPaused ? "checked" : "");
+  html += F("><small>Stop Auto Start</small></div>");
+
+  time_t nowEp = time(nullptr);
+  uint32_t remain = (pauseUntilEpoch>nowEp && systemPaused)? (pauseUntilEpoch-nowEp) : 0;
+  uint32_t remainHours = remain/3600;
+
+  html += F("<div class='row'><label>Pause for (Hours)</label><input type='number' min='0' max='720' name='pauseHours' value='");
+  html += String(remainHours);
+  html += F("' placeholder='e.g., 24'><small> 0 = Until Manually Resumed</small></div>");
+
+  html += F("<div class='row'><small>Current pause until: ");
+  if (pauseUntilEpoch==0 && systemPaused) {
+    html += F("<b>until manually resumed</b>");
+  } else if (pauseUntilEpoch>0 && systemPaused) {
+    char buf[32]; struct tm lt; time_t pe = (time_t)pauseUntilEpoch; localtime_r(&pe,&lt);
+    strftime(buf,sizeof(buf),"%Y-%m-%d %H:%M:%S",&lt);
+    html += String(buf);
+  } else {
+    html += F("<b>not paused</b>");
+  }
+  html += F("</small></div>");
+
+  // Quick actions on Setup page
+  html += F("<div class='row' style='gap:10px;flex-wrap:wrap'>");  
+  html += F("<button class='btn' type='button' id='btn-pause-24'>Pause 24h</button>");
+  html += F("<button class='btn' type='button' id='btn-pause-7d'>Pause 7d</button>");
+  html += F("<button class='btn' type='button' id='toggle-backlight-btn'>Toggle LCD Light</button>");
+  html += F("</div>");
+
+  // Save / Navigate
+  html += F("<div class='row' style='gap:10px;margin-top:6px'><button class='btn' type='submit'>Save</button>");
+  html += F("<button class='btn btn-alt' formaction='/' formmethod='GET'>Home</button>");
+  html += F("<button class='btn btn-danger' formaction='/configure' formmethod='POST' name='resumeNow' value='1'>Resume Now</button></div>");
+  html += F("</div>"); // end Delays & Pause card
 
   // GPIO fallback pins
   html += F("<div class='card'><h3>GPIO Fallback (if I²C relays not found)</h3><div class='grid'>");
@@ -1443,8 +1566,20 @@ void handleSetupPage() {
   html += F("<div class='row'><label>Tank Pin</label><input type='number' min='0' max='39' name='tankPin' value='"); html += String(tankPin); html += F("'><small>4-zone fallback</small></div>");
   html += F("</div></div>");
 
-  html += F("<div class='row' style='justify-content:space-between'><button class='btn' type='submit'>Save</button><a class='btn-alt' href='/' role='button'>Home</a><a class='btn-alt' href='/tank' role='button'>Calibrate Tank</a></div>");
-  html += F("</form></div></body></html>");
+  html += F("</form>");
+
+  // --- Quick-actions script ---
+  html += F("<script>");
+  html += F("async function post(path, body){try{await fetch(path,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});}catch(e){console.error(e)}}");
+  html += F("const g=id=>document.getElementById(id);");
+  html += F("g('toggle-backlight-btn')?.addEventListener('click',()=>post('/toggleBacklight','x=1'));");
+  html += F("g('btn-clear-delays')?.addEventListener('click',()=>post('/clear_delays','x=1'));");
+  html += F("g('btn-pause-24')?.addEventListener('click',()=>post('/pause','sec=86400'));");
+  html += F("g('btn-pause-7d')?.addEventListener('click',()=>post('/pause','sec='+(7*86400)));");
+  html += F("g('btn-resume')?.addEventListener('click',()=>post('/resume','x=1'));");
+  html += F("</script>");
+
+  html += F("</div></body></html>");
 
   server.send(200,"text/html",html);
 }
@@ -1566,6 +1701,14 @@ void loadConfig() {
     String nm=_safeReadLine(f);
     if (nm.length()) zoneNames[i]=nm;
   }
+
+  // Optional trailing lines (new fields; backward-compatible)
+  if (f.available()) {
+    if ((s=_safeReadLine(f)).length()) rainDelayFromForecastEnabled = (s.toInt()==1);
+    if ((s=_safeReadLine(f)).length()) systemPaused = (s.toInt()==1);
+    if ((s=_safeReadLine(f)).length()) pauseUntilEpoch = (uint32_t)s.toInt();
+  }
+
   f.close();
 }
 
@@ -1595,6 +1738,11 @@ void saveConfig() {
   f.println(tankPin);
 
   for (int i=0;i<MAX_ZONES;i++) f.println(zoneNames[i]);
+
+  // New trailing fields (keep at end)
+  f.println(rainDelayFromForecastEnabled ? "1" : "0");
+  f.println(systemPaused ? "1" : "0");
+  f.println(pauseUntilEpoch);
 
   f.close();
 }
@@ -1682,6 +1830,34 @@ void handleConfigure() {
   if (server.hasArg("rainSensorPin"))  rainSensorPin = server.arg("rainSensorPin").toInt();
   rainSensorInvert  = server.hasArg("rainSensorInvert");
 
+  // Forecast rain toggle (saved)
+  rainDelayFromForecastEnabled = server.hasArg("rainForecastEnabled");
+
+  // Pause controls
+  if (server.hasArg("resumeNow")) {
+    systemPaused = false;
+    pauseUntilEpoch = 0;
+  } else {
+    bool reqPause = server.hasArg("pauseEnable");
+    int pauseHours = 0;
+    if (server.hasArg("pauseHours")) {
+      pauseHours = server.arg("pauseHours").toInt();
+      if (pauseHours < 0) pauseHours = 0;
+    }
+    if (reqPause) {
+      systemPaused = true;
+      if (pauseHours == 0) {
+        pauseUntilEpoch = 0; // until manually resumed
+      } else {
+        time_t nowEp = time(nullptr);
+        pauseUntilEpoch = (uint32_t)(nowEp + (pauseHours * 3600));
+      }
+    } else {
+      systemPaused = false;
+      pauseUntilEpoch = 0;
+    }
+  }
+
   // Debug
   dbgForceRain = server.hasArg("dbgRain");
   dbgForceWind = server.hasArg("dbgWind");
@@ -1696,7 +1872,7 @@ void handleConfigure() {
   String html = F(
     "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
     "<meta http-equiv='refresh' content='2;url=/setup'/>"
-    "<title>Saved</title><style>body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;text-align:center;padding:40px;color:#1b2a44}</style></head>"
+    "<title>Saved</title><style>body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;text-align:center;padding:40px;color:#e8eef6;background:#0e1726}</style></head>"
     "<body><h2>✅ Settings Saved</h2><p>Returning to Setup…</p></body></html>"
   );
   server.send(200,"text/html",html);
@@ -1708,4 +1884,3 @@ void handleClearEvents() {
   server.sendHeader("Location","/events",true);
   server.send(302,"text/plain","");
 }
-
