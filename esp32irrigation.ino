@@ -1555,10 +1555,10 @@ void handleSetupPage() {
 
   // Physical rain sensor
   html += F("<div class='card'><h3>Physical Rain Sensor</h3>");
-  html += F("<div class='row switchline'><label>OpenWeather Rain Delay</label>"
-          "<input type='checkbox' name='rainForecastEnabled' ");
-  html += (rainDelayFromForecastEnabled ? "checked" : "");
-  html += F("><small>Uncheck to ignore OWM rain; physical sensor still works</small></div>");
+  html += F("<div class='row switchline'><label>Disable OpenWeather Rain Delay</label>"
+          "<input type='checkbox' name='rainForecastDisabled' ");
+  html += (!rainDelayFromForecastEnabled ? "checked" : "");
+  html += F("><small>Checked = ignore OWM rain; physical sensor still works</small></div>");
   html += F("<div class='row switchline'><label>Enable</label><input type='checkbox' name='rainSensorEnabled' "); html += (rainSensorEnabled?"checked":""); html += F("></div>");
   html += F("<div class='row'><label>GPIO</label><input type='number' min='0' max='39' name='rainSensorPin' value='"); html += String(rainSensorPin); html += F("'><small>Use INPUT_PULLUP (e.g., 27)</small></div>");
   html += F("<div class='row switchline'><label>Invert</label><input type='checkbox' name='rainSensorInvert' "); html += (rainSensorInvert?"checked":""); html += F("><small>Enable if sensor board is NO</small></div>");
