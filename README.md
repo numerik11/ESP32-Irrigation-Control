@@ -133,7 +133,7 @@ Browse to the IP shown on serial or screen at startup goto-
 
 - Setup page:
 
-Enter OpenWeather API Key and City ID.
+Enter OpenWeather API Key and City ID, TimeZone.
 
 Adjust zones (4/6), wind/rain/tank options, GPIO pins, sensor settings.
 
