@@ -1,7 +1,6 @@
-/* TODO  http://espirrigation.local not connecting
- *      "stats" Card Data no rainfall or min/max check api"
- *       centre schedule/Zone cards ect
- *      
+/*TODO mDNS http://espirrigation.local not connecting
+ *     
+ *         
  * ESP32 Irrigation (KC868-A6 / ESP32)
  * - 4/6 zone selectable
  * - Tank vs Mains (4-zone mode) with threshold + force toggles
@@ -27,6 +26,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <ESPmDNS.h>
+#include <esp_event.h>
 #include <math.h>
 extern "C" {
   #include "esp_log.h"
@@ -37,7 +37,9 @@ extern "C" {
 static const uint8_t MAX_ZONES = 6;
 constexpr uint8_t I2C_SDA = 4;
 constexpr uint8_t I2C_SCL = 15;
+
 TwoWire I2Cbus = TwoWire(0);
+
 PCF8574 pcfIn (&I2Cbus, 0x22, I2C_SDA, I2C_SCL);
 PCF8574 pcfOut(&I2Cbus, 0x24, I2C_SDA, I2C_SCL);
 
@@ -297,6 +299,8 @@ void setup() {
     Serial.println("SSD1306 init failed");
     while (true) delay(100);
   }
+
+  // Boot splash (AP info)
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(2);
@@ -306,21 +310,43 @@ void setup() {
   display.setCursor(0, 50); display.print("http://192.168.4.1");
   display.display();
 
+  WiFi.setHostname("espirrigation");
+
+  // Re-arm mDNS every time we (re)gain an IP
+  WiFi.onEvent([](WiFiEvent_t e, WiFiEventInfo_t){
+    if (e == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+      MDNS.end();          // safe even if not started
+      delay(50);
+      if (MDNS.begin("espirrigation")) {
+        MDNS.addService("http", "tcp", 80);
+        MDNS.setInstanceName("ESP32 Irrigation");
+        Serial.println("mDNS up: http://espirrigation.local");
+      } else {
+        Serial.println("mDNS re-begin failed");
+      }
+    }
+  });
+
+  // WiFi connect (portal if needed)
   wifiManager.setTimeout(180);
   if (!wifiManager.autoConnect("ESPIrrigationAP")) ESP.restart();
 
+  // Connected screen (show IP + mDNS name)
   display.clearDisplay();
   display.setTextSize(2); display.setCursor(0, 0); display.print("Connected!");
   display.setTextSize(1); display.setCursor(0, 20); display.print(WiFi.localIP().toString());
+  display.setCursor(0, 32); display.print("espirrigation.local");   // NEW: show mDNS name
   display.display();
   delay(900);
 
-  if (!MDNS.begin("espirrigation")) {
-    Serial.println("mDNS start failed");
-  } else {
+  // First mDNS bring-up (event handler will keep it alive on future re-connects)
+  delay(250);
+  if (MDNS.begin("espirrigation")) {
     MDNS.addService("http", "tcp", 80);
     MDNS.setInstanceName("ESP32 Irrigation");
     Serial.println("mDNS: http://espirrigation.local");
+  } else {
+    Serial.println("mDNS start failed");
   }
 
   // Proper TZ + SNTP: Adelaide with DST
@@ -349,7 +375,7 @@ void setup() {
   // Status JSON
   server.on("/status", HTTP_GET, [](){
     DynamicJsonDocument doc(3072 + MAX_ZONES * 160);
-
+    updateCachedWeather();
     // Core flags / device info
     doc["rainDelayActive"] = rainActive;
     doc["windDelayActive"] = windActive;
@@ -371,7 +397,7 @@ void setup() {
     doc["sunrise"]     = (uint32_t)todaySunrise;
     doc["sunset"]      = (uint32_t)todaySunset;
 
-    // Device time / tz info (authoritative for UI)
+    // Device time / tz info
     time_t nowEpoch = time(nullptr);
     struct tm ltm; localtime_r(&nowEpoch, &ltm);
     struct tm gtm; gmtime_r(&nowEpoch,  &gtm);
@@ -390,7 +416,7 @@ void setup() {
     doc["deviceEpoch"]  = (uint32_t)nowEpoch;
     doc["utcOffsetMin"] = deltaMin;
     doc["isDST"]        = (ltm.tm_isdst > 0);
-    doc["tzAbbrev"]     = (ltm.tm_isdst>0) ? "ACDT" : "ACST"; // optional: could use %Z
+    doc["tzAbbrev"]     = (ltm.tm_isdst>0) ? "ACDT" : "ACST";
     doc["sunriseLocal"] = hhmm((time_t)todaySunrise);
     doc["sunsetLocal"]  = hhmm((time_t)todaySunset);
 
@@ -419,12 +445,12 @@ void setup() {
         doc["humidity"]   = js["main"]["humidity"]   | 0;
         doc["pressure"]   = js["main"]["pressure"]   | 0;
         doc["wind"]       = js["wind"]["speed"]      | 0.0f;
-        doc["gustNow"]    = js["wind"]["gust"]       | 0.0f; // may be absent → 0.0
+        doc["gustNow"]    = js["wind"]["gust"]       | 0.0f;
         doc["condMain"]   = js["weather"][0]["main"]        | "";
         doc["condDesc"]   = js["weather"][0]["description"] | "";
         doc["icon"]       = js["weather"][0]["icon"]        | "";
         doc["cityName"]   = js["name"]                      | "";
-        doc["owmTzSec"]   = js["timezone"]                  | 0; // e.g., 37800 for ACDT
+        doc["owmTzSec"]   = js["timezone"]                  | 0;
       }
     }
 
@@ -481,7 +507,7 @@ void setup() {
   // Manual control per zone
   for (int i=0;i<MAX_ZONES;i++){
     server.on(String("/valve/on/")+i, HTTP_POST, [i](){ turnOnValveManual(i); server.send(200,"text/plain","OK"); });
-    server.on(String("/valve/off/")+i,HTTP_POST, [i](){ turnOffValveManual(i);server.send(200,"text/plain","OK"); });
+    server.on(String("/valve/off/")+i,HTTP_POST, [i](){ turnOffValveManual(i); server.send(200,"text/plain","OK"); });
   }
 
   server.on("/stopall", HTTP_POST, [](){
@@ -716,14 +742,16 @@ void updateCachedWeather() {
   }
 
   // Fallback sunrise/sunset from current weather
-  if (todaySunrise == 0 || todaySunset == 0) {
-    DynamicJsonDocument cur(2048);
-    if (deserializeJson(cur, cachedWeatherData) == DeserializationError::Ok) {
-      time_t sr = (time_t)(cur["sys"]["sunrise"] | 0);
-      time_t ss = (time_t)(cur["sys"]["sunset"]  | 0);
-      if (sr > 0) todaySunrise = sr;
-      if (ss > 0) todaySunset  = ss;
-    }
+  DynamicJsonDocument cur(2048);
+  if (deserializeJson(cur, cachedWeatherData) == DeserializationError::Ok) {
+    time_t sr = (time_t)(cur["sys"]["sunrise"] | 0);
+    time_t ss = (time_t)(cur["sys"]["sunset"]  | 0);
+    if (sr > 0) todaySunrise = sr;
+    if (ss > 0) todaySunset  = ss;
+
+    // NEW: fallback for today's min/max if One Call didn't set them
+    if (isnan(todayMin_C)) todayMin_C = cur["main"]["temp_min"] | NAN;
+    if (isnan(todayMax_C)) todayMax_C = cur["main"]["temp_max"] | NAN;
   }
 }
 
@@ -1085,6 +1113,7 @@ void handleRoot() {
   html += F("<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>");
   html += F("<title>ESP32 Irrigation</title>");
   html += F("<style>");
+  html += F(".center{max-width:960px;margin:0 auto}");
   html += F(":root[data-theme='light']{--bg:#ecf1f8;--bg2:#f6f8fc;--glass:rgba(255,255,255,.55);--glass-brd:rgba(140,158,190,.35);");
   html += F("--card:#ffffff;--text:#0f172a;--muted:#667084;--primary:#1c74d9;--primary-2:#1160b6;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;");
   html += F("--chip:#eef4ff;--chip-brd:#cfe1ff;--ring:#dfe8fb;--ring2:#a4c6ff;--shadow:0 18px 40px rgba(19,33,68,.15)}");
@@ -1116,7 +1145,8 @@ void handleRoot() {
   html += F(".b-ok{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.35)}.b-warn{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35)}.b-bad{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.38)}");
   html += F(".toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 0}.btn{background:var(--primary);color:#fff;border:none;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer;box-shadow:0 10px 24px rgba(0,0,0,.25)}");
   html += F(".btn:disabled{background:#7f8aa1;cursor:not-allowed;box-shadow:none}.btn-danger{background:var(--bad)}");
-  html += F(".zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}.zone-head{display:flex;align-items:center;justify-content:space-between;gap:10px}");
+  html += F(".zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,360px));gap:14px;justify-content:center;justify-items:stretch}");
+  html += F(".zones > .card{width:100%;max-width:360px;margin:0 auto}");
   html += F(".sub{color:var(--muted);font-size:.92rem}a{color:#9cc4ff;text-decoration:none}.hint{font-size:.9rem;color:var(--muted)}");
   html += F(".sched{margin-top:16px}.sched .zone{background:var(--card);border:1px solid var(--glass-brd);border-radius:16px;box-shadow:var(--shadow);padding:14px}");
   html += F(".sched h3{margin:0 0 8px 0;font-size:1rem;color:var(--muted)}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:6px 0}");
@@ -1173,11 +1203,12 @@ void handleRoot() {
 
   // Forecast card
   html += F("<div class='card'><h3>Weather Stats</h3>");
-  html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px'>");
-  html += F("<div class='chip'>☔ 12h <b id='r12'>--</b>&nbsp;mm</div>");
-  html += F("<div class='chip'>☔ 24h <b id='r24'>--</b>&nbsp;mm</div>");
-  html += F("<div class='chip'>🌡️ Today <span class='nowrap'><b id='tmin'>--</b>–<b id='tmax'>--</b>&nbsp;℃</span></div>");
-  html += F("<div class='chip'>🌅 <b id='sunr'>--:--</b> / 🌇 <b id='suns'>--:--</b></div>");
+  html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px'>");
+  html += F("<div class='chip'><b>Low</b>&nbsp;<b id='tmin'>--</b> ℃</div>");
+  html += F("<div class='chip'><b>High</b>&nbsp;<b id='tmax'>--</b> ℃</div>");
+  html += F("<div class='chip'><b>Barometric</b>&nbsp;<b id='press'>--</b> hPa</div>");
+  html += F("<div class='chip'>🌅 <span class='sub'>Sunrise</span>&nbsp;<b id='sunr'>--:--</b></div>");
+  html += F("<div class='chip'>🌇 <span class='sub'>Sunset</span>&nbsp;<b id='suns'>--:--</b></div>");
   html += F("</div></div>");
 
   // Next Water card
@@ -1191,7 +1222,7 @@ void handleRoot() {
   html += F("</div></div>");
 
   // Zones
-  html += F("<div class='grid' style='margin-top:16px'><div class='card' style='grid-column:1/-1'>");
+  html += F("<div class='center' style='margin-top:16px'><div class='card'>");
   html += F("<h3>Zones</h3><div class='zones'>");
 
   for (int z=0; z<(int)zonesCount; z++) {
@@ -1227,7 +1258,7 @@ void handleRoot() {
 
   // Schedule Editor
   static const char* DLBL[7] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
-  html += F("<div class='sched'><form method='POST' action='/submit'>");
+  html += F("<div class='sched center'><form method='POST' action='/submit'>");
   html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px'>");
 
   for (int z=0; z<(int)zonesCount; ++z) {
@@ -1337,16 +1368,12 @@ void handleRoot() {
   html += F("if(barEl){ let p=0; const total=z.totalSec||0; const rem=z.remaining||0; p=total>0?Math.max(0,Math.min(100,Math.round(100*(total-rem)/total))):0; barEl.style.width=p+'%'; }");
   html += F("}); }");
 
-  html += F("const r12=document.getElementById('r12'); const r24=document.getElementById('r24'); const pop12=document.getElementById('pop12'); const nrin=document.getElementById('nrin'); const gust=document.getElementById('gust'); const tmin=document.getElementById('tmin'); const tmax=document.getElementById('tmax'); const sunr=document.getElementById('sunr'); const suns=document.getElementById('suns');");
-  html += F("if(r12) r12.textContent=(st.rain12h??0).toFixed(1);");
-  html += F("if(r24) r24.textContent=(st.rain24h??0).toFixed(1);");
-  html += F("if(pop12) pop12.textContent=(st.pop12h??0);");
-  html += F("if(nrin) nrin.textContent=(st.nextRainInH===255?'—':st.nextRainInH);");
-  html += F("if(gust) gust.textContent=(st.gust24h??0).toFixed(1);");
+  html += F("const r12=document.getElementById('r12'); const r24=document.getElementById('r24'); const pop12=document.getElementById('pop12'); const nrin=document.getElementById('nrin'); const gust=document.getElementById('gust'); const tmin=document.getElementById('tmin'); const tmax=document.getElementById('tmax'); const sunr=document.getElementById('sunr'); const suns=document.getElementById('suns'); const press=document.getElementById('press');");
   html += F("if(tmin) tmin.textContent=(st.tmin??0).toFixed(0);");
   html += F("if(tmax) tmax.textContent=(st.tmax??0).toFixed(0);");
   html += F("if(sunr) sunr.textContent = st.sunriseLocal || '--:--';");
   html += F("if(suns) suns.textContent = st.sunsetLocal  || '--:--';");
+  html += F("if(press) press.textContent = (st.pressure??0);");
 
   // --- Next Water UI ---
   html += F("(function(){\n  const zEl=document.getElementById('nwZone');\n  const tEl=document.getElementById('nwTime');\n  const eEl=document.getElementById('nwETA');\n  const dEl=document.getElementById('nwDur');\n  const epoch=st.nextWaterEpoch|0;\n  const zone=st.nextWaterZone;\n  const name=st.nextWaterName || (Number.isInteger(zone)?('Z'+(zone+1)):'--');\n  const dur=st.nextWaterDurSec|0;\n  function pad(n){return n<10?'0'+n:n;}\n  function fmtHHMM(e){ if(!e) return '--:--'; const d=new Date(e*1000); return pad(d.getHours())+':'+pad(d.getMinutes()); }\n  function fmtDur(s){ if(s<=0) return '--'; const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60; return (h? (h+'h '):'') + (m? (m+'m '):'') + (h? '' : (sec+'s')); }\n  function fmtETA(delta){ if(delta<=0) return 'now'; const d=Math.floor(delta/86400); delta%=86400; const h=Math.floor(delta/3600); delta%=3600; const m=Math.floor(delta/60); if(d>0) return d+'d '+pad(h)+':'+pad(m); if(h>0) return h+'h '+m+'m'; return m+'m'; }\n  if(zEl) zEl.textContent = (zone>=0 && zone<255) ? (name) : '--';\n  if(tEl) tEl.textContent = fmtHHMM(epoch);\n  if(dEl) dEl.textContent = fmtDur(dur);\n  let nowEpoch = (typeof st.deviceEpoch==='number' && st.deviceEpoch>0 && _devEpoch!=null) ? _devEpoch : Math.floor(Date.now()/1000);\n  if(eEl) eEl.textContent = epoch ? fmtETA(epoch - nowEpoch) : '--';\n})();");
@@ -1681,3 +1708,4 @@ void handleClearEvents() {
   server.sendHeader("Location","/events",true);
   server.send(302,"text/plain","");
 }
+
