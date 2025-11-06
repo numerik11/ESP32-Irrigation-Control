@@ -1,26 +1,3 @@
-/****************************************************
- * ESP32 Irrigation (KC868-A6 / ESP32)
- * - 4/6 zone selectable
- * - Tank vs Mains (4-zone mode) with threshold + force toggles
- * - OpenWeather current + OneCall forecast (12/24h rain, POP, next-rain ETA, gusts)
- * - Physical rain sensor (invert option)
- * - I2C health → GPIO fallback (PCF8574 @0x24 relays, @0x22 inputs)
- * - OLED status, Web UI, /status JSON (queue-first Next Water + sunrise/sunset)
- * - Event logging to LittleFS
- * - System Pause (persisted), Reset Delays, Forecast-delay toggle
- * - Zone names persisted
- * - mDNS http://espirrigation.local , OTA
- * - Timezone modes (POSIX / IANA / Fixed)
- *
- * NEW (this rewrite):
- * - Master System On/Off (hard block)
- * - Rain Cooldown (minutes) starts when rain clears
- * - Rain Threshold (24h accumulation) engages delay when ≥ threshold
- * - MQTT (optional) for HA: publishes status, listens to simple commands
- * - Home screen: System Controls (Master, Pause, Clear Delays, Stop All, LCD)
- * - Setup: distinct controls for Master / Cooldown / Threshold / MQTT
- * - Schedule editor: **each zone in its own card with its own Save button**
- ****************************************************/
 #ifndef ENABLE_OTA
   #define ENABLE_OTA 0   
 #endif
