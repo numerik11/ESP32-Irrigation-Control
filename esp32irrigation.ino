@@ -1599,11 +1599,9 @@ void handleRoot() {
   html += F("const src=document.getElementById('srcChip'); if(src) src.textContent=st.sourceMode||'';");
   html += F("const up=document.getElementById('upChip'); if(up) up.textContent=fmtUptime(st.uptimeSec||0);");
   html += F("const rssi=document.getElementById('rssiChip'); if(rssi) rssi.textContent=(st.rssi)+' dBm';");
-  // NEW: update 24h accumulation badge here
-  html += F("  const acc24 = document.getElementById('acc24');
-    if (acc24) {
-    const v = (typeof st.rain24h === 'number') ? st.rain24h : NaN;
-    acc24.textContent = isNaN(v) ? '--' : v.toFixed(1);}");
+ // NEW: update 24h accumulation badge here (single-line F() calls)
+  html += F("const acc24=document.getElementById('acc24');");
+  html += F("if(acc24){const v=(typeof st.rain24h==='number')?st.rain24h:NaN;acc24.textContent=isNaN(v)?'--':v.toFixed(1);}");
   html += F("if(Array.isArray(st.zones)){ st.zones.forEach((z,idx)=>{");
   html += F("const stateEl=document.getElementById('zone-'+idx+'-state'); const remEl=document.getElementById('zone-'+idx+'-rem'); const barEl=document.getElementById('zone-'+idx+'-bar');");
   html += F("if(stateEl){stateEl.className='badge '+(z.active?'b-ok':'');stateEl.innerHTML=z.active?'▶︎ Running':'⏹ Off';}");
@@ -2137,8 +2135,6 @@ void handleConfigure() {
     if (mm < 0) mm = 0; if (mm > 200) mm = 200;
     rainThreshold24h_mm = mm;
   }
-
-
   // Debug toggles (if you add in UI later)
   dbgForceRain = server.hasArg("dbgRain");
   dbgForceWind = server.hasArg("dbgWind");
