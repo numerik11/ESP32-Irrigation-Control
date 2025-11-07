@@ -536,8 +536,10 @@ void setup() {
     doc["masterOn"] = systemMasterEnabled;
     doc["cooldownUntil"] = rainCooldownUntilEpoch;
     doc["cooldownRemaining"] = (rainCooldownUntilEpoch>nowEpoch) ? (rainCooldownUntilEpoch - nowEpoch) : 0;
-    doc["rainThresh24h"] = rainThreshold24h_mm;
+    doc["rainThresh24h"]   = rainThreshold24h_mm;
     doc["rainCooldownMin"] = rainCooldownMin;
+    doc["rainCooldownHours"] = rainCooldownMin / 60; // convenience for UI
+
 
     // Zones snapshot
     JsonArray zones = doc.createNestedArray("zones");
@@ -628,19 +630,6 @@ void setup() {
     server.sendHeader("Location", "/tank", true);
     server.send(302, "text/plain", "");
   });
-
-  // Handle Rain Cooldown (now in HOURS on the UI)
-  if (server.hasArg("rainCooldownHours")) {
-    int h = server.arg("rainCooldownHours").toInt();
-  if (h < 0) h = 0;
-     rainCooldownMin = h * 60;        // store internally in MINUTES
-     } else if (server.hasArg("rainCooldownMin")) {
-  // Backward compatibility if any old form still posts minutes
-     int m = server.arg("rainCooldownMin").toInt();
-     if (m < 0) m = 0;
-    rainCooldownMin = m;
-}
-
 
   // Manual control per zone
   for (int i=0;i<MAX_ZONES;i++){
@@ -1611,8 +1600,10 @@ void handleRoot() {
   html += F("const up=document.getElementById('upChip'); if(up) up.textContent=fmtUptime(st.uptimeSec||0);");
   html += F("const rssi=document.getElementById('rssiChip'); if(rssi) rssi.textContent=(st.rssi)+' dBm';");
   // NEW: update 24h accumulation badge here
-  html += F("const acc24=document.getElementById('acc24'); if(acc24){ const v=(typeof st.accum24h==='number')?st.accum24h:NaN; acc24.textContent=isNaN(v)?'--':v.toFixed(1); }");
-
+  html += F("  const acc24 = document.getElementById('acc24');
+    if (acc24) {
+    const v = (typeof st.rain24h === 'number') ? st.rain24h : NaN;
+    acc24.textContent = isNaN(v) ? '--' : v.toFixed(1);}");
   html += F("if(Array.isArray(st.zones)){ st.zones.forEach((z,idx)=>{");
   html += F("const stateEl=document.getElementById('zone-'+idx+'-state'); const remEl=document.getElementById('zone-'+idx+'-rem'); const barEl=document.getElementById('zone-'+idx+'-bar');");
   html += F("if(stateEl){stateEl.className='badge '+(z.active?'b-ok':'');stateEl.innerHTML=z.active?'▶︎ Running':'⏹ Off';}");
@@ -2129,14 +2120,24 @@ void handleConfigure() {
 
   // Master / cooldown / threshold
   systemMasterEnabled = server.hasArg("masterOn");
-  if (server.hasArg("rainCooldownMin")) {
+
+  // New UI posts HOURS; still accept legacy MINUTES if present
+  if (server.hasArg("rainCooldownHours")) {
+    int h = server.arg("rainCooldownHours").toInt();
+    if (h < 0) h = 0; if (h > 720) h = 720;
+    rainCooldownMin = h * 60;                 // store internally in minutes
+  } else if (server.hasArg("rainCooldownMin")) {
     int m = server.arg("rainCooldownMin").toInt();
-    if (m < 0) m = 0; if (m > 720) m = 720; rainCooldownMin = m;
+    if (m < 0) m = 0; if (m > 43200) m = 43200; // 720h cap as minutes
+    rainCooldownMin = m;
   }
+
   if (server.hasArg("rainThreshold24h")) {
     int mm = server.arg("rainThreshold24h").toInt();
-    if (mm < 0) mm = 0; if (mm > 200) mm = 200; rainThreshold24h_mm = mm;
+    if (mm < 0) mm = 0; if (mm > 200) mm = 200;
+    rainThreshold24h_mm = mm;
   }
+
 
   // Debug toggles (if you add in UI later)
   dbgForceRain = server.hasArg("dbgRain");
