@@ -36,6 +36,7 @@ extern "C" {
   #include "esp_log.h"
 }
 #include <time.h>
+#include <ESPmDNS.h> 
 #include <PubSubClient.h>   // MQTT
 
 // ---------- Hardware ----------
@@ -371,6 +372,20 @@ String rainDelayCauseText() {
   return "Active";
 }
 
+static const char* kHost = "espirrigation";
+
+static void mdnsStart() {
+  MDNS.end(); // in case it was running
+  if (MDNS.begin(kHost)) {
+    MDNS.addService("http", "tcp", 80);
+    // You can also expose an OTA service name if you want:
+    // MDNS.addServiceTxt("arduino", "tcp", "board", "esp32");
+    Serial.println("[mDNS] started: http://espirrigation.local/");
+  } else {
+    Serial.println("[mDNS] begin() failed");
+  }
+}
+
 // ---------- Next Water type + forward decl ----------
 struct NextWaterInfo {
   time_t   epoch;    // local epoch for the next start
@@ -398,14 +413,20 @@ bool initExpanders() {
 // ---------- Setup ----------
 void setup() {
   Serial.begin(115200);
- esp_log_level_set("*", ESP_LOG_WARN); // clamp noisy libs (optional)
- esp_log_level_set("i2c", ESP_LOG_NONE); // common I2C tag 
- esp_log_level_set("i2c.master", ESP_LOG_NONE); // some IDF builds use this 
- esp_log_level_set("i2c_master", ESP_LOG_NONE); // and/or this 
- I2Cbus.begin(I2C_SDA, I2C_SCL, 100000); 
- I2Cbus.setTimeOut(20); // optional: prevents long stalls -> fewer repeats
- bootMillis = millis();
 
+  // Clamp noisy logs (IDF)
+  esp_log_level_set("*", ESP_LOG_WARN);
+  esp_log_level_set("i2c", ESP_LOG_NONE);
+  esp_log_level_set("i2c.master", ESP_LOG_NONE);
+  esp_log_level_set("i2c_master", ESP_LOG_NONE);
+
+  // I2C bus
+  I2Cbus.begin(I2C_SDA, I2C_SCL, 100000);
+  I2Cbus.setTimeOut(20);
+
+  bootMillis = millis();
+
+  // LittleFS
   if (!LittleFS.begin()) {
     Serial.println("LittleFS mount failed; formatting…");
     if (!(LittleFS.format() && LittleFS.begin())) {
@@ -414,12 +435,15 @@ void setup() {
     }
   }
 
+  // Config + schedule
   loadConfig();
   if (!LittleFS.exists("/schedule.txt")) saveSchedule();
   loadSchedule();
 
-  mainsChannel = P4; tankChannel = P5;
+  mainsChannel = P4; 
+  tankChannel  = P5;
 
+  // PCF8574 expanders (or GPIO fallback)
   if (!initExpanders()) {
     Serial.println("PCF8574 relays not found; GPIO fallback.");
     initGpioFallback();
@@ -431,37 +455,37 @@ void setup() {
 
   pinMode(LED_PIN, OUTPUT);
 
+  // OLED boot splash
   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println("SSD1306 init failed");
     while (true) delay(100);
   }
-
-  // Boot splash
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
-  display.setTextSize(2);
-  display.setCursor(0, 8);  display.print("Irrigation");
-  display.setTextSize(1);
-  display.setCursor(0, 36); display.print("AP: ESPIrrigationAP");
+  display.setTextSize(2); display.setCursor(0, 8);  display.print("Irrigation");
+  display.setTextSize(1); display.setCursor(0, 36); display.print("AP: ESPIrrigationAP");
   display.setCursor(0, 50); display.print("http://192.168.4.1");
   display.display();
 
-  WiFi.setHostname("espirrigation");
-  // WiFi connect
+  // Hostname + WiFi events
+  WiFi.setHostname(kHost);
+
+  // WiFiManager connect
   wifiManager.setTimeout(180);
-  if (!wifiManager.autoConnect("ESPIrrigationAP")) ESP.restart();
+  if (!wifiManager.autoConnect("ESPIrrigationAP")) {
+    ESP.restart();
+  }
 
   // Connected screen
   display.clearDisplay();
-  display.setTextSize(2); display.setCursor(0, 0); display.print("Connected!");
+  display.setTextSize(2); display.setCursor(0, 0);  display.print("Connected!");
   display.setTextSize(1); display.setCursor(0, 20); display.print(WiFi.localIP().toString());
   display.setCursor(0, 32); display.print("espirrigation.local");
   display.display();
   delay(5000);
 
-
+  // Timezone + SNTP
   delay(250);
-  
   applyTimezoneAndSNTP();
   {
     time_t now = time(nullptr);
@@ -472,25 +496,31 @@ void setup() {
       (tcheck.tm_isdst>0) ? "DST" : "STD", (int)tzMode);
   }
 
+  // OTA
   #if ENABLE_OTA
-  ArduinoOTA.setHostname("ESP32-Irrigation-OTA");
-  ArduinoOTA.begin();
+    ArduinoOTA.setHostname("ESP32-Irrigation-OTA");
+    ArduinoOTA.begin();
   #endif
 
+  mdnsStart();
 
-  // ---- Routes ----
+  // -------- Routes --------
   server.on("/", HTTP_GET, handleRoot);
-  server.on("/submit", HTTP_POST, handleSubmit);        // per-zone or all (see handler)
+  server.on("/submit", HTTP_POST, handleSubmit);
+
   server.on("/setup", HTTP_GET, handleSetupPage);
   server.on("/configure", HTTP_POST, handleConfigure);
+
   server.on("/events", HTTP_GET, handleLogPage);
   server.on("/clearevents", HTTP_POST, handleClearEvents);
+
   server.on("/tank", HTTP_GET, handleTankCalibration);
 
-  // Status JSON
+  // /status JSON
   server.on("/status", HTTP_GET, [](){
     DynamicJsonDocument doc(4096 + MAX_ZONES * 160);
     updateCachedWeather();
+
     doc["rainDelayActive"] = rainActive;
     doc["windDelayActive"] = windActive;
     doc["rainDelayCause"]  = rainDelayCauseText();
@@ -511,6 +541,7 @@ void setup() {
     doc["sunrise"]     = (uint32_t)todaySunrise;
     doc["sunset"]      = (uint32_t)todaySunset;
 
+    // local vs UTC offset
     time_t nowEpoch = time(nullptr);
     struct tm ltm; localtime_r(&nowEpoch, &ltm);
     struct tm gtm; gmtime_r(&nowEpoch,  &gtm);
@@ -532,18 +563,17 @@ void setup() {
     doc["sunriseLocal"] = hhmm((time_t)todaySunrise);
     doc["sunsetLocal"]  = hhmm((time_t)todaySunset);
 
-    // New flags (Master / Cooldown / Threshold)
-    doc["masterOn"] = systemMasterEnabled;
-    doc["cooldownUntil"] = rainCooldownUntilEpoch;
+    // New feature gates
+    doc["masterOn"]          = systemMasterEnabled;
+    doc["cooldownUntil"]     = rainCooldownUntilEpoch;
     doc["cooldownRemaining"] = (rainCooldownUntilEpoch>nowEpoch) ? (rainCooldownUntilEpoch - nowEpoch) : 0;
-    doc["rainThresh24h"]   = rainThreshold24h_mm;
-    doc["rainCooldownMin"] = rainCooldownMin;
-    doc["rainCooldownHours"] = rainCooldownMin / 60; // convenience for UI
-
+    doc["rainThresh24h"]     = rainThreshold24h_mm;
+    doc["rainCooldownMin"]   = rainCooldownMin;
+    doc["rainCooldownHours"] = rainCooldownMin / 60;
 
     // Zones snapshot
     JsonArray zones = doc.createNestedArray("zones");
-    for (int i=0;i<zonesCount;i++){
+    for (int i=0; i<zonesCount; i++){
       JsonObject z = zones.createNestedObject();
       z["active"] = zoneActive[i];
       z["name"]   = zoneNames[i];
@@ -591,17 +621,17 @@ void setup() {
       }
     }
 
-    // New feature gates
-    doc["systemPaused"] = isPausedNow();
-    doc["pauseUntil"]   = pauseUntilEpoch;
-    doc["rainForecastEnabled"] = rainDelayFromForecastEnabled;
-    doc["rainSensorEnabled"]   = rainSensorEnabled;
+    // Pause / delay toggles
+    doc["systemPaused"]          = isPausedNow();
+    doc["pauseUntil"]            = pauseUntilEpoch;
+    doc["rainForecastEnabled"]   = rainDelayFromForecastEnabled;
+    doc["rainSensorEnabled"]     = rainSensorEnabled;
 
     String out; serializeJson(doc, out);
     server.send(200, "application/json", out);
   });
 
-  // Small APIs
+  // Time API
   server.on("/api/time", HTTP_GET, [](){
     time_t nowEpoch = time(nullptr);
     struct tm lt; localtime_r(&nowEpoch, &lt);
@@ -617,7 +647,7 @@ void setup() {
     server.send(200,"application/json",out);
   });
 
-  // Tank calibration
+  // Tank calibration endpoints
   server.on("/setTankEmpty", HTTP_POST, []() {
     tankEmptyRaw = analogRead(TANK_PIN);
     saveConfig();
@@ -632,9 +662,9 @@ void setup() {
   });
 
   // Manual control per zone
-  for (int i=0;i<MAX_ZONES;i++){
-    server.on(String("/valve/on/")+i, HTTP_POST, [i](){ turnOnValveManual(i); server.send(200,"text/plain","OK"); });
-    server.on(String("/valve/off/")+i,HTTP_POST, [i](){ turnOffValveManual(i); server.send(200,"text/plain","OK"); });
+  for (int i=0; i<MAX_ZONES; i++){
+    server.on(String("/valve/on/")+i,  HTTP_POST, [i](){ turnOnValveManual(i);  server.send(200,"text/plain","OK"); });
+    server.on(String("/valve/off/")+i, HTTP_POST, [i](){ turnOffValveManual(i); server.send(200,"text/plain","OK"); });
   }
   server.on("/stopall", HTTP_POST, [](){
     for (int z=0; z<MAX_ZONES; ++z) if (zoneActive[z]) turnOffZone(z);
@@ -646,7 +676,7 @@ void setup() {
     server.send(200,"text/plain","Backlight toggled");
   });
 
-  // I2C tools
+  // I²C tools
   server.on("/i2c-test", HTTP_GET, [](){
     if (useGpioFallback) { server.send(500,"text/plain","Fallback active"); return; }
     for (uint8_t ch : PCH) { pcfOut.digitalWrite(ch, LOW); delay(100); pcfOut.digitalWrite(ch, HIGH); delay(60); }
@@ -654,7 +684,7 @@ void setup() {
   });
   server.on("/i2c-scan", HTTP_GET, [](){
     String s="I2C scan:\n"; byte count=0;
-    for (uint8_t addr=1;addr<127;addr++){
+    for (uint8_t addr=1; addr<127; addr++){
       I2Cbus.beginTransmission(addr);
       if (I2Cbus.endTransmission()==0){ s+=" - Found 0x"+String(addr,HEX)+"\n"; count++; delay(2); }
     }
@@ -662,7 +692,7 @@ void setup() {
     server.send(200,"text/plain",s);
   });
 
-  // Downloads / Reboot / Whereami
+  // Downloads / Admin
   server.on("/download/config.txt", HTTP_GET, [](){
     if (LittleFS.exists("/config.txt")){ File f=LittleFS.open("/config.txt","r"); server.streamFile(f,"text/plain"); f.close(); }
     else server.send(404,"text/plain","missing");
@@ -688,7 +718,7 @@ void setup() {
     server.send(200,"text/plain",s);
   });
 
-  // Reset Delays / Pause / Resume / Forecast toggle
+  // Pause/Resume/Delays/Forecast toggle
   server.on("/clear_delays", HTTP_POST, [](){
     for (int z=0; z<(int)zonesCount; ++z) pendingStart[z] = false;
     for (int z=0; z<(int)zonesCount; ++z) if (zoneActive[z]) turnOffZone(z);
@@ -715,7 +745,7 @@ void setup() {
     server.send(200,"text/plain", rainDelayFromForecastEnabled ? "on" : "off");
   });
 
-  // NEW: Master / Cooldown clear
+  // Master and cooldown
   server.on("/master", HTTP_POST, [](){
     systemMasterEnabled = server.hasArg("on");
     saveConfig();
@@ -732,6 +762,7 @@ void setup() {
   mqttSetup();
   mqttEnsureConnected();
 }
+
 
 // ---------- Loop ----------
 void loop() {
