@@ -1,5 +1,6 @@
 /****************************************************
  * ESP32 Irrigation (KC868-A6 / ESP32)
+ mDNS http://espirrigation.local/ WORKING!!
  * - 4/6 zone selectable
  * - Tank vs Mains (4-zone mode) with threshold + force toggles
  * - OpenWeather current + OneCall forecast (12/24h rain, POP, next-rain ETA, gusts)
