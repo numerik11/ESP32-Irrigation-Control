@@ -111,7 +111,7 @@ bool     rainDelayFromForecastEnabled = true;  // gate for forecast-based rain
 bool     systemMasterEnabled = true;     // Master On/Off
 uint32_t rainCooldownUntilEpoch = 0;     // when > now => block starts
 int      rainCooldownMin = 60;           // minutes to wait after rain clears
-int      rainThreshold24h_mm = 25;       // forecast 24h total triggers delay
+int      rainThreshold24h_mm = 5;       // forecast 24h total triggers delay
 
 // Scheduling
 bool enableStartTime2[MAX_ZONES] = {false};
@@ -628,6 +628,19 @@ void setup() {
     server.sendHeader("Location", "/tank", true);
     server.send(302, "text/plain", "");
   });
+
+  // Handle Rain Cooldown (now in HOURS on the UI)
+  if (server.hasArg("rainCooldownHours")) {
+    int h = server.arg("rainCooldownHours").toInt();
+  if (h < 0) h = 0;
+     rainCooldownMin = h * 60;        // store internally in MINUTES
+     } else if (server.hasArg("rainCooldownMin")) {
+  // Backward compatibility if any old form still posts minutes
+     int m = server.arg("rainCooldownMin").toInt();
+     if (m < 0) m = 0;
+    rainCooldownMin = m;
+}
+
 
   // Manual control per zone
   for (int i=0;i<MAX_ZONES;i++){
@@ -1291,7 +1304,8 @@ static NextWaterInfo computeNextWatering() {
   return best;
 }
 
-// ---------- Main Page ----------
+
+ // ---------- Main Page ----------
 void handleRoot() {  
   // --- Precompute state / snapshots ---
   checkWindRain();
@@ -1414,11 +1428,10 @@ void handleRoot() {
   html += F("</div><div class='hint'>Cond: <b>"); html += cond; html += F("</b></div></div>");
 
   html += F("<div class='card'><h3>Delays</h3><div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px'>");
-  html += F("<div id='rainBadge' class='badge "); html += (rainActive ? "b-bad" : "b-ok"); html += F("'>🌧️ Rain: <b>");
-  html += (rainActive?"Active":"Off"); html += F("</b></div>");
-  html += F("<div id='windBadge' class='badge "); html += (windActive ? "b-warn" : "b-ok"); html += F("'>💨 Wind: <b>");
-  html += (windActive?"Active":"Off"); html += F("</b></div>");
+  html += F("<div id='rainBadge' class='badge "); html += (rainActive ? "b-bad" : "b-ok"); html += F("'>🌧️ Rain: <b>"); html += (rainActive?"Active":"Off"); html += F("</b></div>");
+  html += F("<div id='windBadge' class='badge "); html += (windActive ? "b-warn" : "b-ok"); html += F("'>💨 Wind: <b>"); html += (windActive?"Active":"Off"); html += F("</b></div>");
   html += F("<div class='badge'>Cause: <b id='rainCauseBadge'>"); html += causeText; html += F("</b></div>");
+  html += F("<div class='badge'>24h: <b id='acc24'>--</b> mm</div>");
   html += F("</div></div>");
 
   html += F("<div class='card'><h3>Weather Stats</h3>");
@@ -1532,6 +1545,7 @@ void handleRoot() {
   // --- Tools / System Controls ---
   html += F("<div class='grid center' style='margin:16px auto 24px'><div class='card' style='grid-column:1/-1'>");
   html += F("<h3>Tools</h3><div class='toolbar'>");
+  html += F("<button class='btn' id='btn-save-all' title='Save all zone schedules on this page'>Save All</button>");
   html += F("<a class='btn' href='/setup'>Setup</a>");
   html += F("<a class='btn' href='/events'>Events</a>");
   html += F("<a class='btn' href='/tank'>Calibrate Tank</a>");
@@ -1596,6 +1610,8 @@ void handleRoot() {
   html += F("const src=document.getElementById('srcChip'); if(src) src.textContent=st.sourceMode||'';");
   html += F("const up=document.getElementById('upChip'); if(up) up.textContent=fmtUptime(st.uptimeSec||0);");
   html += F("const rssi=document.getElementById('rssiChip'); if(rssi) rssi.textContent=(st.rssi)+' dBm';");
+  // NEW: update 24h accumulation badge here
+  html += F("const acc24=document.getElementById('acc24'); if(acc24){ const v=(typeof st.accum24h==='number')?st.accum24h:NaN; acc24.textContent=isNaN(v)?'--':v.toFixed(1); }");
 
   html += F("if(Array.isArray(st.zones)){ st.zones.forEach((z,idx)=>{");
   html += F("const stateEl=document.getElementById('zone-'+idx+'-state'); const remEl=document.getElementById('zone-'+idx+'-rem'); const barEl=document.getElementById('zone-'+idx+'-bar');");
@@ -1626,6 +1642,26 @@ void handleRoot() {
   html += F("if(eEl) eEl.textContent = epoch ? fmtETA(epoch - nowEpoch) : '--'; })();");
 
   html += F("}catch(e){} } setInterval(refreshStatus,1200); refreshStatus();");
+
+  // expose zones count to JS
+  html += F("const ZC="); html += String(zonesCount); html += F(";");
+
+  // Save All (collect all zone forms and POST once to /submit)
+  html += F("async function saveAll(){");
+  html += F("  const fd=new URLSearchParams();");
+  html += F("  for(let z=0; z<ZC; z++){");
+  html += F("    const get = n=>document.querySelector(`[name='${n}']`);");
+  html += F("    const name = get('zoneName'+z); if(name) fd.append('zoneName'+z, name.value);");
+  html += F("    const h1=get('startHour'+z), m1=get('startMin'+z); if(h1) fd.append('startHour'+z,h1.value); if(m1) fd.append('startMin'+z,m1.value);");
+  html += F("    const h2=get('startHour2'+z), m2=get('startMin2'+z); if(h2) fd.append('startHour2'+z,h2.value); if(m2) fd.append('startMin2'+z,m2.value);");
+  html += F("    const en2=get('enableStartTime2'+z); if(en2 && en2.checked) fd.append('enableStartTime2'+z,'on');");
+  html += F("    const dm=get('durationMin'+z), ds=get('durationSec'+z); if(dm) fd.append('durationMin'+z,dm.value); if(ds) fd.append('durationSec'+z,ds.value);");
+  html += F("    for(let d=0; d<7; d++){ const cb=get('day'+z+'_'+d); if(cb && cb.checked) fd.append('day'+z+'_'+d,'on'); }");
+  html += F("  }");
+  html += F("  try{ await fetch('/submit',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()}); location.reload(); }catch(e){ console.error(e); }");
+  html += F("} ");
+  html += F("document.getElementById('btn-save-all')?.addEventListener('click', saveAll);");
+
   html += F("</script></body></html>");
 
   server.send(200, "text/html", html);
@@ -1697,8 +1733,9 @@ void handleSetupPage() {
   html += String(remainHours); html += F("' placeholder='e.g., 24'><small>0 = Until Manually Resumed</small></div>");
 
     // NEW Cooldown + Threshold
-  html += F("<div class='row'><label>Rain Cooldown (min)</label><input type='number' min='0' max='720' name='rainCooldownMin' value='");
-  html += String(rainCooldownMin); html += F("'><small>Wait after rain clears before running</small></div>");
+  html += F("<div class='row'><label>Rain Cooldown (hours)</label><input type='number' min='0' max='720' name='rainCooldownHours' value='");
+  html += String(rainCooldownMin / 60);  // show current setting in HOURS
+  html += F("'><small>Wait after rain clears before running</small></div>");
 
   html += F("<div class='row'><label>Rain Threshold 24h (mm)</label><input type='number' min='0' max='200' name='rainThreshold24h' value='");
   html += String(rainThreshold24h_mm); html += F("'><small>Delay if forecast 24h total ≥ threshold</small></div>");
