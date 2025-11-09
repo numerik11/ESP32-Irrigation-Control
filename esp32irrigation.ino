@@ -878,15 +878,24 @@ String fetchWeather() {
   String payload=(code>0)?http.getString():"{}";
   http.end(); return payload;
 }
+
 String fetchForecast(float lat, float lon) {
-  if (apiKey.length()<5) return "{}";
-  HTTPClient http; http.setTimeout(6500);
-  String url="http://api.openweathermap.org/data/2.5/onecall?lat="+String(lat,6)+"&lon="+String(lon,6)+"&appid="+apiKey+"&units=metric&exclude=minutely,alerts";
-  http.begin(client,url);
-  int code=http.GET();
-  String payload=(code>0)?http.getString():"{}";
-  http.end(); return payload;
+  if (apiKey.length() < 5) return "{}";
+  HTTPClient http; 
+  http.setTimeout(6500);
+
+  String url = "http://api.openweathermap.org/data/2.5/onecall?lat=" + String(lat,6) +
+               "&lon=" + String(lon,6) +
+               "&appid=" + apiKey +
+               "&units=metric&exclude=minutely,alerts";
+
+  http.begin(client, url);
+  int code = http.GET();
+  String payload = (code > 0) ? http.getString() : "{}";
+  http.end();
+  return payload;
 }
+
 void updateCachedWeather() {
   unsigned long nowms = millis();
   bool needCur = (cachedWeatherData == "" || (nowms - lastWeatherUpdate >= weatherUpdateInterval));
@@ -894,6 +903,7 @@ void updateCachedWeather() {
 
   if (needCur) { cachedWeatherData = fetchWeather(); lastWeatherUpdate = nowms; }
 
+  // Extract coordinates for OneCall
   {
     DynamicJsonDocument js(1024);
     if (deserializeJson(js, cachedWeatherData) == DeserializationError::Ok) {
@@ -905,33 +915,55 @@ void updateCachedWeather() {
     }
   }
 
+  // ---- Forecast fetch / parse ----
   if (haveCoord && (cachedForecastData == "" || (nowms - lastForecastUpdate >= forecastUpdateInterval))) {
     cachedForecastData = fetchForecast(lat, lon);
     lastForecastUpdate = nowms;
 
-    rainNext12h_mm = 0; rainNext24h_mm = 0; popNext12h_pct = 0; nextRainIn_h = -1;
-    maxGust24h_ms = 0; todayMin_C = NAN; todayMax_C = NAN; todaySunrise = 0; todaySunset = 0;
+    rainNext12h_mm = 0; 
+    rainNext24h_mm = 0; 
+    popNext12h_pct = 0; 
+    nextRainIn_h   = -1;
+    maxGust24h_ms  = 0; 
+    todayMin_C     = NAN; 
+    todayMax_C     = NAN; 
+    todaySunrise   = 0;   
+    todaySunset    = 0;
 
     DynamicJsonDocument fc(14 * 1024);
     if (deserializeJson(fc, cachedForecastData) == DeserializationError::Ok) {
+      // Daily snapshot (min/max & rise/set)
       if (fc["daily"].is<JsonArray>() && fc["daily"].size() > 0) {
         JsonObject d0 = fc["daily"][0];
-        todayMin_C  = d0["temp"]["min"] | NAN;
-        todayMax_C  = d0["temp"]["max"] | NAN;
+        todayMin_C   = d0["temp"]["min"] | NAN;
+        todayMax_C   = d0["temp"]["max"] | NAN;
         todaySunrise = (time_t)(d0["sunrise"] | 0);
         todaySunset  = (time_t)(d0["sunset"]  | 0);
       }
+
+      // Helper: accept either number or {"1h":x}
+      auto read1h = [](JsonVariant v) -> float {
+        if (v.isNull()) return 0.0f;
+        if (v.is<float>() || v.is<double>() || v.is<int>()) return v.as<float>();
+        JsonVariant one = v["1h"];
+        return one.isNull() ? 0.0f : one.as<float>();
+      };
+
+      // Prefer hourly accumulation
       if (fc["hourly"].is<JsonArray>()) {
         JsonArray hr = fc["hourly"].as<JsonArray>();
         int hrs = hr.size();
-        int L12 = min(12, hrs), L24 = min(24, hrs);
+        int L24 = min(24, hrs);
+        int L12 = min(12, hrs);
+
         for (int i = 0; i < L24; i++) {
           JsonObject h = hr[i];
-          float r = 0.0f;
-          if (!h["rain"].isNull()) r += h["rain"]["1h"] | 0.0f;
-          if (!h["snow"].isNull()) r += h["snow"]["1h"] | 0.0f;
 
-          if (i < 12) {
+          float r = 0.0f;
+          r += read1h(h["rain"]);
+          r += read1h(h["snow"]);  // treat snow as mm water equivalent
+
+          if (i < L12) {
             rainNext12h_mm += r;
             int pop = (int)roundf(100.0f * (h["pop"] | 0.0f));
             if (pop > popNext12h_pct) popNext12h_pct = pop;
@@ -947,10 +979,35 @@ void updateCachedWeather() {
           if (g > maxGust24h_ms) maxGust24h_ms = g;
         }
       }
+
+      // Fallback: if hourly sum is zero, use daily totals (rain + snow)
+      if (rainNext24h_mm <= 0.0f && fc["daily"].is<JsonArray>() && fc["daily"].size() > 0) {
+        JsonObject d0 = fc["daily"][0];
+        float dailyTotal = 0.0f;
+
+        if (!d0["rain"].isNull()) {
+          if (d0["rain"].is<float>() || d0["rain"].is<double>() || d0["rain"].is<int>())
+            dailyTotal += d0["rain"].as<float>();
+        }
+        if (!d0["snow"].isNull()) {
+          if (d0["snow"].is<float>() || d0["snow"].is<double>() || d0["snow"].is<int>())
+            dailyTotal += d0["snow"].as<float>();
+        }
+
+        if (dailyTotal > 0.0f) {
+          rainNext24h_mm = dailyTotal;
+          if (rainNext12h_mm <= 0.0f) rainNext12h_mm = dailyTotal * 0.5f; // rough split
+        }
+      }
     }
+
+    // Defensive clamp
+    if (isnan(rainNext12h_mm) || rainNext12h_mm < 0) rainNext12h_mm = 0.0f;
+    if (isnan(rainNext24h_mm) || rainNext24h_mm < 0) rainNext24h_mm = 0.0f;
+    if (isnan(maxGust24h_ms)  || maxGust24h_ms  < 0) maxGust24h_ms  = 0.0f;
   }
 
-  // Fallback sunrise/sunset from current weather
+  // ---- Fallback sunrise/sunset & min/max from current weather ----
   DynamicJsonDocument cur(2048);
   if (deserializeJson(cur, cachedWeatherData) == DeserializationError::Ok) {
     time_t sr = (time_t)(cur["sys"]["sunrise"] | 0);
@@ -1742,13 +1799,16 @@ void handleSetupPage() {
 
   // Delays & Pause + Master + Cooldown + Threshold
   html += F("<div class='card'><h3>Delays & Pause</h3>");
-
   html += F("<div class='row switchline'><label>System Pause</label><input type='checkbox' name='pauseEnable' ");
   html += (systemPaused ? "checked" : ""); html += F("><small>Enable System Pause</small></div>");
-
   time_t nowEp = time(nullptr);
   uint32_t remain = (pauseUntilEpoch>nowEp && systemPaused)? (pauseUntilEpoch-nowEp) : 0;
   uint32_t remainHours = remain/3600;
+  html += F("<div class='row switchline'><label>Master Enable</label>");
+  html += F("<input type='hidden' name='masterOn_present' value='1'>");
+  html += F("<input type='checkbox' name='masterOn' ");
+  html += (systemMasterEnabled ? "checked" : "");
+  html += F("> <small>Allow schedules/manual starts</small></div>");
 
   html += F("<div class='row'><label>Pause for (Hours)</label><input type='number' min='0' max='720' name='pauseHours' value='");
   html += String(remainHours); html += F("' placeholder='e.g., 24'><small>0 = Until Manually Resumed</small></div>");
