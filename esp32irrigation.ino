@@ -518,119 +518,139 @@ void setup() {
   server.on("/tank", HTTP_GET, handleTankCalibration);
 
   // /status JSON
-  server.on("/status", HTTP_GET, [](){
-    DynamicJsonDocument doc(4096 + MAX_ZONES * 160);
-    updateCachedWeather();
+server.on("/status", HTTP_GET, [](){
+  DynamicJsonDocument doc(4096 + MAX_ZONES * 160);
+  updateCachedWeather();
 
-    doc["rainDelayActive"] = rainActive;
-    doc["windDelayActive"] = windActive;
-    doc["rainDelayCause"]  = rainDelayCauseText();
-    doc["zonesCount"]      = zonesCount;
-    doc["tankPct"]         = tankPercent();
-    doc["sourceMode"]      = sourceModeText();
-    doc["rssi"]            = WiFi.RSSI();
-    doc["uptimeSec"]       = (millis() - bootMillis) / 1000;
+  doc["rainDelayActive"] = rainActive;
+  doc["windDelayActive"] = windActive;
+  doc["rainDelayCause"]  = rainDelayCauseText();
+  doc["zonesCount"]      = zonesCount;
+  doc["tankPct"]         = tankPercent();
+  doc["sourceMode"]      = sourceModeText();
+  doc["rssi"]            = WiFi.RSSI();
+  doc["uptimeSec"]       = (millis() - bootMillis) / 1000;
 
-    // Forecast fields
-    doc["rain12h"]     = isnan(rainNext12h_mm) ? 0.0f : rainNext12h_mm;
-    doc["rain24h"]     = isnan(rainNext24h_mm) ? 0.0f : rainNext24h_mm;
-    doc["pop12h"]      = (popNext12h_pct < 0 ? 0 : popNext12h_pct);
-    doc["nextRainInH"] = (nextRainIn_h < 0 ? 255 : nextRainIn_h);
-    doc["gust24h"]     = isnan(maxGust24h_ms) ? 0.0f : maxGust24h_ms;
-    doc["tmin"]        = isnan(todayMin_C) ? 0.0f : todayMin_C;
-    doc["tmax"]        = isnan(todayMax_C) ? 0.0f : todayMax_C;
-    doc["sunrise"]     = (uint32_t)todaySunrise;
-    doc["sunset"]      = (uint32_t)todaySunset;
+  // Forecast fields (NOTE: current rain gets filled later in the pass-through block)
+  doc["rain12h"]     = isnan(rainNext12h_mm) ? 0.0f : rainNext12h_mm;
+  doc["rain24h"]     = isnan(rainNext24h_mm) ? 0.0f : rainNext24h_mm;
+  doc["pop12h"]      = (popNext12h_pct < 0 ? 0 : popNext12h_pct);
+  doc["nextRainInH"] = (nextRainIn_h < 0 ? 255 : nextRainIn_h);
+  doc["gust24h"]     = isnan(maxGust24h_ms) ? 0.0f : maxGust24h_ms;
+  doc["tmin"]        = isnan(todayMin_C) ? 0.0f : todayMin_C;
+  doc["tmax"]        = isnan(todayMax_C) ? 0.0f : todayMax_C;
+  doc["sunrise"]     = (uint32_t)todaySunrise;
+  doc["sunset"]      = (uint32_t)todaySunset;
 
-    // local vs UTC offset
-    time_t nowEpoch = time(nullptr);
-    struct tm ltm; localtime_r(&nowEpoch, &ltm);
-    struct tm gtm; gmtime_r(&nowEpoch,  &gtm);
-    int localMin = ltm.tm_hour*60 + ltm.tm_min;
-    int utcMin   = gtm.tm_hour*60 + gtm.tm_min;
-    int deltaMin = localMin - utcMin;
-    if (deltaMin >  12*60) deltaMin -= 24*60;
-    if (deltaMin < -12*60) deltaMin += 24*60;
+  // local vs UTC offset
+  time_t nowEpoch = time(nullptr);
+  struct tm ltm; localtime_r(&nowEpoch, &ltm);
+  struct tm gtm; gmtime_r(&nowEpoch,  &gtm);
+  int localMin = ltm.tm_hour*60 + ltm.tm_min;
+  int utcMin   = gtm.tm_hour*60 + gtm.tm_min;
+  int deltaMin = localMin - utcMin;
+  if (deltaMin >  12*60) deltaMin -= 24*60;
+  if (deltaMin < -12*60) deltaMin += 24*60;
 
-    auto hhmm = [](time_t t){
-      char b[6]; struct tm tt; localtime_r(&t,&tt);
-      strftime(b,sizeof(b),"%H:%M",&tt); return String(b);
-    };
+  auto hhmm = [](time_t t){
+    char b[6]; struct tm tt; localtime_r(&t,&tt);
+    strftime(b,sizeof(b),"%H:%M",&tt); return String(b);
+  };
 
-    doc["deviceEpoch"]  = (uint32_t)nowEpoch;
-    doc["utcOffsetMin"] = deltaMin;
-    doc["isDST"]        = (ltm.tm_isdst > 0);
-    doc["tzAbbrev"]     = (ltm.tm_isdst>0) ? "DST" : "STD";
-    doc["sunriseLocal"] = hhmm((time_t)todaySunrise);
-    doc["sunsetLocal"]  = hhmm((time_t)todaySunset);
+  doc["deviceEpoch"]  = (uint32_t)nowEpoch;
+  doc["utcOffsetMin"] = deltaMin;
+  doc["isDST"]        = (ltm.tm_isdst > 0);
+  doc["tzAbbrev"]     = (ltm.tm_isdst>0) ? "DST" : "STD";
+  doc["sunriseLocal"] = hhmm((time_t)todaySunrise);
+  doc["sunsetLocal"]  = hhmm((time_t)todaySunset);
 
-    // New feature gates
-    doc["masterOn"]          = systemMasterEnabled;
-    doc["cooldownUntil"]     = rainCooldownUntilEpoch;
-    doc["cooldownRemaining"] = (rainCooldownUntilEpoch>nowEpoch) ? (rainCooldownUntilEpoch - nowEpoch) : 0;
-    doc["rainThresh24h"]     = rainThreshold24h_mm;
-    doc["rainCooldownMin"]   = rainCooldownMin;
-    doc["rainCooldownHours"] = rainCooldownMin / 60;
+  // New feature gates
+  doc["masterOn"]          = systemMasterEnabled;
+  doc["cooldownUntil"]     = rainCooldownUntilEpoch;
+  doc["cooldownRemaining"] = (rainCooldownUntilEpoch>nowEpoch) ? (rainCooldownUntilEpoch - nowEpoch) : 0;
+  doc["rainThresh24h"]     = rainThreshold24h_mm;
+  doc["rainCooldownMin"]   = rainCooldownMin;
+  doc["rainCooldownHours"] = rainCooldownMin / 60;
 
-    // Zones snapshot
-    JsonArray zones = doc.createNestedArray("zones");
-    for (int i=0; i<zonesCount; i++){
-      JsonObject z = zones.createNestedObject();
-      z["active"] = zoneActive[i];
-      z["name"]   = zoneNames[i];
-      unsigned long rem = 0;
-      if (zoneActive[i]) {
-        unsigned long elapsed = (millis() - zoneStartMs[i]) / 1000;
-        unsigned long total   = (unsigned long)durationMin[i] * 60 + durationSec[i];
-        rem = (elapsed < total ? total - elapsed : 0);
-      }
-      z["remaining"] = rem;
-      z["totalSec"]  = (unsigned long)durationMin[i] * 60 + durationSec[i];
+  // Zones snapshot
+  JsonArray zones = doc.createNestedArray("zones");
+  for (int i=0; i<zonesCount; i++){
+    JsonObject z = zones.createNestedObject();
+    z["active"] = zoneActive[i];
+    z["name"]   = zoneNames[i];
+    unsigned long rem = 0;
+    if (zoneActive[i]) {
+      unsigned long elapsed = (millis() - zoneStartMs[i]) / 1000;
+      unsigned long total   = (unsigned long)durationMin[i] * 60 + durationSec[i];
+      rem = (elapsed < total ? total - elapsed : 0);
     }
+    z["remaining"] = rem;
+    z["totalSec"]  = (unsigned long)durationMin[i] * 60 + durationSec[i];
+  }
 
-    // Current weather pass-through
-    {
-      DynamicJsonDocument js(2048);
-      if (deserializeJson(js, cachedWeatherData) == DeserializationError::Ok) {
-        doc["temp"]       = js["main"]["temp"]       | 0.0f;
-        doc["feels_like"] = js["main"]["feels_like"] | 0.0f;
-        doc["humidity"]   = js["main"]["humidity"]   | 0;
-        doc["pressure"]   = js["main"]["pressure"]   | 0;
-        doc["wind"]       = js["wind"]["speed"]      | 0.0f;
-        doc["gustNow"]    = js["wind"]["gust"]       | 0.0f;
-        doc["condMain"]   = js["weather"][0]["main"]        | "";
-        doc["condDesc"]   = js["weather"][0]["description"] | "";
-        doc["icon"]       = js["weather"][0]["icon"]        | "";
-        doc["cityName"]   = js["name"]                      | "";
-        doc["owmTzSec"]   = js["timezone"]                  | 0;
+  // Current weather pass-through (also sets rain1hNow / rain3hNow safely here)
+  {
+    DynamicJsonDocument js(2048);
+    if (deserializeJson(js, cachedWeatherData) == DeserializationError::Ok) {
+      doc["temp"]       = js["main"]["temp"]       | 0.0f;
+      doc["feels_like"] = js["main"]["feels_like"] | 0.0f;
+      doc["humidity"]   = js["main"]["humidity"]   | 0;
+      doc["pressure"]   = js["main"]["pressure"]   | 0;
+      doc["wind"]       = js["wind"]["speed"]      | 0.0f;
+      doc["gustNow"]    = js["wind"]["gust"]       | 0.0f;
+      doc["condMain"]   = js["weather"][0]["main"]        | "";
+      doc["condDesc"]   = js["weather"][0]["description"] | "";
+      doc["icon"]       = js["weather"][0]["icon"]        | "";
+      doc["cityName"]   = js["name"]                      | "";
+      doc["owmTzSec"]   = js["timezone"]                  | 0;
+
+      float rain1hNow = 0.0f;
+      float rain3hNow = 0.0f;
+
+      JsonVariant rv = js["rain"];
+      if (!rv.isNull()) {
+        if (rv["1h"].is<float>() || rv["1h"].is<double>() || rv["1h"].is<int>()) {
+          rain1hNow = rv["1h"].as<float>();
+        }
+        if (rv["3h"].is<float>() || rv["3h"].is<double>() || rv["3h"].is<int>()) {
+          rain3hNow = rv["3h"].as<float>();
+        }
+        // Some providers return "rain": <number> (interpret as 1h)
+        if ((rain1hNow == 0.0f) && (rv.is<float>() || rv.is<double>() || rv.is<int>())) {
+          rain1hNow = rv.as<float>();
+        }
       }
+
+      doc["rain1hNow"] = rain1hNow;  // mm last hour
+      doc["rain3hNow"] = rain3hNow;  // mm last 3 hours
     }
+  }
 
-    // Next Water (queue-first)
-    {
-      NextWaterInfo nw = computeNextWatering();
-      if (nw.zone >= 0) {
-        doc["nextWaterEpoch"]  = (uint32_t)nw.epoch;
-        doc["nextWaterZone"]   = nw.zone;
-        doc["nextWaterName"]   = zoneNames[nw.zone];
-        doc["nextWaterDurSec"] = nw.durSec;
-      } else {
-        doc["nextWaterEpoch"]  = 0;
-        doc["nextWaterZone"]   = 255;
-        doc["nextWaterName"]   = "";
-        doc["nextWaterDurSec"] = 0;
-      }
+  // Next Water (queue-first)
+  {
+    NextWaterInfo nw = computeNextWatering();
+    if (nw.zone >= 0) {
+      doc["nextWaterEpoch"]  = (uint32_t)nw.epoch;
+      doc["nextWaterZone"]   = nw.zone;
+      doc["nextWaterName"]   = zoneNames[nw.zone];
+      doc["nextWaterDurSec"] = nw.durSec;
+    } else {
+      doc["nextWaterEpoch"]  = 0;
+      doc["nextWaterZone"]   = 255;
+      doc["nextWaterName"]   = "";
+      doc["nextWaterDurSec"] = 0;
     }
+  }
 
-    // Pause / delay toggles
-    doc["systemPaused"]          = isPausedNow();
-    doc["pauseUntil"]            = pauseUntilEpoch;
-    doc["rainForecastEnabled"]   = rainDelayFromForecastEnabled;
-    doc["rainSensorEnabled"]     = rainSensorEnabled;
+  // Pause / delay toggles
+  doc["systemPaused"]          = isPausedNow();
+  doc["pauseUntil"]            = pauseUntilEpoch;
+  doc["rainForecastEnabled"]   = rainDelayFromForecastEnabled;
+  doc["rainSensorEnabled"]     = rainSensorEnabled;
 
-    String out; serializeJson(doc, out);
-    server.send(200, "application/json", out);
-  });
+  String out; serializeJson(doc, out);
+  server.send(200, "application/json", out);
+});
 
   // Time API
   server.on("/api/time", HTTP_GET, [](){
@@ -1505,12 +1525,14 @@ void handleRoot() {
   html += F("<div class='chip'>🌬️ "); html += (isnan(ws)   ? String("--") : String(ws,1)+" m/s"); html += F("</div>");
   html += F("</div><div class='hint'>Cond: <b>"); html += cond; html += F("</b></div></div>");
 
-  html += F("<div class='card'><h3>Delays</h3><div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px'>");
-  html += F("<div id='rainBadge' class='badge "); html += (rainActive ? "b-bad" : "b-ok"); html += F("'>🌧️ Rain: <b>"); html += (rainActive?"Active":"Off"); html += F("</b></div>");
-  html += F("<div id='windBadge' class='badge "); html += (windActive ? "b-warn" : "b-ok"); html += F("'>💨 Wind: <b>"); html += (windActive?"Active":"Off"); html += F("</b></div>");
-  html += F("<div class='badge'>Cause: <b id='rainCauseBadge'>"); html += causeText; html += F("</b></div>");
-  html += F("<div class='badge'>24h: <b id='acc24'>--</b> mm</div>");
-  html += F("</div></div>");
+html += F("<div class='card'><h3>Delays</h3><div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px'>");
+html += F("<div id='rainBadge' class='badge "); html += (rainActive ? "b-bad" : "b-ok"); html += F("'>🌧️ Rain: <b>"); html += (rainActive?"Active":"Off"); html += F("</b></div>");
+html += F("<div id='windBadge' class='badge "); html += (windActive ? "b-warn" : "b-ok"); html += F("'>💨 Wind: <b>"); html += (windActive?"Active":"Off"); html += F("</b></div>");
+html += F("<div class='badge'>Cause: <b id='rainCauseBadge'>"); html += causeText; html += F("</b></div>");
+html += F("<div class='badge'>1h (now): <b id='acc1h'>--</b> mm</div>");
+html += F("<div class='badge'>24h (forecast): <b id='acc24'>--</b> mm</div>");
+html += F("</div></div>");
+
 
   html += F("<div class='card'><h3>Weather Stats</h3>");
   html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px'>");
@@ -1688,7 +1710,10 @@ void handleRoot() {
   html += F("const src=document.getElementById('srcChip'); if(src) src.textContent=st.sourceMode||'';");
   html += F("const up=document.getElementById('upChip'); if(up) up.textContent=fmtUptime(st.uptimeSec||0);");
   html += F("const rssi=document.getElementById('rssiChip'); if(rssi) rssi.textContent=(st.rssi)+' dBm';");
- // NEW: update 24h accumulation badge here (single-line F() calls)
+
+  // NEW: update 24h accumulation badge here (single-line F() calls)
+  html += F("const acc1h=document.getElementById('acc1h');");
+  html += F("if(acc1h){let v=(typeof st.rain1hNow==='number')?st.rain1hNow:NaN;if((isNaN(v)||v===0)&&typeof st.rain3hNow==='number'&&st.rain3hNow>0){v=st.rain3hNow/3;}acc1h.textContent=isNaN(v)?'--':v.toFixed(1);}");
   html += F("const acc24=document.getElementById('acc24');");
   html += F("if(acc24){const v=(typeof st.rain24h==='number')?st.rain24h:NaN;acc24.textContent=isNaN(v)?'--':v.toFixed(1);}");
   html += F("if(Array.isArray(st.zones)){ st.zones.forEach((z,idx)=>{");
