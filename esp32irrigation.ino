@@ -1,9 +1,3 @@
-/****************************************************
- * ESP32 Irrigation (KC868-A6 / ESP32)
- * Consolidated .ino with rolling 24h actual rainfall accumulator,
- * 1h/3h now fields as globals, and UI/JSON updates.
- * mDNS http://espirrigation.local/
- ****************************************************/
 #ifndef ENABLE_OTA
   #define ENABLE_OTA 0   
 #endif
