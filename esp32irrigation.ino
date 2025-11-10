@@ -1801,26 +1801,16 @@ void handleSetupPage() {
   html += F("<body><div class='wrap'><h1>⚙️ Setup</h1><form action='/configure' method='POST'>");
 
   // Weather
-  html += F("<div class='card'><h3>Weather</h3>");
+  html += F("<div class='card'><h3Current Weather</h3>");
   html += F("<div class='row'><label>API Key</label><input type='text' name='apiKey' value='"); html += apiKey; html += F("'></div>");
   html += F("<div class='row'><label>City ID</label><input type='text' name='city' value='"); html += city; html += F("'><small>OpenWeather city id</small></div>");
   html += F("</div>");
 
-  // Time & Zones
-  html += F("<div class='card'><h3>Time & Zones</h3>");
+  // Zones
+  html += F("<div class='card'><h3>Zones</h3>");
   html += F("<div class='row switchline'><label>Zones</label>");
   html += F("<label><input type='radio' name='zonesMode' value='4' "); html += (zonesCount==4?"checked":""); html += F("> 4 Zone + (Mains/Tank)</label>");
   html += F("<label><input type='radio' name='zonesMode' value='6' "); html += (zonesCount==6?"checked":""); html += F("> 6 Zone </label></div>");
-  html += F("</div>");
-
-  // Features
-  html += F("<div class='card'><h3>Features</h3>");
-  html += F("<div class='row switchline'><label>Rain Delay</label><input type='checkbox' name='rainDelay' "); html += (rainDelayEnabled?"checked":""); html += F("></div>");
-  html += F("<div class='row switchline'><label>Wind Delay</label><input type='checkbox' name='windCancelEnabled' "); html += (windDelayEnabled?"checked":""); html += F("></div>");
-  html += F("<div class='row'><label>Wind Threshold</label><input type='number' step='0.1' name='windSpeedThreshold' value='"); html += String(windSpeedThreshold,1); html += F("'></div>");
-  html += F("<div class='row'><label>Tank Threshold %</label><input type='number' min='0' max='100' name='tankThresh' value='"); html += String(tankLowThresholdPct); html += F("'><small>Auto:Mains if ≤ threshold</small></div>");
-  html += F("<div class='row switchline'><label>Only Tank</label><input type='checkbox' name='justUseTank' "); html += (justUseTank?"checked":""); html += F("> ");
-  html += F("<label>   Only Mains</label><input type='checkbox' name='justUseMains' "); html += (justUseMains?"checked":""); html += F("><small>(4-zone only)</small></div>");
   html += F("</div>");
 
   // Physical rain sensor
@@ -1834,40 +1824,73 @@ void handleSetupPage() {
 
   // Delays & Pause + Master + Cooldown + Threshold
   html += F("<div class='card'><h3>Delays & Pause</h3>");
-  html += F("<div class='row switchline'><label>System Pause</label><input type='checkbox' name='pauseEnable' ");
-  html += (systemPaused ? "checked" : ""); html += F("><small>Enable System Pause</small></div>");
+
+  html += F("<div class='row switchline'><label>Rain Delay Enable</label>"
+          "<input type='checkbox' name='rainDelay' ");
+  html += (rainDelayEnabled ? "checked" : "");
+  html += F("></div>");
+
+  html += F("<div class='row switchline'><label>Wind Delay Enable</label>"
+          "<input type='checkbox' name='windCancelEnabled' ");
+  html += (windDelayEnabled ? "checked" : "");
+  html += F("></div>");
+
+  // Tank/Main row with two checkboxes
+  html += F("<div class='row switchline'>"
+          "<label style='min-width:160px'>Tank/Main</label>"
+          "<div style='display:flex;gap:14px;align-items:center;flex-wrap:wrap'>"
+          "<label><input type='checkbox' name='justUseTank' ");
+  html += (justUseTank ? "checked" : "");
+  html += F("> Only Use Tank</label>"
+          "<label><input type='checkbox' name='justUseMains' ");
+  html += (justUseMains ? "checked" : "");
+  html += F("> Only Use Mains</label>"
+          "<small>(4-zone only)</small>"
+          "</div></div>");
+
+  html += F("<div class='row switchline'><label>System Pause</label>"
+          "<input type='checkbox' name='pauseEnable' ");
+  html += (systemPaused ? "checked" : "");
+  html += F("><small>Enable System Pause</small></div>");
+
   time_t nowEp = time(nullptr);
-  uint32_t remain = (pauseUntilEpoch>nowEp && systemPaused)? (pauseUntilEpoch-nowEp) : 0;
-  uint32_t remainHours = remain/3600;
-  html += F("<div class='row switchline'><label>Master Enable</label>");
-  html += F("<input type='hidden' name='masterOn_present' value='1'>");
-  html += F("<input type='checkbox' name='masterOn' ");
-  html += (systemMasterEnabled ? "checked" : "");
-  html += F("> <small>Allow schedules/manual starts</small></div>");
+  uint32_t remain = (pauseUntilEpoch > nowEp && systemPaused) ? (pauseUntilEpoch - nowEp) : 0;
+  uint32_t remainHours = remain / 3600;
 
-  html += F("<div class='row'><label>Pause for (Hours)</label><input type='number' min='0' max='720' name='pauseHours' value='");
-  html += String(remainHours); html += F("' placeholder='e.g., 24'><small>0 = Until Manually Resumed</small></div>");
+  // (Master toggle intentionally removed)
 
-  html += F("<div class='row'><label>Rain Cooldown (hours)</label><input type='number' min='0' max='720' name='rainCooldownHours' value='");
+  html += F("<div class='row'><label>Pause for (Hours)</label>"
+          "<input type='number' min='0' max='720' name='pauseHours' value='");
+  html += String(remainHours);
+  html += F("' placeholder='e.g., 24'>"
+          "<small>0 = Until Manually Resumed</small></div>");
+
+  html += F("<div class='row'><label>Rain Cooldown (hours)</label>"
+          "<input type='number' min='0' max='720' name='rainCooldownHours' value='");
   html += String(rainCooldownMin / 60);
   html += F("'><small>Wait after rain clears before running</small></div>");
 
-  html += F("<div class='row'><label>Rain Threshold 24h (mm)</label><input type='number' min='0' max='200' name='rainThreshold24h' value='");
-  html += String(rainThreshold24h_mm); html += F("'><small>Delay if forecast 24h total ≥ threshold</small></div>");
+  html += F("<div class='row'><label>Rain Threshold 24h (mm)</label>"
+          "<input type='number' min='0' max='200' name='rainThreshold24h' value='");
+  html += String(rainThreshold24h_mm);
+  html += F("'><small>Delay if 24h total ≥ threshold</small></div>");
 
-  html += F("<div class='row' style='gap:10px;flex-wrap:wrap'>");  
-  html += F("<button class='btn' type='button' id='btn-pause-24'>Pause 24h</button>");
-  html += F("<button class='btn' type='button' id='btn-pause-7d'>Pause 7d</button>");
-  html += F("<button class='btn' type='button' id='btn-resume'>Resume</button>");
-  html += F("<button class='btn' type='button' id='btn-toggle-backlight'>Toggle LCD</button>");
-  html += F("<button class='btn' type='button' id='btn-clear-delays'>Clear Delays</button>");
-  html += F("</div>");
+  html += F("<div class='row' style='gap:10px;flex-wrap:wrap'>"
+          "<button class='btn' type='button' id='btn-pause-24'>Pause 24h</button>"
+          "<button class='btn' type='button' id='btn-pause-7d'>Pause 7d</button>"
+          "<button class='btn' type='button' id='btn-resume'>Resume</button>"
+          "<button class='btn' type='button' id='btn-toggle-backlight'>Toggle LCD</button>"
+          "<button class='btn' type='button' id='btn-clear-delays'>Clear Delays</button>"
+          "</div>");
 
-  html += F("<div class='row' style='gap:10px;margin-top:6px'><button class='btn' type='submit'>Save</button>");
-  html += F("<button class='btn btn-alt' formaction='/' formmethod='GET'>Home</button>");
-  html += F("<button class='btn btn-alt' type='button' onclick=\"fetch('/clear_cooldown',{method:'POST'})\">Clear Cooldown</button>");
-  html += F("<button class='btn btn-alt' formaction='/configure' formmethod='POST' name='resumeNow' value='1'>Resume Now</button></div>");
-  html += F("</div>"); // end Delays & Pause card
+  html += F("<div class='row' style='gap:10px;margin-top:6px'>"
+          "<button class='btn' type='submit'>Save</button>"
+          "<button class='btn btn-alt' formaction='/' formmethod='GET'>Home</button>"
+          "<button class='btn btn-alt' type='button' onclick=\"fetch('/clear_cooldown',{method:'POST'})\">Clear Cooldown</button>"
+          "<button class='btn btn-alt' formaction='/configure' formmethod='POST' name='resumeNow' value='1'>Resume Now</button>"
+          "</div>");
+
+  html += F("</div>"); // end card
 
   // GPIO fallback pins
   html += F("<div class='card'><h3>GPIO Fallback (if I²C relays not found)</h3><div class='grid'>");
