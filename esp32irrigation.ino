@@ -522,6 +522,9 @@ void setup() {
     doc["sourceMode"]      = sourceModeText();
     doc["rssi"]            = WiFi.RSSI();
     doc["uptimeSec"]       = (millis() - bootMillis) / 1000;
+    doc["masterOn"] = systemMasterEnabled;              // already present
+    doc["systemMasterEnabled"] = systemMasterEnabled;   // add for JS compatibility
+
 
     // Current rain (actuals) — globals populated in updateCachedWeather()
     doc["rain1hNow"] = rain1hNow;
@@ -1741,9 +1744,12 @@ void handleRoot() {
   html += F("if(suns) suns.textContent = st.sunsetLocal  || '--:--';");
   html += F("if(press) press.textContent = (typeof st.pressure==='number' && st.pressure>0) ? st.pressure : '--';");
 
-  // Master toggle: keep UI in sync with API state (if provided)
+  // Master toggle: keep UI in sync with API state (`masterOn` from /status)
   html += F("const bm=document.getElementById('btn-master'); const ms=document.getElementById('master-state');");
-  html += F("if(bm && ms && typeof st.systemMasterEnabled==='boolean'){ bm.setAttribute('aria-pressed', st.systemMasterEnabled?'true':'false'); ms.textContent = st.systemMasterEnabled?'On':'Off'; }");
+  html += F("if(bm && ms && typeof st.masterOn==='boolean'){");
+  html += F("  bm.setAttribute('aria-pressed', st.masterOn ? 'true' : 'false');");
+  html += F("  ms.textContent = st.masterOn ? 'On' : 'Off';");
+  html += F("}");
 
   // Next Water
   html += F("(function(){ const zEl=document.getElementById('nwZone'); const tEl=document.getElementById('nwTime'); const eEl=document.getElementById('nwETA'); const dEl=document.getElementById('nwDur');");
@@ -1815,7 +1821,7 @@ void handleSetupPage() {
 
   // Physical rain sensor
   html += F("<div class='card'><h3>Physical Rain Sensor</h3>");
-  html += F("<div class='row switchline'><label>Disable OpenWeather Rain Delay</label><input type='checkbox' name='rainForecastDisabled' ");
+  html += F("<div class='row switchline'><label>Disable OpenWeatherMap Rain</label><input type='checkbox' name='rainForecastDisabled' ");
   html += (!rainDelayFromForecastEnabled ? "checked" : ""); html += F("><small>Checked = ignore OpenWeather rain.</small></div>");
   html += F("<div class='row switchline'><label>Enable Rain Sensor</label><input type='checkbox' name='rainSensorEnabled' "); html += (rainSensorEnabled?"checked":""); html += F("></div>");
   html += F("<div class='row'><label>GPIO</label><input type='number' min='0' max='39' name='rainSensorPin' value='"); html += String(rainSensorPin); html += F("'><small>Use INPUT_PULLUP (e.g., 27)</small></div>");
@@ -2264,9 +2270,6 @@ void handleConfigure() {
       systemPaused = false; pauseUntilEpoch = 0;
     }
   }
-
-  // Master / cooldown / threshold
-  systemMasterEnabled = server.hasArg("masterOn");
 
   // New UI posts HOURS; still accept legacy MINUTES if present
   if (server.hasArg("rainCooldownHours")) {
