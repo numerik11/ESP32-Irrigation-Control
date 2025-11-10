@@ -934,7 +934,6 @@ void updateCachedWeather() {
       JsonVariant rv = js["rain"];
       if (!rv.isNull()) {
         if (rv["1h"].is<float>() || rv["1h"].is<double>() || rv["1h"].is<int>()) r1 = rv["1h"].as<float>();
-        if (rv["3h"].is<float>() || rv["3h"].is<double>() || rv["3h"].is<int>()) r3 = rv["3h"].as<float>();
         if (r1 == 0.0f && (rv.is<float>() || rv.is<double>() || rv.is<int>())) r1 = rv.as<float>();
       }
       rain1hNow = r1;
