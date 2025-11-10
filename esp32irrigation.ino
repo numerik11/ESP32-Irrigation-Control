@@ -166,6 +166,13 @@ static time_t lastRainHistHour = 0;
 float rain1hNow = 0.0f;  // mm from /weather last 1h
 float rain3hNow = 0.0f;  // mm from /weather last 3h
 
+// ---------- NEW: guard to avoid fetching while serving HTTP ----------
+volatile bool g_inHttp = false;
+struct HttpScope {
+  HttpScope()  { g_inHttp = true; }
+  ~HttpScope() { g_inHttp = false; }
+};
+
 // ---------- Prototypes ----------
 void wifiCheck();
 void loadConfig();
@@ -173,6 +180,8 @@ void saveConfig();
 void loadSchedule();
 void saveSchedule();
 void updateCachedWeather();
+void tickWeather();                 // NEW
+static inline void touchWeatherNoFetch() {} // NEW no-op accessor
 void HomeScreen();
 void RainScreen();
 void updateLCDForZone(int zone);
@@ -473,13 +482,16 @@ void setup() {
     ESP.restart();
   }
 
+  // Improve HTTP responsiveness
+  WiFi.setSleep(false); // NEW: disable modem sleep for snappier responses
+
   // Connected screen
   display.clearDisplay();
   display.setTextSize(2); display.setCursor(0, 0);  display.print("Connected!");
   display.setTextSize(1); display.setCursor(0, 20); display.print(WiFi.localIP().toString());
   display.setCursor(0, 32); display.print("espirrigation.local");
   display.display();
-  delay(5000);
+  delay(2500);
 
   // Timezone + SNTP
   delay(250);
@@ -515,8 +527,11 @@ void setup() {
 
   // /status JSON
   server.on("/status", HTTP_GET, [](){
+    HttpScope _scope; // NEW: avoid heavy work while serving
     DynamicJsonDocument doc(4096 + MAX_ZONES * 160);
-    updateCachedWeather();
+
+    // DO NOT fetch here anymore
+    // updateCachedWeather();
 
     doc["rainDelayActive"] = rainActive;
     doc["windDelayActive"] = windActive;
@@ -527,7 +542,7 @@ void setup() {
     doc["rssi"]            = WiFi.RSSI();
     doc["uptimeSec"]       = (millis() - bootMillis) / 1000;
 
-    // Current rain (actuals) — globals populated in updateCachedWeather()
+    // Current rain (actuals)
     doc["rain1hNow"] = rain1hNow;
     doc["rain3hNow"] = rain3hNow;
 
@@ -564,7 +579,7 @@ void setup() {
     doc["sunriseLocal"] = hhmm((time_t)todaySunrise);
     doc["sunsetLocal"]  = hhmm((time_t)todaySunset);
 
-    // New feature gates
+    // Feature gates
     doc["masterOn"]          = systemMasterEnabled;
     doc["cooldownUntil"]     = rainCooldownUntilEpoch;
     doc["cooldownRemaining"] = (rainCooldownUntilEpoch>nowEpoch) ? (rainCooldownUntilEpoch - nowEpoch) : 0;
@@ -591,7 +606,7 @@ void setup() {
       z["totalSec"]  = (unsigned long)durationMin[i] * 60 + durationSec[i];
     }
 
-    // Current weather pass-through
+    // Current weather pass-through (no fetch, just decode cache)
     {
       DynamicJsonDocument js(2048);
       if (deserializeJson(js, cachedWeatherData) == DeserializationError::Ok) {
@@ -640,6 +655,7 @@ void setup() {
 
   // Time API
   server.on("/api/time", HTTP_GET, [](){
+    HttpScope _scope;
     time_t nowEpoch = time(nullptr);
     struct tm lt; localtime_r(&nowEpoch, &lt);
     struct tm gt; gmtime_r(&nowEpoch,  &gt);
@@ -656,12 +672,14 @@ void setup() {
 
   // Tank calibration endpoints
   server.on("/setTankEmpty", HTTP_POST, []() {
+    HttpScope _scope;
     tankEmptyRaw = analogRead(TANK_PIN);
     saveConfig();
     server.sendHeader("Location", "/tank", true);
     server.send(302, "text/plain", "");
   });
   server.on("/setTankFull", HTTP_POST, []() {
+    HttpScope _scope;
     tankFullRaw = analogRead(TANK_PIN);
     saveConfig();
     server.sendHeader("Location", "/tank", true);
@@ -670,14 +688,16 @@ void setup() {
 
   // Manual control per zone
   for (int i=0; i<MAX_ZONES; i++){
-    server.on(String("/valve/on/")+i,  HTTP_POST, [i](){ turnOnValveManual(i);  server.send(200,"text/plain","OK"); });
-    server.on(String("/valve/off/")+i, HTTP_POST, [i](){ turnOffValveManual(i); server.send(200,"text/plain","OK"); });
+    server.on(String("/valve/on/")+i,  HTTP_POST, [i](){ HttpScope _s; turnOnValveManual(i);  server.send(200,"text/plain","OK"); });
+    server.on(String("/valve/off/")+i, HTTP_POST, [i](){ HttpScope _s; turnOffValveManual(i); server.send(200,"text/plain","OK"); });
   }
   server.on("/stopall", HTTP_POST, [](){
+    HttpScope _scope;
     for (int z=0; z<MAX_ZONES; ++z) if (zoneActive[z]) turnOffZone(z);
     server.send(200,"text/plain","OK");
   });
   server.on("/toggleBacklight", HTTP_POST, [](){
+    HttpScope _scope;
     static bool inverted=false; inverted=!inverted;
     display.invertDisplay(inverted);
     server.send(200,"text/plain","Backlight toggled");
@@ -685,11 +705,13 @@ void setup() {
 
   // I²C tools
   server.on("/i2c-test", HTTP_GET, [](){
+    HttpScope _scope;
     if (useGpioFallback) { server.send(500,"text/plain","Fallback active"); return; }
     for (uint8_t ch : PCH) { pcfOut.digitalWrite(ch, LOW); delay(100); pcfOut.digitalWrite(ch, HIGH); delay(60); }
     server.send(200,"text/plain","PCF8574 pulse OK");
   });
   server.on("/i2c-scan", HTTP_GET, [](){
+    HttpScope _scope;
     String s="I2C scan:\n"; byte count=0;
     for (uint8_t addr=1; addr<127; addr++){
       I2Cbus.beginTransmission(addr);
@@ -701,21 +723,26 @@ void setup() {
 
   // Downloads / Admin
   server.on("/download/config.txt", HTTP_GET, [](){
+    HttpScope _scope;
     if (LittleFS.exists("/config.txt")){ File f=LittleFS.open("/config.txt","r"); server.streamFile(f,"text/plain"); f.close(); }
     else server.send(404,"text/plain","missing");
   });
   server.on("/download/schedule.txt", HTTP_GET, [](){
+    HttpScope _scope;
     if (LittleFS.exists("/schedule.txt")){ File f=LittleFS.open("/schedule.txt","r"); server.streamFile(f,"text/plain"); f.close(); }
     else server.send(404,"text/plain","missing");
   });
   server.on("/download/events.csv", HTTP_GET, [](){
+    HttpScope _scope;
     if (LittleFS.exists("/events.csv")){ File f=LittleFS.open("/events.csv","r"); server.streamFile(f,"text/csv"); f.close(); }
     else server.send(404,"text/plain","No event log");
   });
   server.on("/reboot", HTTP_POST, [](){
+    HttpScope _scope;
     server.send(200,"text/plain","restarting"); delay(200); ESP.restart();
   });
   server.on("/whereami", HTTP_GET, [](){
+    HttpScope _scope;
     String s;
     s = "IP: " + WiFi.localIP().toString() + "\n";
     s+= "Host: espirrigation.local\n";
@@ -727,6 +754,7 @@ void setup() {
 
   // Pause/Resume/Delays/Forecast toggle
   server.on("/clear_delays", HTTP_POST, [](){
+    HttpScope _scope;
     for (int z=0; z<(int)zonesCount; ++z) pendingStart[z] = false;
     for (int z=0; z<(int)zonesCount; ++z) if (zoneActive[z]) turnOffZone(z);
     dbgForceRain = false; dbgForceWind = false;
@@ -734,6 +762,7 @@ void setup() {
     server.send(200,"text/plain","OK");
   });
   server.on("/pause", HTTP_POST, [](){
+    HttpScope _scope;
     time_t nowEp = time(nullptr);
     String secStr = server.arg("sec");
     uint32_t sec = secStr.length()? secStr.toInt() : (24u*3600u);
@@ -743,10 +772,12 @@ void setup() {
     server.send(200,"text/plain","OK");
   });
   server.on("/resume", HTTP_POST, [](){
+    HttpScope _scope;
     systemPaused = false; pauseUntilEpoch = 0; saveConfig();
     server.send(200,"text/plain","OK");
   });
   server.on("/set_rain_forecast", HTTP_POST, [](){
+    HttpScope _scope;
     rainDelayFromForecastEnabled = server.hasArg("on");
     saveConfig();
     server.send(200,"text/plain", rainDelayFromForecastEnabled ? "on" : "off");
@@ -754,11 +785,13 @@ void setup() {
 
   // Master and cooldown
   server.on("/master", HTTP_POST, [](){
+    HttpScope _scope;
     systemMasterEnabled = server.hasArg("on");  // Dashboard only (not in Setup)
     saveConfig();
     server.send(200,"text/plain", systemMasterEnabled ? "on" : "off");
   });
   server.on("/clear_cooldown", HTTP_POST, [](){
+    HttpScope _scope;
     rainCooldownUntilEpoch = 0;
     server.send(200,"text/plain","OK");
   });
@@ -777,6 +810,9 @@ void loop() {
   #if ENABLE_OTA
   ArduinoOTA.handle();
   #endif
+
+  // NEW: do timed weather updates here only (never inside HTTP handlers)
+  tickWeather();
 
   server.handleClient();
   wifiCheck();
@@ -862,7 +898,10 @@ void wifiCheck() {
     Serial.println("Reconnecting WiFi…");
     WiFi.disconnect(); delay(600);
     if (!wifiManager.autoConnect("ESPIrrigationAP")) Serial.println("Reconnection failed.");
-    else Serial.println("Reconnected.");
+    else {
+      Serial.println("Reconnected.");
+      WiFi.setSleep(false); // keep disabled after reconnect
+    }
   }
 }
 
@@ -892,7 +931,8 @@ void initGpioFallback() {
 // ---------- Weather / Forecast ----------
 String fetchWeather() {
   if (apiKey.length()<5 || city.length()<1) return "{}";
-  HTTPClient http; http.setTimeout(5000);
+  HTTPClient http; 
+  http.setTimeout(2500); // NEW: shorter timeout
   String url="http://api.openweathermap.org/data/2.5/weather?id="+city+"&appid="+apiKey+"&units=metric";
   http.begin(client,url);
   int code=http.GET();
@@ -903,7 +943,7 @@ String fetchWeather() {
 String fetchForecast(float lat, float lon) {
   if (apiKey.length() < 5) return "{}";
   HTTPClient http; 
-  http.setTimeout(6500);
+  http.setTimeout(3000); // NEW: shorter timeout
 
   String url = "http://api.openweathermap.org/data/2.5/onecall?lat=" + String(lat,6) +
                "&lon=" + String(lon,6) +
@@ -936,6 +976,9 @@ static float last24hActualRain() {
 }
 
 void updateCachedWeather() {
+  // NEW: never start fetches while handling HTTP requests
+  if (g_inHttp) return;
+
   unsigned long nowms = millis();
   bool needCur = (cachedWeatherData == "" || (nowms - lastWeatherUpdate >= weatherUpdateInterval));
   bool haveCoord = false; float lat = NAN, lon = NAN;
@@ -1071,9 +1114,14 @@ void updateCachedWeather() {
   tickActualRainHistory();
 }
 
+// NEW: called only from loop()
+void tickWeather(){
+  updateCachedWeather();
+}
+
 // ---------- Rain/Wind logic with cooldown & threshold ----------
 bool checkWindRain() {
-  updateCachedWeather();
+  updateCachedWeather(); // safe: early-out if g_inHttp set
   DynamicJsonDocument js(1024);
   bool weatherOk = (deserializeJson(js, cachedWeatherData) == DeserializationError::Ok);
 
@@ -1129,7 +1177,9 @@ bool checkWindRain() {
 
 // ---------- Event log ----------
 void logEvent(int zone, const char* eventType, const char* source, bool rainDelayed) {
-  updateCachedWeather();
+  touchWeatherNoFetch(); // NEW: don't fetch here
+
+  updateCachedWeather(); // safe early-out if g_inHttp==true, keeps details recent enough
   DynamicJsonDocument js(512);
   float temp=NAN, wind=NAN; int hum=0; String cond="?", cname="-";
   if (deserializeJson(js,cachedWeatherData)==DeserializationError::Ok) {
@@ -1181,6 +1231,7 @@ void updateLCDForZone(int zone) {
 }
 
 void RainScreen(){
+  touchWeatherNoFetch(); // NEW: don't fetch here
   display.clearDisplay();
   display.setTextSize(2); display.setCursor(0,0); display.print(isPausedNow()? "System Pause" : "Rain/Wind");
   display.setTextSize(1);
@@ -1192,7 +1243,7 @@ void RainScreen(){
 }
 
 void HomeScreen() {
-  updateCachedWeather();
+  touchWeatherNoFetch(); // NEW: don't fetch here
   DynamicJsonDocument js(1024); (void)deserializeJson(js,cachedWeatherData);
 
   float temp = js["main"]["temp"].as<float>();
@@ -1442,6 +1493,8 @@ static NextWaterInfo computeNextWatering() {
 
  // ---------- Main Page ----------
 void handleRoot() {  
+  HttpScope _scope; // NEW: avoid fetch while serving
+
   // --- Precompute state / snapshots ---
   checkWindRain();
 
@@ -1451,7 +1504,7 @@ void handleRoot() {
   strftime(timeStr, sizeof(timeStr), "%H:%M:%S", ti);
   strftime(dateStr, sizeof(dateStr), "%d/%m/%Y", ti);
 
-  updateCachedWeather();
+  // don't fetch; just read cached
   DynamicJsonDocument js(1024);
   DeserializationError werr = deserializeJson(js, cachedWeatherData);
 
@@ -1500,7 +1553,7 @@ void handleRoot() {
   html += F(".glass{background:var(--glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--glass-brd);border-radius:16px;box-shadow:var(--shadow)}");
   html += F(".section{padding:14px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}");
   html += F(".card{background:var(--card);border:1px solid var(--glass-brd);border-radius:16px;box-shadow:var(--shadow);padding:14px}");
-  html += F(".card h3{margin:0 0 8px 0;font-size:1rem;color:var(--muted)}");
+  html += F(".card h3{margin:0 0 8px 0;font-size:1rem;color:var(--muted)} .card h4{margin:8px 0 4px 0;font-size:.95rem;color:var(--muted)}");
   html += F(".chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border:1px solid var(--chip-brd);border-radius:999px;padding:6px 10px;font-weight:650;white-space:nowrap}");
   html += F(".big{font-weight:800;font-size:1.22rem}.hint{opacity:.7;font-size:.9em;margin-top:6px}.sub{opacity:.8}");
   html += F(".meter{position:relative;height:14px;border-radius:999px;background:linear-gradient(180deg,rgba(0,0,0,.12),transparent);border:1px solid var(--glass-brd);overflow:hidden}");
@@ -1644,33 +1697,34 @@ void handleRoot() {
     html += F("' value='"); html += zoneNames[z]; html += F("' maxlength='32' style='flex:1;min-width:160px'></div>");
 
     // Start 1
-    html += F("<div class='row'><label>Start 1</label>");
-    html += F("<input class='in' type='number' min='0' max='23' name='startHour"); html += String(z);
-    html += F("' value='"); html += String(startHour[z]); html += F("' style='width:70px'> : ");
-    html += F("<input class='in' type='number' min='0' max='59' name='startMin"); html += String(z);
-    html += F("' value='"); html += String(startMin[z]); html += F("' style='width:70px'></div>");
+  html += F("<div class='row'><label>Start 1</label>");
+  html += F("<input class='in' type='number' min='0' max='23' name='startHour"); html += String(z);
+  html += F("' value='"); html += String(startHour[z]); html += F("' style='width:70px'> : ");
+  html += F("<input class='in' type='number' min='0' max='59' name='startMin"); html += String(z);
+  html += F("' value='"); html += String(startMin[z]); html += F("' style='width:70px'></div>");
 
-    // Start 2
-    html += F("<div class='row'><label>Start 2</label>");
-    html += F("<input class='in' type='number' min='0' max='23' name='startHour2"); html += String(z);
-    html += F("' value='"); html += String(startHour2[z]); html += F("' style='width:70px'> : ");
-    html += F("<input class='in' type='number' min='0' max='59' name='startMin2"); html += String(z);
-    html += F("' value='"); html += String(startMin2[z]); html += F("' style='width:70px'>");
-    html += F("<label style='margin-left:8px'><input type='checkbox' name='enableStartTime2"); html += String(z);
-    html += F("' "); html += (enableStartTime2[z] ? "checked" : ""); html += F("> Enable</label></div>");
+  // Start 2
+  html += F("<div class='row'><label>Start 2</label>");
+  html += F("<input class='in' type='number' min='0' max='23' name='startHour2"); html += String(z);
+  html += F("' value='"); html += String(startHour2[z]); html += F("' style='width:70px'> : ");
+  html += F("<input class='in' type='number' min='0' max='59' name='startMin2"); html += String(z);
+  html += F("' value='"); html += String(startMin2[z]); html += F("' style='width:70px'>");
+  html += F("<label style='margin-left:8px'><input type='checkbox' name='enableStartTime2"); html += String(z);
+  html += F("' "); html += (enableStartTime2[z] ? "checked" : ""); html += F("> Enable</label></div>");
 
-    // Duration
-    html += F("<div class='row'><label>Duration</label>");
-    html += F("<input class='in' type='number' min='0' max='600' name='durationMin"); html += String(z);
-    html += F("' value='"); html += String(durationMin[z]); html += F("' style='width:60px'> m : ");
-    html += F("<input class='in' type='number' min='0' max='59' name='durationSec"); html += String(z);
-    html += F("' value='"); html += String(durationSec[z]); html += F("' style='width:60px'> s</div>");
+  // Duration
+  html += F("<div class='row'><label>Duration</label>");
+  html += F("<input class='in' type='number' min='0' max='600' name='durationMin"); html += String(z);
+  html += F("' value='"); html += String(durationMin[z]); html += F("' style='width:60px'> m : ");
+  html += F("<input class='in' type='number' min='0' max='59' name='durationSec"); html += String(z);
+  html += F("' value='"); html += String(durationSec[z]); html += F("' style='width:60px'> s</div>");
 
-    // Days
-    html += F("<div class='row' style='flex-wrap:wrap'><label>Days</label><div class='days' style='display:flex;gap:6px;flex-wrap:wrap'>");
-    for (int d=0; d<7; ++d) {
-      html += F("<label class='day'><input type='checkbox' name='day"); html += String(z); html += F("_"); html += String(d);
-      html += F("' "); html += (days[z][d] ? "checked" : ""); html += F("> "); html += DLBL[d]; html += F("</label>");
+
+  // Days
+  html += F("<div class='row' style='flex-wrap:wrap'><label>Days</label><div class='days' style='display:flex;gap:6px;flex-wrap:wrap'>");
+   for (int d=0; d<7; ++d) {
+    html += F("<label class='day'><input type='checkbox' name='day"); html += String(z); html += F("_"); html += String(d);
+    html += F("' "); html += (days[z][d] ? "checked" : ""); html += F("> "); html += DLBL[d]; html += F("</label>");
     }
     html += F("</div></div>");
 
@@ -1785,7 +1839,7 @@ void handleRoot() {
   html += F("let nowEpoch = (typeof st.deviceEpoch==='number' && st.deviceEpoch>0 && _devEpoch!=null) ? _devEpoch : Math.floor(Date.now()/1000);");
   html += F("if(eEl) eEl.textContent = epoch ? fmtETA(epoch - nowEpoch) : '--'; })();");
 
-  html += F("}catch(e){} } setInterval(refreshStatus,1200); refreshStatus();");
+  html += F("}catch(e){} } setInterval(refreshStatus,2200); refreshStatus();"); // NEW: slower poll
 
   // expose zones count to JS
   html += F("const ZC="); html += String(zonesCount); html += F(";");
@@ -1815,35 +1869,39 @@ void handleRoot() {
 
 // ---------- Setup Page ----------
 void handleSetupPage() {
+  HttpScope _scope;
   loadConfig();
-  String html; html.reserve(20000);
+  String html; html.reserve(24000);
 
   html += F("<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>");
   html += F("<title>Setup — ESP32 Irrigation</title>");
   html += F("<style>body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0e1726;color:#e8eef6}");
-  html += F(".wrap{max-width:820px;margin:32px auto;padding:0 12px}h1{margin:0 0 16px 0;font-size:1.6em}");
+  html += F(".wrap{max-width:900px;margin:32px auto;padding:0 12px}h1{margin:0 0 16px 0;font-size:1.6em}");
   html += F(".card{background:#111927;border:1px solid #1f2a44;border-radius:14px;box-shadow:0 8px 34px rgba(0,0,0,.35);padding:16px 14px;margin-bottom:14px}");
-  html += F("label{display:inline-block;min-width:160px}");
+  html += F("label{display:inline-block;min-width:180px}");
   html += F("input[type=text],input[type=number]{width:100%;max-width:420px;background:#0b1220;color:#e8eef6;border:1px solid #233357;border-radius:10px;padding:8px 10px}");
   html += F(".row{display:flex;align-items:center;gap:10px;margin:10px 0;flex-wrap:wrap}.row small{color:#aab8d0}");
   html += F(".btn{background:#1976d2;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer;box-shadow:0 6px 16px rgba(25,118,210,.25)}");
   html += F(".btn-alt{background:#263244;color:#e8eef6;border:none;border-radius:10px;padding:10px 14px}.grid{display:grid;grid-template-columns:1fr;gap:10px}");
-  html += F("@media(min-width:680px){.grid{grid-template-columns:1fr 1fr}}.switchline{display:flex;gap:10px;align-items:center;flex-wrap:wrap}</style></head>");
+  html += F(".cols2{display:grid;grid-template-columns:1fr 1fr;gap:12px} @media(max-width:760px){.cols2{grid-template-columns:1fr}}");
+  html += F(".switchline{display:flex;gap:10px;align-items:center;flex-wrap:wrap}");
+  html += F(".subhead{opacity:.8;margin:8px 0 4px 0;font-weight:700;font-size:.95rem}");
+  html += F(".hr{height:1px;background:#1f2a44;margin:10px 0 6px 0;border:none}</style></head>");
   html += F("<body><div class='wrap'><h1>⚙️ Setup</h1><form action='/configure' method='POST'>");
 
   // Weather
-  html += F("<div class='card'><h3Current Weather</h3>");
+  html += F("<div class='card'><h3>Weather</h3>");
   html += F("<div class='row'><label>API Key</label><input type='text' name='apiKey' value='"); html += apiKey; html += F("'></div>");
   html += F("<div class='row'><label>City ID</label><input type='text' name='city' value='"); html += city; html += F("'><small>OpenWeather city id</small></div>");
   html += F("</div>");
 
   // Zones
   html += F("<div class='card'><h3>Zones</h3>");
-  html += F("<div class='row switchline'><label>Zones</label>");
+  html += F("<div class='row switchline'><label>Mode</label>");
   html += F("<label><input type='radio' name='zonesMode' value='4' "); html += (zonesCount==4?"checked":""); html += F("> 4 Zone + (Mains/Tank)</label>");
-  html += F("<label><input type='radio' name='zonesMode' value='6' "); html += (zonesCount==6?"checked":""); html += F("> 6 Zone </label></div>");
+  html += F("<label><input type='radio' name='zonesMode' value='6' "); html += (zonesCount==6?"checked":""); html += F("> 6 Zone</label></div>");
 
-  // NEW: run mode
+  // Run mode
   html += F("<div class='row switchline'><label>Run Mode</label>");
   html += F("<label><input type='checkbox' name='runConcurrent' ");
   html += (runZonesConcurrent ? "checked" : "");
@@ -1851,80 +1909,72 @@ void handleSetupPage() {
 
   html += F("</div>");
 
-  // Physical rain sensor
-  html += F("<div class='card'><h3>Physical Rain Sensor</h3>");
+  // Physical rain & forecast
+  html += F("<div class='card'><h3>Rain Sources</h3>");
   html += F("<div class='row switchline'><label>Disable OpenWeatherMap Rain</label><input type='checkbox' name='rainForecastDisabled' ");
-  html += (!rainDelayFromForecastEnabled ? "checked" : ""); html += F("><small>Checked = ignore OpenWeather rain.</small></div>");
+  html += (!rainDelayFromForecastEnabled ? "checked" : ""); html += F("><small>Checked = ignore OpenWeather rain</small></div>");
   html += F("<div class='row switchline'><label>Enable Rain Sensor</label><input type='checkbox' name='rainSensorEnabled' "); html += (rainSensorEnabled?"checked":""); html += F("></div>");
-  html += F("<div class='row'><label>GPIO</label><input type='number' min='0' max='39' name='rainSensorPin' value='"); html += String(rainSensorPin); html += F("'><small>Use INPUT_PULLUP (e.g., 27)</small></div>");
-  html += F("<div class='row switchline'><label>Invert</label><input type='checkbox' name='rainSensorInvert' "); html += (rainSensorInvert?"checked":""); html += F("><small>Enable if sensor board is NO</small></div>");
+  html += F("<div class='row'><label>Rain Sensor GPIO</label><input type='number' min='0' max='39' name='rainSensorPin' value='"); html += String(rainSensorPin); html += F("'><small>Uses INPUT_PULLUP (e.g., 27)</small></div>");
+  html += F("<div class='row switchline'><label>Invert Sensor</label><input type='checkbox' name='rainSensorInvert' "); html += (rainSensorInvert?"checked":""); html += F("><small>Enable if sensor board is NO</small></div>");
   html += F("</div>");
 
-  // Delays & Pause + Cooldown + Threshold (Master deliberately NOT shown here)
+  // Delays & Pause + thresholds (improved layout)
   html += F("<div class='card'><h3>Delays & Pause</h3>");
+  html += F("<div class='cols2'>");
 
-  html += F("<div class='row switchline'><label>Rain Delay Enable</label>"
-          "<input type='checkbox' name='rainDelay' ");
-  html += (rainDelayEnabled ? "checked" : "");
-  html += F("></div>");
+  // Left column: toggles
+  html += F("<div>");
+  html += F("<div class='subhead'>Delay Toggles</div><hr class='hr'>");
+  html += F("<div class='row switchline'><label>Rain Delay Enable</label><input type='checkbox' name='rainDelay' ");
+  html += (rainDelayEnabled ? "checked" : ""); html += F("></div>");
+  html += F("<div class='row switchline'><label>Wind Delay Enable</label><input type='checkbox' name='windCancelEnabled' ");
+  html += (windDelayEnabled ? "checked" : ""); html += F("></div>");
+  html += F("<div class='row switchline'><label>System Pause</label><input type='checkbox' name='pauseEnable' ");
+  html += (systemPaused ? "checked" : ""); html += F("><small>Enable System Pause</small></div>");
+  html += F("</div>");
 
-  html += F("<div class='row switchline'><label>Wind Delay Enable</label>"
-          "<input type='checkbox' name='windCancelEnabled' ");
-  html += (windDelayEnabled ? "checked" : "");
-  html += F("></div>");
-
-  // Tank/Main row with two checkboxes
-  html += F("<div class='row switchline'>"
-          "<label style='min-width:160px'>Tank/Main</label>"
-          "<div style='display:flex;gap:14px;align-items:center;flex-wrap:wrap'>"
-          "<label><input type='checkbox' name='justUseTank' ");
-  html += (justUseTank ? "checked" : "");
-  html += F("> Only Use Tank</label>"
-          "<label><input type='checkbox' name='justUseMains' ");
-  html += (justUseMains ? "checked" : "");
-  html += F("> Only Use Mains</label>"
-          "<small>(4-zone only)</small>"
-          "</div></div>");
-
-  html += F("<div class='row switchline'><label>System Pause</label>"
-          "<input type='checkbox' name='pauseEnable' ");
-  html += (systemPaused ? "checked" : "");
-  html += F("><small>Enable System Pause</small></div>");
-
-  time_t nowEp = time(nullptr);
-  uint32_t remain = (pauseUntilEpoch > nowEp && systemPaused) ? (pauseUntilEpoch - nowEp) : 0;
-  uint32_t remainHours = remain / 3600;
-
-  html += F("<div class='row'><label>Pause for (Hours)</label>"
-          "<input type='number' min='0' max='720' name='pauseHours' value='");
-  html += String(remainHours);
-  html += F("' placeholder='e.g., 24'>"
-          "<small>0 = Until Manually Resumed</small></div>");
-
-  html += F("<div class='row'><label>Rain Cooldown (hours)</label>"
-          "<input type='number' min='0' max='720' name='rainCooldownHours' value='");
+  // Right column: numeric thresholds / timers
+  html += F("<div>");
+  html += F("<div class='subhead'>Thresholds & Timers</div><hr class='hr'>");
+  html += F("<div class='row'><label>Wind Threshold (m/s)</label><input type='number' step='0.1' min='0' max='50' name='windSpeedThreshold' value='"); 
+  html += String(windSpeedThreshold,1); html += F("'></div>");
+  html += F("<div class='row'><label>Rain Cooldown (hours)</label><input type='number' min='0' max='720' name='rainCooldownHours' value='");
   html += String(rainCooldownMin / 60);
   html += F("'><small>Wait after rain clears before running</small></div>");
-
-  html += F("<div class='row'><label>Rain Threshold 24h (mm)</label>"
-          "<input type='number' min='0' max='200' name='rainThreshold24h' value='");
+  html += F("<div class='row'><label>Rain Threshold 24h (mm)</label><input type='number' min='0' max='200' name='rainThreshold24h' value='");
   html += String(rainThreshold24h_mm);
   html += F("'><small>Delay if 24h total ≥ threshold</small></div>");
+  html += F("<div class='row'><label>Pause for (Hours)</label><input type='number' min='0' max='720' name='pauseHours' value='");
+  time_t nowEp = time(nullptr);
+  { uint32_t remain = (pauseUntilEpoch > nowEp && systemPaused) ? (pauseUntilEpoch - nowEp) : 0;
+    html += String(remain/3600); }
+  html += F("'><small>0 = Until Manually Resumed</small></div>");
+  html += F("</div>");
 
-  html += F("<div class='row' style='gap:10px;flex-wrap:wrap'>"
-          "<button class='btn' type='button' id='btn-pause-24'>Pause 24h</button>"
-          "<button class='btn' type='button' id='btn-pause-7d'>Pause 7d</button>"
-          "<button class='btn' type='button' id='btn-resume'>Resume</button>"
-          "<button class='btn' type='button' id='btn-toggle-backlight'>Toggle LCD</button>"
-          "<button class='btn' type='button' id='btn-clear-delays'>Clear Delays</button>"
-          "</div>");
+  html += F("</div>"); // end cols2
 
-  html += F("<div class='row' style='gap:10px;margin-top:6px'>"
-          "<button class='btn' type='submit'>Save</button>"
-          "<button class='btn btn-alt' formaction='/' formmethod='GET'>Home</button>"
-          "<button class='btn btn-alt' type='button' onclick=\"fetch('/clear_cooldown',{method:'POST'})\">Clear Cooldown</button>"
-          "<button class='btn btn-alt' formaction='/configure' formmethod='POST' name='resumeNow' value='1'>Resume Now</button>"
-          "</div>");
+  // Tank/Main row with two checkboxes
+  html += F("<hr class='hr'><div class='row switchline'><label>Water Source</label>");
+  html += F("<label><input type='checkbox' name='justUseTank' "); html += (justUseTank?"checked":""); html += F("> Only Use Tank</label>");
+  html += F("<label><input type='checkbox' name='justUseMains' "); html += (justUseMains?"checked":""); html += F("> Only Use Mains</label>");
+  html += F("<small>(Only applies in 4-zone mode)</small></div>");
+
+  // Quick actions
+  html += F("<div class='row' style='gap:10px;flex-wrap:wrap;margin-top:6px'>"
+            "<button class='btn' type='button' id='btn-pause-24'>Pause 24h</button>"
+            "<button class='btn' type='button' id='btn-pause-7d'>Pause 7d</button>"
+            "<button class='btn' type='button' id='btn-resume'>Resume</button>"
+            "<button class='btn' type='button' id='btn-toggle-backlight'>Toggle LCD</button>"
+            "<button class='btn' type='button' id='btn-clear-delays'>Clear Delays</button>"
+            "</div>");
+
+  // Save / nav
+  html += F("<div class='row' style='gap:10px;margin-top:8px'>"
+            "<button class='btn' type='submit'>Save</button>"
+            "<button class='btn btn-alt' formaction='/' formmethod='GET'>Home</button>"
+            "<button class='btn btn-alt' type='button' onclick=\"fetch('/clear_cooldown',{method:'POST'})\">Clear Cooldown</button>"
+            "<button class='btn btn-alt' formaction='/configure' formmethod='POST' name='resumeNow' value='1'>Resume Now</button>"
+            "</div>");
 
   html += F("</div>"); // end card
 
@@ -1981,6 +2031,8 @@ void handleSetupPage() {
 
 // ---------- Schedule POST (per-zone card or full form) ----------
 void handleSubmit() {
+  HttpScope _scope;
+
   // If onlyZone is present -> only update that zone from fields in this form
   if (server.hasArg("onlyZone")) {
     int z = server.arg("onlyZone").toInt();
@@ -2001,7 +2053,7 @@ void handleSubmit() {
       // Days
       for (int d=0; d<7; d++) days[z][d] = server.hasArg("day"+String(z)+"_"+String(d));
 
-      saveSchedule(); saveConfig(); updateCachedWeather();
+      saveSchedule(); saveConfig();
       server.sendHeader("Location","/",true); server.send(302,"text/plain","");
       return;
     }
@@ -2022,12 +2074,13 @@ void handleSubmit() {
     if (server.hasArg("durationSec"+String(z))) durationSec[z]=server.arg("durationSec"+String(z)).toInt();
     enableStartTime2[z] = server.hasArg("enableStartTime2"+String(z));
   }
-  saveSchedule(); saveConfig(); updateCachedWeather();
+  saveSchedule(); saveConfig();
   server.sendHeader("Location","/",true); server.send(302,"text/plain","");
 }
 
 // ---------- Event Log Page ----------
 void handleLogPage() {
+  HttpScope _scope;
   File f = LittleFS.open("/events.csv","r");
   if (!f) { server.send(404,"text/plain","No event log"); return; }
 
@@ -2063,6 +2116,7 @@ void handleLogPage() {
 
 // ---------- Tank Calibration Page ----------
 void handleTankCalibration() {
+  HttpScope _scope;
   int raw=analogRead(TANK_PIN);
   int pct=tankPercent();
 
@@ -2147,7 +2201,7 @@ void loadConfig() {
   if (f.available()) { String sx=_safeReadLine(f); if (sx.length()) mqttPass = sx; }
   if (f.available()) { String sx=_safeReadLine(f); if (sx.length()) mqttBase = sx; }
 
-  // NEW: run mode (boolean) — tolerant trailing read
+  // NEW: run mode (boolean)
   if (f.available()) { String sx=_safeReadLine(f); if (sx.length()) runZonesConcurrent = (sx.toInt()==1); }
 
   f.close();
@@ -2259,6 +2313,7 @@ void saveSchedule() {
 
 // ---------- Configure (POST) ----------
 void handleConfigure() {
+  HttpScope _scope;
   bool needRestart=false;
   if (server.hasArg("apiKey")) { apiKey = server.arg("apiKey"); needRestart=true; }
   if (server.hasArg("city"))   { city   = server.arg("city");   needRestart=true; }
@@ -2310,8 +2365,9 @@ void handleConfigure() {
     }
   }
 
-  // Master / cooldown / threshold
-  systemMasterEnabled = server.hasArg("masterOn"); // (Master switch is controlled from dashboard; Setup doesn't render it)
+  if (server.hasArg("masterOn"))  systemMasterEnabled = true;
+  if (server.hasArg("masterOff")) systemMasterEnabled = false;
+
 
   // New UI posts HOURS; still accept legacy MINUTES if present
   if (server.hasArg("rainCooldownHours")) {
@@ -2360,15 +2416,16 @@ void handleConfigure() {
 
   String html = F(
     "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<meta http-equiv='refresh' content='2;url=/setup'/>"
+    "<meta http-equiv='refresh' content='2;url=/'/>"
     "<title>Saved</title><style>body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;text-align:center;padding:40px;color:#e8eef6;background:#0e1726}</style></head>"
-    "<body><h2>✅ Settings Saved</h2><p>Returning to Setup…</p></body></html>"
+    "<body><h2>✅ Settings Saved</h2><p>Returning to Home…</p></body></html>"
   );
   server.send(200,"text/html",html);
   if (needRestart){ delay(1200); ESP.restart(); }
 }
 
 void handleClearEvents() {
+  HttpScope _scope;
   if (LittleFS.exists("/events.csv")) LittleFS.remove("/events.csv");
   server.sendHeader("Location","/events",true);
   server.send(302,"text/plain","");
