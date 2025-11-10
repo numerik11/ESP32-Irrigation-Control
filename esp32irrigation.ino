@@ -100,6 +100,9 @@ uint32_t rainCooldownUntilEpoch = 0;     // when > now => block starts
 int      rainCooldownMin = 60;           // minutes to wait after rain clears
 int      rainThreshold24h_mm = 5;        // forecast 24h total triggers delay
 
+// NEW Run mode: sequential (false) or concurrent (true)
+bool runZonesConcurrent = false;
+
 // Scheduling
 bool enableStartTime2[MAX_ZONES] = {false};
 bool days[MAX_ZONES][7] = {{false}};
@@ -286,6 +289,7 @@ void mqttPublishStatus(){
   d["tankPct"]    = tankPercent();
   d["sourceMode"] = sourceModeText();
   d["rain24hActual"] = last24hActualRain();  // NEW
+  d["runConcurrent"] = runZonesConcurrent;   // NEW
   JsonArray arr = d.createNestedArray("zones");
   for (int i=0;i<zonesCount;i++){
     JsonObject z = arr.createNestedObject();
@@ -522,9 +526,6 @@ void setup() {
     doc["sourceMode"]      = sourceModeText();
     doc["rssi"]            = WiFi.RSSI();
     doc["uptimeSec"]       = (millis() - bootMillis) / 1000;
-    doc["masterOn"] = systemMasterEnabled;              // already present
-    doc["systemMasterEnabled"] = systemMasterEnabled;   // add for JS compatibility
-
 
     // Current rain (actuals) — globals populated in updateCachedWeather()
     doc["rain1hNow"] = rain1hNow;
@@ -570,6 +571,9 @@ void setup() {
     doc["rainThresh24h"]     = rainThreshold24h_mm;
     doc["rainCooldownMin"]   = rainCooldownMin;
     doc["rainCooldownHours"] = rainCooldownMin / 60;
+
+    // NEW: expose run mode
+    doc["runConcurrent"] = runZonesConcurrent;
 
     // Zones snapshot
     JsonArray zones = doc.createNestedArray("zones");
@@ -750,7 +754,7 @@ void setup() {
 
   // Master and cooldown
   server.on("/master", HTTP_POST, [](){
-    systemMasterEnabled = server.hasArg("on");
+    systemMasterEnabled = server.hasArg("on");  // Dashboard only (not in Setup)
     saveConfig();
     server.send(200,"text/plain", systemMasterEnabled ? "on" : "off");
   });
@@ -811,6 +815,7 @@ void loop() {
   bool anyActive=false;
   for (int z=0; z<(int)zonesCount; z++) if (zoneActive[z]) { anyActive=true; break; }
 
+  // -------- SCHEDULER (supports sequential or concurrent) --------
   if (now - lastScheduleTick >= SCHEDULE_TICK_MS) {
     lastScheduleTick = now;
 
@@ -820,16 +825,30 @@ void loop() {
           if (rainActive) { pendingStart[z]=true; logEvent(z,"RAIN DELAY","N/A",true); continue; }
           if (windActive) { pendingStart[z]=true; logEvent(z,"WIND DELAY","N/A",false); continue; }
 
-          if (zonesCount==4 && isTankLow()) {
-            if (anyActive) pendingStart[z]=true;
-            else { turnOnZone(z); anyActive=true; }
-          } else { turnOnZone(z); anyActive=true; }
+          if (!runZonesConcurrent) {
+            // sequential: only start if nothing is running
+            if (zonesCount==4 && isTankLow()) {
+              if (anyActive) pendingStart[z]=true;
+              else { turnOnZone(z); anyActive=true; }
+            } else {
+              if (anyActive) pendingStart[z]=true;
+              else { turnOnZone(z); anyActive=true; }
+            }
+          } else {
+            // concurrent: start regardless of other active zones
+            turnOnZone(z); anyActive = true;
+          }
         }
         if (zoneActive[z] && hasDurationCompleted(z)) turnOffZone(z);
       }
-      if (!anyActive) {
-        for (int z=0; z<(int)zonesCount; z++) if (pendingStart[z]) { pendingStart[z]=false; turnOnZone(z); break; }
+
+      if (!runZonesConcurrent) {
+        // sequential: drain one queued zone if nothing currently running
+        if (!anyActive) {
+          for (int z=0; z<(int)zonesCount; z++) if (pendingStart[z]) { pendingStart[z]=false; turnOnZone(z); break; }
+        }
       }
+      // concurrent: queued starts (due to delays/blocks) will fire when delays clear
     }
   }
 
@@ -1259,7 +1278,7 @@ void turnOnZone(int z) {
   if (windActive)      { pendingStart[z]=true; logEvent(z,"WIND DELAY","N/A",false); return; }
 
   bool anyOn=false; for (int i=0;i<(int)zonesCount;i++) if (zoneActive[i]) { anyOn=true; break; }
-  if (anyOn) { pendingStart[z]=true; logEvent(z,"QUEUED","ACTIVE RUN",false); return; }
+  if (!runZonesConcurrent && anyOn) { pendingStart[z]=true; logEvent(z,"QUEUED","ACTIVE RUN",false); return; }
 
   zoneStartMs[z] = millis();
   zoneActive[z] = true;
@@ -1318,7 +1337,13 @@ void turnOnValveManual(int z) {
   if (zoneActive[z]) return;
 
   for (int i=0;i<(int)zonesCount;i++){
-    if (zoneActive[i]) { Serial.println("[VALVE] Manual start blocked: another zone is running"); return; }
+    if (zoneActive[i]) {
+      if (!runZonesConcurrent) {
+        Serial.println("[VALVE] Manual start blocked: another zone is running");
+        return;
+      }
+      break; // concurrent: allow additional zone
+    }
   }
   if (isBlockedNow() || rainActive || windActive) { pendingStart[z]=true; return; }
 
@@ -1727,7 +1752,7 @@ void handleRoot() {
 
   // NEW: 1h (now) + 24h (actual)
   html += F("const acc1h=document.getElementById('acc1h'); if(acc1h){ let v = (typeof st.rain1hNow==='number')?st.rain1hNow:NaN; if((isNaN(v)||v===0)&&typeof st.rain3hNow==='number'&&st.rain3hNow>0){ v = st.rain3hNow/3.0; } acc1h.textContent=isNaN(v)?'--':v.toFixed(1);}");
-  html += F("const acc24=document.getElementById('acc24'); if(acc24){ const v=(typeof st.rain24hActual==='number')?st.rain24hActual:(typeof st.rain24h==='number'?st.rain24h:NaN); acc24.textContent=isNaN(v)?'--':v.toFixed(1);}");
+  html += F("const acc24=document.getElementById('acc24'); if(acc24){ const v=(typeof st.rain24hActual==='number')?st.rain24hActual:(typeof st.rain24h==='number'?st.rain24h:NaN); acc24.textContent=isNaN(v)?'--':v.toFixed(1);} ");
 
   html += F("if(Array.isArray(st.zones)){ st.zones.forEach((z,idx)=>{");
   html += F("const stateEl=document.getElementById('zone-'+idx+'-state'); const remEl=document.getElementById('zone-'+idx+'-rem'); const barEl=document.getElementById('zone-'+idx+'-bar');");
@@ -1744,12 +1769,12 @@ void handleRoot() {
   html += F("if(suns) suns.textContent = st.sunsetLocal  || '--:--';");
   html += F("if(press) press.textContent = (typeof st.pressure==='number' && st.pressure>0) ? st.pressure : '--';");
 
-  // Master toggle: keep UI in sync with API state (`masterOn` from /status)
+  // Master toggle: keep UI in sync with API state (if provided)
   html += F("const bm=document.getElementById('btn-master'); const ms=document.getElementById('master-state');");
-  html += F("if(bm && ms && typeof st.masterOn==='boolean'){");
-  html += F("  bm.setAttribute('aria-pressed', st.masterOn ? 'true' : 'false');");
-  html += F("  ms.textContent = st.masterOn ? 'On' : 'Off';");
-  html += F("}");
+  html += F("if(bm && ms && typeof st.systemMasterEnabled==='boolean'){ bm.setAttribute('aria-pressed', st.systemMasterEnabled?'true':'false'); ms.textContent = st.systemMasterEnabled?'On':'Off'; }");
+
+  // Run mode label
+  html += F("const rm=document.getElementById('runModeLabel'); if(rm && typeof st.runConcurrent==='boolean'){ rm.textContent = st.runConcurrent ? 'Concurrent' : 'Sequential'; }");
 
   // Next Water
   html += F("(function(){ const zEl=document.getElementById('nwZone'); const tEl=document.getElementById('nwTime'); const eEl=document.getElementById('nwETA'); const dEl=document.getElementById('nwDur');");
@@ -1817,6 +1842,13 @@ void handleSetupPage() {
   html += F("<div class='row switchline'><label>Zones</label>");
   html += F("<label><input type='radio' name='zonesMode' value='4' "); html += (zonesCount==4?"checked":""); html += F("> 4 Zone + (Mains/Tank)</label>");
   html += F("<label><input type='radio' name='zonesMode' value='6' "); html += (zonesCount==6?"checked":""); html += F("> 6 Zone </label></div>");
+
+  // NEW: run mode
+  html += F("<div class='row switchline'><label>Run Mode</label>");
+  html += F("<label><input type='checkbox' name='runConcurrent' ");
+  html += (runZonesConcurrent ? "checked" : "");
+  html += F("> Run Zones Concurrently</label><small>Unchecked = one-at-a-time</small></div>");
+
   html += F("</div>");
 
   // Physical rain sensor
@@ -1828,7 +1860,7 @@ void handleSetupPage() {
   html += F("<div class='row switchline'><label>Invert</label><input type='checkbox' name='rainSensorInvert' "); html += (rainSensorInvert?"checked":""); html += F("><small>Enable if sensor board is NO</small></div>");
   html += F("</div>");
 
-  // Delays & Pause + Master + Cooldown + Threshold
+  // Delays & Pause + Cooldown + Threshold (Master deliberately NOT shown here)
   html += F("<div class='card'><h3>Delays & Pause</h3>");
 
   html += F("<div class='row switchline'><label>Rain Delay Enable</label>"
@@ -1862,8 +1894,6 @@ void handleSetupPage() {
   time_t nowEp = time(nullptr);
   uint32_t remain = (pauseUntilEpoch > nowEp && systemPaused) ? (pauseUntilEpoch - nowEp) : 0;
   uint32_t remainHours = remain / 3600;
-
-  // (Master toggle intentionally removed)
 
   html += F("<div class='row'><label>Pause for (Hours)</label>"
           "<input type='number' min='0' max='720' name='pauseHours' value='");
@@ -2117,6 +2147,9 @@ void loadConfig() {
   if (f.available()) { String sx=_safeReadLine(f); if (sx.length()) mqttPass = sx; }
   if (f.available()) { String sx=_safeReadLine(f); if (sx.length()) mqttBase = sx; }
 
+  // NEW: run mode (boolean) — tolerant trailing read
+  if (f.available()) { String sx=_safeReadLine(f); if (sx.length()) runZonesConcurrent = (sx.toInt()==1); }
+
   f.close();
 }
 
@@ -2168,6 +2201,9 @@ void saveConfig() {
   f.println(mqttPass);
   f.println(mqttBase);
 
+  // NEW: run mode at end (backward compatible)
+  f.println(runZonesConcurrent ? "1" : "0");
+
   f.close();
 }
 
@@ -2175,7 +2211,7 @@ void loadSchedule() {
   File f = LittleFS.open("/schedule.txt","r");
   if (!f) return;
 
-  for (int i=0;i<MAX_ZONES;i++) {
+  for (int i=0; i<MAX_ZONES; i++) {
     String line=f.readStringUntil('\n'); line.trim(); if (!line.length()) continue;
 
     int idx=0;
@@ -2207,7 +2243,7 @@ void loadSchedule() {
 void saveSchedule() {
   File f = LittleFS.open("/schedule.txt","w");
   if (!f) return;
-  for (int i=0;i<MAX_ZONES;i++) {
+  for (int i=0; i<MAX_ZONES; i++) {
     f.print(startHour[i]);  f.print(',');
     f.print(startMin[i]);   f.print(',');
     f.print(startHour2[i]); f.print(',');
@@ -2253,6 +2289,9 @@ void handleConfigure() {
   // Forecast rain toggle (saved)
   rainDelayFromForecastEnabled = !server.hasArg("rainForecastDisabled");
 
+  // NEW: Run mode
+  runZonesConcurrent = server.hasArg("runConcurrent");
+
   // Pause controls
   if (server.hasArg("resumeNow")) {
     systemPaused = false; pauseUntilEpoch = 0;
@@ -2270,6 +2309,9 @@ void handleConfigure() {
       systemPaused = false; pauseUntilEpoch = 0;
     }
   }
+
+  // Master / cooldown / threshold
+  systemMasterEnabled = server.hasArg("masterOn"); // (Master switch is controlled from dashboard; Setup doesn't render it)
 
   // New UI posts HOURS; still accept legacy MINUTES if present
   if (server.hasArg("rainCooldownHours")) {
