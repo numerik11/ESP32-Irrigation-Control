@@ -1526,14 +1526,15 @@ void handleRoot() {
   html += F("<div class='big'><span id='tankPctLabel'>"); html += String(tankPct); html += F("%</span></div>");
   html += F("<div id='srcChip' class='sub'>"); html += sourceModeText(); html += F("</div></div>");
   html += F("<div class='meter'><div id='tankFill' class='fill' style='width:"); html += String(tankPct); html += F("%'></div></div></div>");
-
-  html += F("<div class='card'><h3>Weather</h3><div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:25px'>");
+  
+  html += F("<div class='card'><h3>Weather</h3>");
+  html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:25px'>");
   html += F("<div class='chip'>🌡️ "); html += (isnan(temp) ? String("--") : String(temp,1)+" ℃"); html += F("</div>");
   html += F("<div class='chip'>💧 ");  html += (isnan(hum)  ? String("--") : String((int)hum)+" %"); html += F("</div>");
   html += F("<div class='chip'>🌬️ "); html += (isnan(ws)   ? String("--") : String(ws,1)+" m/s"); html += F("</div>");
   html += F("<div class='chip'>☁️ <span class='sub'>Cond</span>&nbsp;<b id='cond'>");
-  html += cond;
-  html += F("</b></div></div>");
+  html += cond.length() ? cond : String("--");
+  html += F("</b></div></div></div>");
 
   // Delays card
   html += F("<div class='card'><h3>Delays</h3><div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px'>");
