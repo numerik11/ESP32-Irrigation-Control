@@ -370,13 +370,13 @@ String rainDelayCauseText() {
   if (!rainActive) {
     time_t now=time(nullptr);
     if (rainCooldownUntilEpoch && now<(time_t)rainCooldownUntilEpoch) return "Cooldown";
-    if (!systemMasterEnabled) return "MasterOff";
+    if (!systemMasterEnabled) return "Master Off";
     if (isPausedNow()) return "Paused";
     return "No Rain";
   }
   if (rainByWeatherActive && rainBySensorActive) return "Both";
-  if (rainByWeatherActive) return "Forecast/Now";
-  if (rainBySensorActive)  return "Sensor";
+  if (rainByWeatherActive) return "Raining";
+  if (rainBySensorActive)  return "Sensor Wet";
   return "Active";
 }
 
@@ -962,8 +962,7 @@ static void tickActualRainHistory() {
   time_t now = time(nullptr);
   struct tm lt; localtime_r(&now, &lt);
   if (lt.tm_min == 0 && lt.tm_sec < 5 && (now - lastRainHistHour) > 300) {
-    float v = (!isnan(rain1hNow) && rain1hNow > 0.0f) ? rain1hNow
-             : ((!isnan(rain3hNow) && rain3hNow > 0.0f) ? (rain3hNow / 3.0f) : 0.0f);
+    float v = (!isnan(rain1hNow) && rain1hNow > 0.0f) ? rain1hNow : 0.0f;
     rainIdx = (rainIdx + 1) % 24;
     rainHist[rainIdx] = v;
     lastRainHistHour = now;
@@ -985,7 +984,7 @@ void updateCachedWeather() {
 
   if (needCur) { cachedWeatherData = fetchWeather(); lastWeatherUpdate = nowms; }
 
-  // Extract coordinates for OneCall
+  // Extract coordinates and 1h rain
   {
     DynamicJsonDocument js(1024);
     if (deserializeJson(js, cachedWeatherData) == DeserializationError::Ok) {
@@ -994,15 +993,19 @@ void updateCachedWeather() {
         lon = js["coord"]["lon"].as<float>();
         haveCoord = true;
       }
-      // NEW: populate global rain1hNow / rain3hNow from /weather
-      float r1 = 0.0f, r3 = 0.0f;
+
+      // 1h only (no 3h fallback)
+      float r1 = 0.0f;
       JsonVariant rv = js["rain"];
       if (!rv.isNull()) {
-        if (rv["1h"].is<float>() || rv["1h"].is<double>() || rv["1h"].is<int>()) r1 = rv["1h"].as<float>();
-        if (r1 == 0.0f && (rv.is<float>() || rv.is<double>() || rv.is<int>())) r1 = rv.as<float>();
+        if (rv.is<float>() || rv.is<double>() || rv.is<int>()) {
+          r1 = rv.as<float>(); // rare form: rain: <number>
+        } else if (rv["1h"].is<float>() || rv["1h"].is<double>() || rv["1h"].is<int>()) {
+          r1 = rv["1h"].as<float>(); // common form: rain: { "1h": x }
+        }
       }
       rain1hNow = r1;
-      }
+    }
   }
 
   // ---- Forecast fetch / parse ----
@@ -1022,7 +1025,6 @@ void updateCachedWeather() {
 
     DynamicJsonDocument fc(14 * 1024);
     if (deserializeJson(fc, cachedForecastData) == DeserializationError::Ok) {
-      // Daily snapshot (min/max & rise/set)
       if (fc["daily"].is<JsonArray>() && fc["daily"].size() > 0) {
         JsonObject d0 = fc["daily"][0];
         todayMin_C   = d0["temp"]["min"] | NAN;
@@ -1030,51 +1032,39 @@ void updateCachedWeather() {
         todaySunrise = (time_t)(d0["sunrise"] | 0);
         todaySunset  = (time_t)(d0["sunset"]  | 0);
       }
-
-      // Helper: accept either number or {"1h":x}
       auto read1h = [](JsonVariant v) -> float {
         if (v.isNull()) return 0.0f;
         if (v.is<float>() || v.is<double>() || v.is<int>()) return v.as<float>();
         JsonVariant one = v["1h"];
         return one.isNull() ? 0.0f : one.as<float>();
       };
-
-      // Prefer hourly accumulation
       if (fc["hourly"].is<JsonArray>()) {
         JsonArray hr = fc["hourly"].as<JsonArray>();
         int hrs = hr.size();
         int L24 = min(24, hrs);
         int L12 = min(12, hrs);
-
         for (int i = 0; i < L24; i++) {
           JsonObject h = hr[i];
-
           float r = 0.0f;
           r += read1h(h["rain"]);
-          r += read1h(h["snow"]);  // treat snow as mm water equivalent
-
+          r += read1h(h["snow"]);
           if (i < L12) {
             rainNext12h_mm += r;
             int pop = (int)roundf(100.0f * (h["pop"] | 0.0f));
             if (pop > popNext12h_pct) popNext12h_pct = pop;
           }
           rainNext24h_mm += r;
-
           if (nextRainIn_h < 0) {
             float popf = h["pop"] | 0.0f;
             if (r > 0.01f || popf >= 0.5f) nextRainIn_h = i;
           }
-
           float g = h["wind_gust"] | 0.0f;
           if (g > maxGust24h_ms) maxGust24h_ms = g;
         }
       }
-
-      // Fallback: if hourly sum is zero, use daily totals (rain + snow)
       if (rainNext24h_mm <= 0.0f && fc["daily"].is<JsonArray>() && fc["daily"].size() > 0) {
         JsonObject d0 = fc["daily"][0];
         float dailyTotal = 0.0f;
-
         if (!d0["rain"].isNull()) {
           if (d0["rain"].is<float>() || d0["rain"].is<double>() || d0["rain"].is<int>())
             dailyTotal += d0["rain"].as<float>();
@@ -1083,33 +1073,29 @@ void updateCachedWeather() {
           if (d0["snow"].is<float>() || d0["snow"].is<double>() || d0["snow"].is<int>())
             dailyTotal += d0["snow"].as<float>();
         }
-
         if (dailyTotal > 0.0f) {
           rainNext24h_mm = dailyTotal;
-          if (rainNext12h_mm <= 0.0f) rainNext12h_mm = dailyTotal * 0.5f; // rough split
+          if (rainNext12h_mm <= 0.0f) rainNext12h_mm = dailyTotal * 0.5f;
         }
       }
     }
-
-    // Defensive clamp
     if (isnan(rainNext12h_mm) || rainNext12h_mm < 0) rainNext12h_mm = 0.0f;
     if (isnan(rainNext24h_mm) || rainNext24h_mm < 0) rainNext24h_mm = 0.0f;
     if (isnan(maxGust24h_ms)  || maxGust24h_ms  < 0) maxGust24h_ms  = 0.0f;
   }
 
-  // ---- Fallback sunrise/sunset & min/max from current weather ----
+  // Fallback sunrise/sunset & min/max from current weather
   DynamicJsonDocument cur(2048);
   if (deserializeJson(cur, cachedWeatherData) == DeserializationError::Ok) {
     time_t sr = (time_t)(cur["sys"]["sunrise"] | 0);
     time_t ss = (time_t)(cur["sys"]["sunset"]  | 0);
     if (sr > 0) todaySunrise = sr;
     if (ss > 0) todaySunset  = ss;
-
     if (isnan(todayMin_C)) todayMin_C = cur["main"]["temp_min"] | NAN;
     if (isnan(todayMax_C)) todayMax_C = cur["main"]["temp_max"] | NAN;
   }
 
-  // NEW: tick the rolling actual history at top of hour (based on globals)
+  // Roll hourly history
   tickActualRainHistory();
 }
 
@@ -1618,8 +1604,8 @@ void handleRoot() {
   html += F("<div class='chip'><b>Low</b>&nbsp;<b id='tmin'>---</b> ℃</div>");
   html += F("<div class='chip'><b>High</b>&nbsp;<b id='tmax'>---</b> ℃</div>");
   html += F("<div class='chip'><b>Pressure</b>&nbsp;<b id='press'>--</b> hPa</div>");
-  html += F("<div class='chip'>🌅 <span class='sub'>Sunrise</span>&nbsp;<b id='sunr'>--:--</b></div>");
-  html += F("<div class='chip'>🌇 <span class='sub'>Sunset</span>&nbsp;<b id='suns'>--:--</b></div>");
+  html += F("<div class='chip'><span class='sub'>Sunrise</span>&nbsp;<b id='sunr'>--:--</b></div>");
+  html += F("<div class='chip'><span class='sub'>Sunset</span>&nbsp;<b id='suns'>--:--</b></div>");
   html += F("</div></div>");
 
   // Delays / status
@@ -1817,7 +1803,8 @@ html += F("</div></div></div>"); // #schedBody, .card.sched, .center
   html += F("const rssi=document.getElementById('rssiChip'); if(rssi) rssi.textContent=(st.rssi)+' dBm';");
 
   // 1h (now) + 24h (actual)
-  html += F("const acc1h=document.getElementById('acc1h'); if(acc1h){ let v = (typeof st.rain1hNow==='number')?st.rain1hNow:NaN; if((isNaN(v)||v===0)&&typeof st.rain3hNow==='number'&&st.rain3hNow>0){ v = st.rain3hNow/3.0; } acc1h.textContent=isNaN(v)?'--':v.toFixed(1);}");
+  html += F("var acc1h=document.getElementById('acc1h');");
+  html += F("if(acc1h){var v=(typeof st.rain1hNow==='number')?st.rain1hNow:NaN;acc1h.textContent=isNaN(v)?'--':v.toFixed(1);}");
   html += F("const acc24=document.getElementById('acc24'); if(acc24){ const v=(typeof st.rain24hActual==='number')?st.rain24hActual:(typeof st.rain24h==='number'?st.rain24h:NaN); acc24.textContent=isNaN(v)?'--':v.toFixed(1);} ");
 
   html += F("if(Array.isArray(st.zones)){ st.zones.forEach((z,idx)=>{");
