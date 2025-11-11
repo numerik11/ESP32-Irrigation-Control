@@ -1604,7 +1604,7 @@ void handleRoot() {
   html += F("<div id='srcChip' class='sub'>"); html += sourceModeText(); html += F("</div></div>");
   html += F("<div class='meter'><div id='tankFill' class='fill' style='width:"); html += String(tankPct); html += F("%'></div></div></div>");
 
-  html += F("<div class='card'><h3>Weather</h3>");
+  html += F("<div class='card'><h3>Current Weather</h3>");
   html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:25px'>");
   html += F("<div class='chip'>🌡️ "); html += (isnan(temp) ? String("--") : String(temp,1)+" ℃"); html += F("</div>");
   html += F("<div class='chip'>💧 ");  html += (isnan(hum)  ? String("--") : String((int)hum)+" %"); html += F("</div>");
@@ -1612,6 +1612,15 @@ void handleRoot() {
   html += F("<div class='chip'>☁️ <span class='sub'>Cond</span>&nbsp;<b id='cond'>");
   html += cond.length() ? cond : String("--");
   html += F("</b></div></div></div>");
+
+  html += F("<div class='card'><h3>Weather Today</h3>");
+  html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px'>");
+  html += F("<div class='chip'><b>Low</b>&nbsp;<b id='tmin'>---</b> ℃</div>");
+  html += F("<div class='chip'><b>High</b>&nbsp;<b id='tmax'>---</b> ℃</div>");
+  html += F("<div class='chip'><b>Pressure</b>&nbsp;<b id='press'>--</b> hPa</div>");
+  html += F("<div class='chip'>🌅 <span class='sub'>Sunrise</span>&nbsp;<b id='sunr'>--:--</b></div>");
+  html += F("<div class='chip'>🌇 <span class='sub'>Sunset</span>&nbsp;<b id='suns'>--:--</b></div>");
+  html += F("</div></div>");
 
   // Delays / status
   html += F("<div class='card'><h3>Delays</h3><div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px'>");
@@ -1622,15 +1631,7 @@ void handleRoot() {
   html += F("<div class='badge'>24h (Total): <b id='acc24'>--</b> mm</div>");
   html += F("</div></div>");
 
-  html += F("<div class='card'><h3>Weather Stats</h3>");
-  html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px'>");
-  html += F("<div class='chip'><b>Low</b>&nbsp;<b id='tmin'>---</b> ℃</div>");
-  html += F("<div class='chip'><b>High</b>&nbsp;<b id='tmax'>---</b> ℃</div>");
-  html += F("<div class='chip'><b>Pressure</b>&nbsp;<b id='press'>--</b> hPa</div>");
-  html += F("<div class='chip'>🌅 <span class='sub'>Sunrise</span>&nbsp;<b id='sunr'>--:--</b></div>");
-  html += F("<div class='chip'>🌇 <span class='sub'>Sunset</span>&nbsp;<b id='suns'>--:--</b></div>");
-  html += F("</div></div>");
-
+  //Next Water
   html += F("<div class='card'><h3>Next Water</h3>");
   html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px'>");
   html += F("<div class='chip'>🧭 <b id='nwZone'>--</b></div>");
