@@ -9,8 +9,8 @@ Smart irrigation controller for ESP32 driving up to 6 zones with Tank/Mains sele
 - **Dashboard**
   - Tank level (%) with `Auto:Mains` / `Auto:Tank` / `Force` state
   - Live weather (OpenWeather Current): temperature, humidity, wind, condition
-  - **Next Water**: next scheduled run (zone, start, ETA, duration) computed on device
-  - Delay badges for rain & wind with cause
+  - **Next Water**: next scheduled run (zone, start, ETA, duration)
+  - Delay for rain & wind with cause
   - Zone cards with progress and manual On/Off
 
 - **Zones & Schedules**
@@ -18,14 +18,14 @@ Smart irrigation controller for ESP32 driving up to 6 zones with Tank/Mains sele
   - 6-zone mode (six zones)
   - Two start times per zone (optional Start 2), per-day enable, minute precision
   - Per-zone duration (minutes + seconds)
-  - **No queuing:** delayed/blocked or overlapping starts are cancelled and logged
-  - Editable zone names stored in LittleFS
+  - Overlapping starts will run one at a time or together chooose in setup
+  - Editable zone names stored in esp32
 
 - **Delays & Sensors**
   - Rain sources: physical sensor (invert option) + weather conditions (Rain/Drizzle/Thunderstorm or rain amount)
   - Wind delay: configurable threshold (m/s)
-  - Rain cooldown and 24h forecast threshold (mm)
-  - Rolling actual rainfall stats (1h / 24h)
+  - Rain cooldown and 24h threshold (mm)
+  - Rolling sum actual rainfall stats (1h / 24h)
 
 - **Hardware & I/O**
   - KC868-A6 support (PCF8574 @ 0x24 relays, 0x22 inputs)
