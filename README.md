@@ -134,7 +134,7 @@ Smart irrigation controller for ESP32 driving up to 6 zones with Tank/Mains sele
 - **Tank ADC:** default IO36 (A1). Keep ≤ **3.3V** to the ESP32 ADC.  
 - **mDNS:** `http://espirrigation.local/` after joining your Wi-Fi.  
 - **OTA:** enabled (hostname `ESP32-Irrigation`).  
-- **Fallback:** If I²C expanders aren’t detected, GPIO fallback is enabled and pins from Setup are used.
+- **Fallback:** If I²C expanders from KC868 aren’t detected, GPIO fallback is enabled and pins for Esp32 from Setup are used.
 
 ---
 
