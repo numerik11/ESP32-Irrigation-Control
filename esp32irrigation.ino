@@ -1753,7 +1753,8 @@ html += F("</div></div></div>"); // #schedBody, .card.sched, .center
   html += F("<a class='btn' href='/setup'>Setup</a>");
   html += F("<a class='btn' href='/events'>Events</a>");
   html += F("<a class='btn' href='/tank'>Calibrate Tank</a>");
-  html += F("<a class='btn' href='/whereami' role='button' class='btn'>Connection Stats</a>");
+  html += F("<a class='btn' href='/whereami' role='button' class='btn'>Connection Info</a>");
+  html += F("<a class='btn' href='/status'>Status</a>");
   html += F("</div></div></div>");
 
   html += F("<div class='grid center' style='margin:16px auto 24px'><div class='card' style='grid-column:1/-1'>");
