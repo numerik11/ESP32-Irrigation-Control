@@ -103,7 +103,6 @@ Smart irrigation controller for ESP32 driving up to 6 zones with Tank/Mains sele
 ## Behaviour (Scheduling & Delays)
 
 - Starts during **rain/wind**, **pause**, **master off**, or **rain cooldown** → **CANCELLED** (logged)  
-- Starts that would **overlap** another running zone when not using concurrent mode → **CANCELLED** (logged)  
 - Manual “On” commands also respect the same rules and cancel when blocked  
 - “Next Water” still reflects the next eligible schedule (no queueing)
 
