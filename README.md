@@ -148,13 +148,19 @@ Smart irrigation controller for ESP32 driving up to 6 zones with Tank/Mains sele
 ## Screenshots
 
 <img width="747" height="824" alt="image" src="https://github.com/user-attachments/assets/c53fdaab-ac65-4a68-a3af-c4897e85c146" />
+
 -Main Page
 
+<img width="734" height="593" alt="image" src="https://github.com/user-attachments/assets/bd64e765-bef1-4559-97d2-e84ef14b604b" />
+
+-Schedules 
+
+
 <img width="610" height="920" alt="image" src="https://github.com/user-attachments/assets/f4e7e342-a88d-446c-9012-cf67dab6f9da" />
+
 -Setup Page
 
 <img width="615" height="853" alt="image" src="https://github.com/user-attachments/assets/028f4c13-4d80-44ea-b1d3-929364a260e5" />
+
 -GPIO/Timezone/MQTT Page
 
-<img width="734" height="593" alt="image" src="https://github.com/user-attachments/assets/bd64e765-bef1-4559-97d2-e84ef14b604b" />
--Schedules 
