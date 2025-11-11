@@ -325,6 +325,13 @@ static inline bool isBlockedNow(){
   return false;
 }
 
+
+// --- Cancel helper: cancel a (would-be) start instead of queueing ---
+static inline void cancelStart(int z, const char* reason, bool dueToRain) {
+  if (z >= 0 && z < (int)MAX_ZONES) pendingStart[z] = false; // ensure not queued
+  logEvent(z, "CANCELLED", reason, dueToRain);               // record why it was cancelled
+}
+
 static bool i2cPing(uint8_t addr) {
   I2Cbus.beginTransmission(addr);
   return (I2Cbus.endTransmission() == 0);
@@ -857,26 +864,24 @@ void loop() {
 
     if (!isBlockedNow()) {
       for (int z=0; z<(int)zonesCount; z++) {
-        if (shouldStartZone(z)) {
-          if (rainActive) { pendingStart[z]=true; logEvent(z,"RAIN DELAY","N/A",true); continue; }
-          if (windActive) { pendingStart[z]=true; logEvent(z,"WIND DELAY","N/A",false); continue; }
+  if (shouldStartZone(z)) {
+    // NEW: cancel (don't queue) when blocked or delayed by rain/wind
+    if (isBlockedNow()) { cancelStart(z, "BLOCKED", false); continue; }
+    if (rainActive)     { cancelStart(z, "RAIN",    true ); continue; }
+    if (windActive)     { cancelStart(z, "WIND",    false); continue; }
 
-          if (!runZonesConcurrent) {
-            // sequential: only start if nothing is running
-            if (zonesCount==4 && isTankLow()) {
-              if (anyActive) pendingStart[z]=true;
-              else { turnOnZone(z); anyActive=true; }
-            } else {
-              if (anyActive) pendingStart[z]=true;
-              else { turnOnZone(z); anyActive=true; }
-            }
-          } else {
-            // concurrent: start regardless of other active zones
-            turnOnZone(z); anyActive = true;
-          }
-        }
-        if (zoneActive[z] && hasDurationCompleted(z)) turnOffZone(z);
-      }
+    if (!runZonesConcurrent) {
+      // sequential: only start if nothing is running; else queue (still allowed)
+      if (anyActive) { pendingStart[z] = true; logEvent(z,"QUEUED","ACTIVE RUN",false); }
+      else { turnOnZone(z); anyActive = true; }
+    } else {
+      // concurrent: start regardless of other active zones
+      turnOnZone(z); anyActive = true;
+    }
+  }
+  if (zoneActive[z] && hasDurationCompleted(z)) turnOffZone(z);
+}
+
 
       if (!runZonesConcurrent) {
         // sequential: drain one queued zone if nothing currently running
@@ -1309,9 +1314,9 @@ void turnOnZone(int z) {
   checkWindRain();
   Serial.printf("[VALVE] Request ON Z%d rain=%d wind=%d blocked=%d\n", z+1, rainActive?1:0, windActive?1:0, isBlockedNow()?1:0);
 
-  if (isBlockedNow())  { pendingStart[z]=true; logEvent(z,"BLOCKED","PAUSE/COOLDOWN/MASTER",false); return; }
-  if (rainActive)      { pendingStart[z]=true; logEvent(z,"RAIN DELAY","N/A",true);  return; }
-  if (windActive)      { pendingStart[z]=true; logEvent(z,"WIND DELAY","N/A",false); return; }
+  if (isBlockedNow())  { cancelStart(z, "BLOCKED", false); return; }
+  if (rainActive)      { cancelStart(z, "RAIN",    true ); return; }
+  if (windActive)      { cancelStart(z, "WIND",    false); return; }
 
   bool anyOn=false; for (int i=0;i<(int)zonesCount;i++) if (zoneActive[i]) { anyOn=true; break; }
   if (!runZonesConcurrent && anyOn) { pendingStart[z]=true; logEvent(z,"QUEUED","ACTIVE RUN",false); return; }
@@ -1372,16 +1377,22 @@ void turnOnValveManual(int z) {
   if (z>=zonesCount) return;
   if (zoneActive[z]) return;
 
+  // Respect run mode overlap rules
   for (int i=0;i<(int)zonesCount;i++){
-    if (zoneActive[i]) {
-      if (!runZonesConcurrent) {
-        Serial.println("[VALVE] Manual start blocked: another zone is running");
-        return;
-      }
-      break; // concurrent: allow additional zone
+  if (zoneActive[i]) {
+    if (!runZonesConcurrent) {
+      Serial.println("[VALVE] Manual start blocked: another zone is running");
+      return;
     }
-  }
-  if (isBlockedNow() || rainActive || windActive) { pendingStart[z]=true; return; }
+    break; // concurrent: allow additional zone
+   }
+ }
+
+  // NEW: cancel manual requests during block/delay instead of queueing
+  if (isBlockedNow())  { cancelStart(z, "BLOCKED", false); return; }
+  if (rainActive)      { cancelStart(z, "RAIN",    true ); return; }
+  if (windActive)      { cancelStart(z, "WIND",    false); return; }
+
 
   zoneStartMs[z] = millis();
   zoneActive[z] = true;
@@ -1475,6 +1486,7 @@ static NextWaterInfo computeNextWatering() {
   return best;
 }
 
+// Main Page
 void handleRoot() {
   // --- Precompute state / snapshots ---
   checkWindRain();
@@ -1624,11 +1636,10 @@ void handleRoot() {
   html += F("<div class='chip'>🕒 <b id='nwTime'>--:--</b></div>");
   html += F("<div class='chip'>⏳ In <b id='nwETA'>--</b></div>");
   html += F("<div class='chip'>🧮 Dur <b id='nwDur'>--</b></div>");
-  html += F("</div><div class='hint'>Queued starts take priority; otherwise shows schedule.</div></div>");
-
+  html += F("</div><div class='hint'>Watering Cancelled if Rain/Wind Delay Enabled.</div></div>");
   html += F("</div></div>"); // end glass / grid
 
-// ---------- Schedules (collapsible) ----------
+ // ---------- Schedules (collapsible) ----------
 static const char* DLBL[7] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
 html += F("<div class='center'><div class='card sched'>");
 html += F("<h3 class='collapse' style='cursor:pointer' "
@@ -1837,7 +1848,6 @@ html += F("</div></div></div>"); // #schedBody, .card.sched, .center
   html += F("if(zEl) zEl.textContent = (zone>=0 && zone<255) ? (name) : '--'; if(tEl) tEl.textContent = toLocalHHMM(epoch); if(dEl) dEl.textContent = fmtDur(dur);");
   html += F("let nowEpoch = (typeof st.deviceEpoch==='number' && st.deviceEpoch>0 && _devEpoch!=null) ? _devEpoch : Math.floor(Date.now()/1000);");
   html += F("if(eEl) eEl.textContent = epoch ? fmtETA(epoch - nowEpoch) : '--'; })();");
-
   html += F("}catch(e){} } setInterval(refreshStatus,1200); refreshStatus();");
 
   // expose zones count to JS
@@ -1928,6 +1938,9 @@ void handleSetupPage() {
   html += (windDelayEnabled ? "checked" : ""); html += F("></div>");
   html += F("<div class='row switchline'><label>System Pause</label><input type='checkbox' name='pauseEnable' ");
   html += (systemPaused ? "checked" : ""); html += F("><small>Enable System Pause</small></div>");
+  html += F("<button class='btn' type='button' id='btn-pause-24'>Pause 24h</button>"
+            "<button class='btn' type='button' id='btn-pause-7d'>Pause 7d</button>"
+            "<button class='btn' type='button' id='btn-resume'>Resume</button>");
   html += F("</div>");
 
   // Right column: numeric thresholds / timers
@@ -1958,11 +1971,7 @@ void handleSetupPage() {
 
   // Quick actions
   html += F("<div class='row' style='gap:10px;flex-wrap:wrap;margin-top:6px'>"
-            "<button class='btn' type='button' id='btn-pause-24'>Pause 24h</button>"
-            "<button class='btn' type='button' id='btn-pause-7d'>Pause 7d</button>"
-            "<button class='btn' type='button' id='btn-resume'>Resume</button>"
             "<button class='btn' type='button' id='btn-toggle-backlight'>Toggle LCD</button>"
-            "<button class='btn' type='button' id='btn-clear-delays'>Clear Delays</button>"
             "</div>");
 
   // Save / nav
