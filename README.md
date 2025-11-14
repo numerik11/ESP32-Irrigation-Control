@@ -87,16 +87,16 @@ Smart irrigation controller for ESP32 driving up to 6 zones with Tank/Mains sele
    *Sketch → Include Library → Add .ZIP Library…*
 
 4. **Upload**  
-   Open the sketch and click **Upload**.
+   Open the  esp32irrigation.ino sketch and click **Upload**.
 
 5. **First-Run Wi-Fi**  
    Serial Monitor @ 115200. Connect to **ESPIrrigationAP** (captive portal),  
-   or browse to **http://192.168.4.1** and set SSID + password.
+   or browse to **http://192.168.4.1** and set your Wifi SSID + password.
 
 6. **Access & Configure**  
-   OLED shows assigned IP (or use `arp -a`).  
-   - **Setup**: enter OpenWeather API Key + City ID, timezone, zones (4/6), wind/rain/tank, GPIO pins, sensors.  
-   - **Home**: set days, start times, durations per zone.
+   Goto   http://espirrigation.local/ or assigned local IP to accsess home page, OLED shows assigned IP on startup.  
+   Goto - **Setup**: enter OpenWeather API Key + City ID, timezone, zones (4/6), wind/rain/tank, GPIO pins, sensors.  
+   Goto - **Home**: set days, start times, durations per zone.
 
 ---
 
@@ -131,10 +131,10 @@ Smart irrigation controller for ESP32 driving up to 6 zones with Tank/Mains sele
 
 ## Notes
 
-- **Tank ADC:** default IO36 (A1). Keep ≤ **3.3V** to the ESP32 ADC.  
+- **Tank ADC:** default IO36 (A1). 
 - **mDNS:** `http://espirrigation.local/` after joining your Wi-Fi.  
 - **OTA:** enabled (hostname `ESP32-Irrigation`).  
-- **Fallback:** If I²C expanders from KC868 aren’t detected, GPIO fallback is enabled and pins for Esp32 from Setup are used.
+- **Fallback:** If I²C expanders from KC868 aren’t detected, GPIO fallback is enabled and pins for other ESP32 boards from Setup are used.
 
 ---
 
