@@ -164,3 +164,7 @@ Smart irrigation controller for ESP32 driving up to 6 zones with Tank/Mains sele
 
 -GPIO/Timezone/MQTT Page
 
+<img width="791" height="754" alt="Screenshot 2025-07-25 233726" src="https://github.com/user-attachments/assets/f601fb06-e70c-4fc6-a7f3-5fdf410b4e73" />
+
+-KC868-A6 Wiring
+
