@@ -1498,7 +1498,6 @@ static NextWaterInfo computeNextWatering() {
 }
 
 // Main Page
-// Main Page
 void handleRoot() {
   // --- Precompute state / snapshots ---
   checkWindRain();
@@ -1596,6 +1595,17 @@ void handleRoot() {
   html += F("@media(max-width:720px){.nav .in{flex-direction:column;align-items:flex-start}.zones{grid-template-columns:1fr}.sched-grid{grid-template-columns:1fr}}");
   html += F(".collapse{cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;font-size:.95rem}");
   html += F(".collapse .arr{font-size:.9rem;opacity:.8;margin-left:6px}");
+
+  // Desktop enhancements
+  html += F("@media(min-width:1024px){");
+  html += F("body{font-size:15px;}");
+  html += F(".wrap{margin:18px auto;padding:0 18px;}");
+  html += F(".glass.section{padding:18px;}");
+  html += F(".summary-grid{grid-template-columns:repeat(4,minmax(0,1fr));}");
+  html += F(".zones{grid-template-columns:repeat(3,minmax(260px,1fr));}");
+  html += F(".card{padding:16px;}");
+  html += F(".card h3{font-size:1rem;}");
+  html += F("}");
   html += F("</style></head><body>");
 
   // --- Nav ---
@@ -1615,7 +1625,7 @@ void handleRoot() {
   html += F("</div></div></div>");
 
   // --- Summary cards ---
-  html += F("<div class='wrap'><div class='glass section'><div class='grid'>");
+  html += F("<div class='wrap'><div class='glass section'><div class='grid summary-grid'>");
 
   html += F("<div class='card'><h3>Location</h3><div class='chip'>🏙️ <b id='cityName'>");
   html += cityName; html += F("</b></div></div>");
@@ -1906,8 +1916,7 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
-
-// ---------- Setup Page ----------
+// Setup Page 
 void handleSetupPage() {
   HttpScope _scope;
   loadConfig();
@@ -1931,6 +1940,16 @@ void handleSetupPage() {
   html += F(".switchline{display:flex;gap:10px;align-items:center;flex-wrap:wrap}");
   html += F(".subhead{opacity:.85;margin:6px 0 4px 0;font-weight:700;font-size:.9rem}");
   html += F(".hr{height:1px;background:#1f2a44;margin:8px 0 6px 0;border:none}");
+
+  // desktop tuning
+  html += F("@media(min-width:1024px){");
+  html += F("body{font-size:15px;}");
+  html += F(".wrap{max-width:1040px;padding:0 18px;}");
+  html += F(".card{padding:18px 16px;}");
+  html += F(".row{justify-content:space-between;}");
+  html += F("label{min-width:220px;}");
+  html += F("input[type=text],input[type=number]{max-width:480px;}");
+  html += F("}");
   html += F("</style></head><body>");
 
   html += F("<div class='wrap'><h1>⚙️ Setup</h1><form action='/configure' method='POST'>");
@@ -2074,7 +2093,6 @@ void handleSetupPage() {
 
   server.send(200,"text/html",html);
 }
-
 
 // ---------- Schedule POST (per-zone card or full form) ----------
 void handleSubmit() {
