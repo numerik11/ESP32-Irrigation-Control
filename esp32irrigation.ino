@@ -1109,6 +1109,7 @@ void tickWeather(){
   updateCachedWeather();
 }
 
+
 // ---------- Rain/Wind logic with cooldown & threshold ----------
 bool checkWindRain() {
   updateCachedWeather(); // safe: early-out if g_inHttp set
@@ -1136,6 +1137,12 @@ bool checkWindRain() {
     }
   }
 
+  // NEW: track if this “rain episode” ever included the 24h threshold
+  static bool rainWasFromThreshold = false;
+  if (forecastThresholdActive) {
+    rainWasFromThreshold = true;
+  }
+
   // Combined (+ debug)
   bool rainForce = dbgForceRain;
   bool windForce = dbgForceWind;
@@ -1151,11 +1158,14 @@ bool checkWindRain() {
   }
 
   // Start cooldown when rain clears
+  // *** CHANGED: only if this rain period had the 24h threshold active ***
   if (prevRain && !newRainActive) {
-    if (rainCooldownMin > 0) {
+    if (rainCooldownMin > 0 && rainWasFromThreshold) {
       time_t now = time(nullptr);
       rainCooldownUntilEpoch = (uint32_t)(now + (uint32_t)rainCooldownMin * 60u);
     }
+    // reset for next dry→rain episode
+    rainWasFromThreshold = false;
   }
   prevRain = newRainActive;
 
@@ -1164,6 +1174,7 @@ bool checkWindRain() {
 
   return !(rainActive || windActive);
 }
+
 
 // ---------- Event log ----------
 void logEvent(int zone, const char* eventType, const char* source, bool rainDelayed) {
@@ -1487,6 +1498,7 @@ static NextWaterInfo computeNextWatering() {
 }
 
 // Main Page
+// Main Page
 void handleRoot() {
   // --- Precompute state / snapshots ---
   checkWindRain();
@@ -1497,6 +1509,7 @@ void handleRoot() {
   strftime(timeStr, sizeof(timeStr), "%H:%M:%S", ti);
   strftime(dateStr, sizeof(dateStr), "%d/%m/%Y", ti);
 
+  // Keep this – it respects the g_inHttp guard
   updateCachedWeather();
   DynamicJsonDocument js(1024);
   DeserializationError werr = deserializeJson(js, cachedWeatherData);
@@ -1514,11 +1527,11 @@ void handleRoot() {
   String cityName = werr ? "-" : String(js["name"].as<const char*>());
   if (cityName == "") cityName = "-";
 
-  const int tankPct = tankPercent();
+  const int    tankPct   = tankPercent();
   const String causeText = rainDelayCauseText();
 
   // --- HTML ---
-  String html; html.reserve(38000);
+  String html; html.reserve(40000);
   html += F("<!doctype html><html lang='en' data-theme='light'><head>");
   html += F("<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>");
   html += F("<title>ESP32 Irrigation</title>");
@@ -1530,55 +1543,70 @@ void handleRoot() {
   html += F(":root[data-theme='dark']{--bg:#0a0f18;--bg2:#0e1624;--glass:rgba(16,26,39,.6);--glass-brd:rgba(96,120,155,.28);--panel:#101826;--line:#223a5e;");
   html += F("--card:#101826;--ink:#e8eef6;--muted:#9fb0ca;--primary:#52a7ff;--primary-2:#2f7fe0;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;");
   html += F("--chip:#0f2037;--chip-brd:#223a5e;--ring:#172a46;--ring2:#2c4f87;--shadow:0 18px 40px rgba(0,0,0,.45)}");
-  html += F("*{box-sizing:border-box}html,body{margin:0;background:radial-gradient(1200px 600px at 10% -5%,var(--bg2),transparent),");
-  html += F("radial-gradient(1200px 700px at 100% 0%,var(--ring),transparent),radial-gradient(900px 500px at -10% 80%,var(--ring2),transparent),var(--bg);");
+  html += F("*{box-sizing:border-box}html,body{margin:0;padding:0;");
+  html += F("background:radial-gradient(1200px 600px at 10% -5%,var(--bg2),transparent),");
+  html += F("radial-gradient(1200px 700px at 100% 0%,var(--ring),transparent),");
+  html += F("radial-gradient(900px 500px at -10% 80%,var(--ring2),transparent),var(--bg);");
   html += F("color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}");
 
-  // Top nav
-  html += F(".nav{position:sticky;top:0;z-index:10;padding:10px 12px 14px;background:linear-gradient(180deg,rgba(0,0,0,.25),transparent),var(--primary-2);box-shadow:0 16px 36px rgba(0,0,0,.25)}");
-  html += F(".nav .in{max-width:1120px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;color:#fff}");
-  html += F(".brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.2px}.dot{width:10px;height:10px;border-radius:999px;background:#84ffb5;box-shadow:0 0 14px #84ffb5}");
-  html += F(".nav .meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-weight:650}.pill{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:6px 10px}");
-  html += F(".btn-ghost{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer}");
+  // Top nav – made a bit tighter on mobiles
+  html += F(".nav{position:sticky;top:0;z-index:10;padding:8px 10px 10px;");
+  html += F("background:linear-gradient(180deg,rgba(0,0,0,.25),transparent),var(--primary-2);");
+  html += F("box-shadow:0 16px 36px rgba(0,0,0,.25)}");
+  html += F(".nav .in{max-width:1120px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:10px;color:#fff;flex-wrap:wrap}");
+  html += F(".brand{display:flex;align-items:center;gap:8px;font-weight:800;letter-spacing:.2px;font-size:.98rem}");
+  html += F(".dot{width:10px;height:10px;border-radius:999px;background:#84ffb5;box-shadow:0 0 14px #84ffb5}");
+  html += F(".nav .meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-weight:650;font-size:.78rem}");
+  html += F(".pill{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:5px 8px}");
+  html += F(".btn-ghost{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);color:#fff;");
+  html += F("border-radius:10px;padding:6px 10px;font-weight:700;cursor:pointer;font-size:.8rem}");
 
   // Cards and grids
-  html += F(".wrap{max-width:1120px;margin:16px auto;padding:0 12px}");
+  html += F(".wrap{max-width:1120px;margin:14px auto;padding:0 10px}");
   html += F(".glass{background:var(--glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--glass-brd);border-radius:16px;box-shadow:var(--shadow)}");
-  html += F(".section{padding:14px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}");
-  html += F(".card{background:var(--card);border:1px solid var(--glass-brd);border-radius:16px;box-shadow:var(--shadow);padding:14px}");
-  html += F(".card h3{margin:0 0 8px 0;font-size:1rem;color:var(--muted)} .card h4{margin:8px 0 4px 0;font-size:.95rem;color:var(--muted)}");
-  html += F(".chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border:1px solid var(--chip-brd);border-radius:999px;padding:6px 10px;font-weight:650;white-space:nowrap}");
-  html += F(".big{font-weight:800;font-size:1.22rem}.hint{opacity:.7;font-size:.9em;margin-top:6px}.sub{opacity:.8}");
-  html += F(".meter{position:relative;height:14px;border-radius:999px;background:linear-gradient(180deg,rgba(0,0,0,.12),transparent);border:1px solid var(--glass-brd);overflow:hidden}");
-  html += F(".fill{position:absolute;inset:0 0 0 0;width:0%;height:100%;background:linear-gradient(90deg,#30d1ff,#4da3ff,#1c74d9);box-shadow:0 0 30px rgba(77,163,255,.35) inset;transition:width .45s ease}");
-  html += F(".badge{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--glass-brd)}");
-  html += F(".b-ok{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.35)}.b-warn{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35)}.b-bad{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.38)}");
-  html += F(".toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 0}.btn{background:var(--primary);color:#fff;border:none;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer;box-shadow:0 10px 24px rgba(0,0,0,.25)}");
+  html += F(".section{padding:12px}");
+  html += F(".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}");
+  html += F(".card{background:var(--card);border:1px solid var(--glass-brd);border-radius:16px;box-shadow:var(--shadow);padding:12px}");
+  html += F(".card h3{margin:0 0 6px 0;font-size:.98rem;color:var(--muted)}");
+  html += F(".card h4{margin:6px 0 4px 0;font-size:.9rem;color:var(--muted)}");
+  html += F(".chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border:1px solid var(--chip-brd);border-radius:999px;padding:6px 10px;font-weight:650;white-space:nowrap;font-size:.85rem}");
+  html += F(".big{font-weight:800;font-size:1.1rem}.hint{opacity:.7;font-size:.8rem;margin-top:4px}.sub{opacity:.8;font-size:.8rem}");
+  html += F(".meter{position:relative;height:14px;border-radius:999px;background:linear-gradient(180deg,rgba(0,0,0,.12),transparent);border:1px solid var(--glass-brd);overflow:hidden;margin-top:6px}");
+  html += F(".fill{position:absolute;inset:0 0 0 0;width:0%;height:100%;background:linear-gradient(90deg,#30d1ff,#4da3ff,#1c74d9);");
+  html += F("box-shadow:0 0 30px rgba(77,163,255,.35) inset;transition:width .4s ease}");
+  html += F(".badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--glass-brd);font-size:.8rem}");
+  html += F(".b-ok{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.35)}");
+  html += F(".b-warn{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35)}");
+  html += F(".b-bad{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.38)}");
+  html += F(".toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 0}");
+  html += F(".btn{background:var(--primary);color:#fff;border:none;border-radius:12px;padding:8px 12px;font-weight:800;cursor:pointer;");
+  html += F("box-shadow:0 8px 20px rgba(0,0,0,.25);font-size:.87rem}");
   html += F(".btn:disabled{background:#7f8aa1;cursor:not-allowed;box-shadow:none}.btn-danger{background:var(--bad)}");
-  html += F(".zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,360px));gap:14px;justify-content:center;justify-items:stretch}");
+  html += F(".zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;justify-content:center;justify-items:stretch}");
 
-  // Schedules styles (collapsible)
+  // Schedules styles (collapsible, mobile-friendly)
   html += F(".sched{margin-top:12px}");
-  html += F(".sched-ctr{--schedW:360px;--gap:12px;max-width:calc(2*var(--schedW)+var(--gap));margin:0 auto}");
-  html += F(".sched-grid{display:grid;grid-template-columns:repeat(2,minmax(var(--schedW),1fr));gap:var(--gap)}");
-  html += F(".sched-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px}");
-  html += F(".rowx{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}");
-  html += F(".rowx label{min-width:86px}");
-  html += F(".in{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:transparent;color:var(--ink)}");
-  html += F(".day{display:inline-flex;gap:6px;border:1px solid var(--line);border-radius:999px;padding:6px 10px;margin:2px 4px}");
-  html += F("@media(max-width:900px){.sched-ctr{--schedW:min(320px,100%);max-width:var(--schedW)}.sched-grid{grid-template-columns:1fr}}");
-  html += F(".collapse{cursor:pointer;user-select:none}");
+  html += F(".sched-ctr{--schedW:360px;--gap:10px;max-width:100%;margin:0 auto}");
+  html += F(".sched-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:var(--gap)}");
+  html += F(".sched-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px}");
+  html += F(".rowx{display:flex;gap:8px;align-items:center;margin:5px 0;flex-wrap:wrap}");
+  html += F(".rowx label{min-width:86px;font-size:.83rem}");
+  html += F(".in{border:1px solid var(--line);border-radius:10px;padding:7px 9px;background:transparent;color:var(--ink);font-size:.83rem}");
+  html += F(".day{display:inline-flex;gap:4px;border:1px solid var(--line);border-radius:999px;padding:5px 9px;margin:2px 3px;font-size:.8rem}");
+  html += F("@media(max-width:720px){.nav .in{flex-direction:column;align-items:flex-start}.zones{grid-template-columns:1fr}.sched-grid{grid-template-columns:1fr}}");
+  html += F(".collapse{cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;font-size:.95rem}");
+  html += F(".collapse .arr{font-size:.9rem;opacity:.8;margin-left:6px}");
   html += F("</style></head><body>");
 
   // --- Nav ---
   html += F("<div class='nav'><div class='in'>");
-  html += F("<div class='brand'><span class='dot'></span>ESP32 Irrigation</div>");
+  html += F("<div class='brand'><span class='dot'></span><span>ESP32 Irrigation</span></div>");
   html += F("<div class='meta'>");
   html += F("<span class='pill' id='clock'>"); html += timeStr; html += F("</span>");
   html += F("<span class='pill'>"); html += dateStr; html += F("</span>");
   html += F("<span class='pill'>"); html += ((ti && ti->tm_isdst>0) ? "DST" : "STD"); html += F("</span>");
   html += F("<span class='pill'>espirrigation.local</span>");
-  html += F("<button id='btn-master' class='pill' style='cursor:pointer' aria-pressed='");
+  html += F("<button id='btn-master' class='pill' style='cursor:pointer;border:none' aria-pressed='");
   html += (systemMasterEnabled ? "true" : "false");
   html += F("' title='Toggle master enable/disable'>Master: <b id='master-state'>");
   html += (systemMasterEnabled ? "On" : "Off");
@@ -1594,7 +1622,7 @@ void handleRoot() {
 
   html += F("<div class='card'><h3>Uptime</h3><div id='upChip' class='big'>--:--:--</div><div class='hint'>Since last boot</div></div>");
 
-  html += F("<div class='card'><h3>Signal Strength</h3><div id='rssiChip' class='big'>");
+  html += F("<div class='card'><h3>Signal</h3><div id='rssiChip' class='big'>");
   html += String(WiFi.RSSI()); html += F(" dBm</div><div class='hint'>Wi-Fi RSSI</div></div>");
 
   html += F("<div class='card'><h3>Tank Level</h3><div class='zone-head'>");
@@ -1603,7 +1631,7 @@ void handleRoot() {
   html += F("<div class='meter'><div id='tankFill' class='fill' style='width:"); html += String(tankPct); html += F("%'></div></div></div>");
 
   html += F("<div class='card'><h3>Current Weather</h3>");
-  html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:25px'>");
+  html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px'>");
   html += F("<div class='chip'>🌡️ "); html += (isnan(temp) ? String("--") : String(temp,1)+" ℃"); html += F("</div>");
   html += F("<div class='chip'>💧 ");  html += (isnan(hum)  ? String("--") : String((int)hum)+" %"); html += F("</div>");
   html += F("<div class='chip'>🌬️ "); html += (isnan(ws)   ? String("--") : String(ws,1)+" m/s"); html += F("</div>");
@@ -1612,7 +1640,7 @@ void handleRoot() {
   html += F("</b></div></div></div>");
 
   html += F("<div class='card'><h3>Weather Today</h3>");
-  html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px'>");
+  html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px'>");
   html += F("<div class='chip'><b>Low</b>&nbsp;<b id='tmin'>---</b> ℃</div>");
   html += F("<div class='chip'><b>High</b>&nbsp;<b id='tmax'>---</b> ℃</div>");
   html += F("<div class='chip'><b>Pressure</b>&nbsp;<b id='press'>--</b> hPa</div>");
@@ -1621,94 +1649,95 @@ void handleRoot() {
   html += F("</div></div>");
 
   // Delays / status
-  html += F("<div class='card'><h3>Delays</h3><div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px'>");
-  html += F("<div id='rainBadge' class='badge "); html += (rainActive ? "b-bad" : "b-ok"); html += F("'>🌧️ Rain: <b>"); html += (rainActive?"Active":"Off"); html += F("</b></div>");
-  html += F("<div id='windBadge' class='badge "); html += (windActive ? "b-warn" : "b-ok"); html += F("'>💨 Wind: <b>"); html += (windActive?"Active":"Off"); html += F("</b></div>");
+  html += F("<div class='card'><h3>Delays</h3><div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px'>");
+  html += F("<div id='rainBadge' class='badge "); html += (rainActive ? "b-bad" : "b-ok"); html += F("'>🌧️ Rain: <b>");
+  html += (rainActive?"Active":"Off"); html += F("</b></div>");
+  html += F("<div id='windBadge' class='badge "); html += (windActive ? "b-warn" : "b-ok"); html += F("'>💨 Wind: <b>");
+  html += (windActive?"Active":"Off"); html += F("</b></div>");
   html += F("<div class='badge'>Cause: <b id='rainCauseBadge'>"); html += causeText; html += F("</b></div>");
   html += F("<div class='badge'>1h (Now): <b id='acc1h'>--</b> mm</div>");
   html += F("<div class='badge'>24h (Total): <b id='acc24'>--</b> mm</div>");
   html += F("</div></div>");
 
-  //Next Water
+  // Next Water
   html += F("<div class='card'><h3>Next Water</h3>");
-  html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px'>");
+  html += F("<div class='grid' style='grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px'>");
   html += F("<div class='chip'>🧭 <b id='nwZone'>--</b></div>");
   html += F("<div class='chip'>🕒 <b id='nwTime'>--:--</b></div>");
   html += F("<div class='chip'>⏳ In <b id='nwETA'>--</b></div>");
   html += F("<div class='chip'>🧮 Dur <b id='nwDur'>--</b></div>");
-  html += F("</div><div class='hint'>Watering Cancelled if Rain/Wind Delay Enabled.</div></div>");
+  html += F("</div><div class='hint'>Weather delays cancel the start instead of queueing.</div></div>");
+
   html += F("</div></div>"); // end glass / grid
 
- // ---------- Schedules (collapsible) ----------
-static const char* DLBL[7] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
-html += F("<div class='center'><div class='card sched'>");
-html += F("<h3 class='collapse' style='cursor:pointer' "
-          "onclick=\"const b=document.getElementById('schedBody');"
-          "const a=this.querySelector('.arr');"
-          "const open=b.style.display!=='none';"
-          "b.style.display=open?'none':'block';"
-          "a.textContent=open?'▸':'▾';\">"
-          "Schedules <span class='arr'>▸</span></h3>");
-html += F("<div id='schedBody' class='sched-ctr' style='display:none'>");
-html += F("<div class='sched-grid'>");
+  // ---------- Schedules (collapsible) ----------
+  static const char* DLBL[7] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
+  html += F("<div class='center'><div class='card sched'>");
+  html += F("<h3 class='collapse' onclick=\"const b=document.getElementById('schedBody');"
+            "const a=this.querySelector('.arr');"
+            "const open=b.style.display!=='none';"
+            "b.style.display=open?'none':'block';"
+            "a.textContent=open?'▸':'▾';\">");
+  html += F("<span>Schedules</span><span class='arr'>▸</span></h3>");
+  html += F("<div id='schedBody' class='sched-ctr' style='display:none'>");
+  html += F("<div class='sched-grid'>");
 
-for (int z=0; z<(int)zonesCount; ++z) {
-  html += F("<div class='sched-card'><h4>");
-  html += zoneNames[z];
-  html += F("</h4><form method='POST' action='/submit'>");
-  html += F("<input type='hidden' name='onlyZone' value='"); html += String(z); html += F("'>");
+  for (int z=0; z<(int)zonesCount; ++z) {
+    html += F("<div class='sched-card'><h4>");
+    html += zoneNames[z];
+    html += F("</h4><form method='POST' action='/submit'>");
+    html += F("<input type='hidden' name='onlyZone' value='"); html += String(z); html += F("'>");
 
-  // Name
-  html += F("<div class='rowx'><label>Name</label>");
-  html += F("<input class='in' type='text' name='zoneName"); html += String(z);
-  html += F("' value='"); html += zoneNames[z]; html += F("' maxlength='32' style='flex:1;min-width:160px'></div>");
+    // Name
+    html += F("<div class='rowx'><label>Name</label>");
+    html += F("<input class='in' type='text' name='zoneName"); html += String(z);
+    html += F("' value='"); html += zoneNames[z]; html += F("' maxlength='32' style='flex:1;min-width:150px'></div>");
 
-  // Start 1
-  html += F("<div class='rowx'><label>Start 1</label>");
-  html += F("<input class='in' type='number' min='0' max='23' name='startHour"); html += String(z);
-  html += F("' value='"); html += String(startHour[z]); html += F("' style='width:70px'> : ");
-  html += F("<input class='in' type='number' min='0' max='59' name='startMin"); html += String(z);
-  html += F("' value='"); html += String(startMin[z]); html += F("' style='width:70px'></div>");
+    // Start 1
+    html += F("<div class='rowx'><label>Start 1</label>");
+    html += F("<input class='in' type='number' min='0' max='23' name='startHour"); html += String(z);
+    html += F("' value='"); html += String(startHour[z]); html += F("' style='width:64px'> : ");
+    html += F("<input class='in' type='number' min='0' max='59' name='startMin"); html += String(z);
+    html += F("' value='"); html += String(startMin[z]); html += F("' style='width:64px'></div>");
 
-  // Start 2
-  html += F("<div class='rowx'><label>Start 2</label>");
-  html += F("<input class='in' type='number' min='0' max='23' name='startHour2"); html += String(z);
-  html += F("' value='"); html += String(startHour2[z]); html += F("' style='width:70px'> : ");
-  html += F("<input class='in' type='number' min='0' max='59' name='startMin2"); html += String(z);
-  html += F("' value='"); html += String(startMin2[z]); html += F("' style='width:70px'>");
-  html += F("<label style='margin-left:8px'><input type='checkbox' name='enableStartTime2"); html += String(z);
-  html += F("' "); html += (enableStartTime2[z] ? "checked" : ""); html += F("> Enable (Optional)</label></div>");
+    // Start 2
+    html += F("<div class='rowx'><label>Start 2</label>");
+    html += F("<input class='in' type='number' min='0' max='23' name='startHour2"); html += String(z);
+    html += F("' value='"); html += String(startHour2[z]); html += F("' style='width:64px'> : ");
+    html += F("<input class='in' type='number' min='0' max='59' name='startMin2"); html += String(z);
+    html += F("' value='"); html += String(startMin2[z]); html += F("' style='width:64px'>");
+    html += F("<label style='margin-left:6px;font-size:.8rem'><input type='checkbox' name='enableStartTime2");
+    html += String(z); html += F("' "); html += (enableStartTime2[z] ? "checked" : "");
+    html += F("> Enable</label></div>");
 
-  // Duration
-  html += F("<div class='rowx'><label>Duration</label>");
-  html += F("<input class='in' type='number' min='0' max='600' name='durationMin"); html += String(z);
-  html += F("' value='"); html += String(durationMin[z]); html += F("' style='width:70px'> m : ");
-  html += F("<input class='in' type='number' min='0' max='59' name='durationSec"); html += String(z);
-  html += F("' value='"); html += String(durationSec[z]); html += F("' style='width:70px'> s</div>");
+    // Duration
+    html += F("<div class='rowx'><label>Duration</label>");
+    html += F("<input class='in' type='number' min='0' max='600' name='durationMin"); html += String(z);
+    html += F("' value='"); html += String(durationMin[z]); html += F("' style='width:64px'> m : ");
+    html += F("<input class='in' type='number' min='0' max='59' name='durationSec"); html += String(z);
+    html += F("' value='"); html += String(durationSec[z]); html += F("' style='width:64px'> s</div>");
 
-  // Days
-  html += F("<div class='rowx' style='flex-wrap:wrap'><label>Days</label><div>");
-  for (int d=0; d<7; ++d) {
-    html += F("<label class='day'><input type='checkbox' name='day"); html += String(z); html += "_"; html += String(d);
-    html += F("' "); html += (days[z][d] ? "checked" : ""); html += F("> "); html += DLBL[d]; html += F("</label>");
+    // Days
+    html += F("<div class='rowx' style='flex-wrap:wrap'><label>Days</label><div>");
+    for (int d=0; d<7; ++d) {
+      html += F("<label class='day'><input type='checkbox' name='day"); html += String(z); html += "_"; html += String(d);
+      html += F("' "); html += (days[z][d] ? "checked" : ""); html += F("> "); html += DLBL[d]; html += F("</label>");
+    }
+    html += F("</div></div>");
+
+    // Actions
+    html += F("<div class='toolbar'><button class='btn' type='submit'>Save Zone</button></div>");
+    html += F("</form></div>");
   }
-  html += F("</div></div>");
 
-  // Actions
-  html += F("<div class='toolbar'><button class='btn' type='submit'>Save Zone</button></div>");
-  html += F("</form></div>");
-}
-
-// Close grid and add single Save All at the bottom of the Schedules card
-html += F("</div>"); // .sched-grid
-html += F("<div class='toolbar' style='margin-top:12px;display:flex;justify-content:flex-end'>"
-          "<button class='btn' id='btn-save-all' title='Save all zone schedules on this page'>Save All</button>"
-          "</div>");
-html += F("</div></div></div>"); // #schedBody, .card.sched, .center
-
+  html += F("</div>"); // .sched-grid
+  html += F("<div class='toolbar' style='margin-top:10px;justify-content:flex-end'>"
+            "<button class='btn' id='btn-save-all' title='Save all zone schedules'>Save All</button>"
+            "</div>");
+  html += F("</div></div></div>"); // #schedBody, .card.sched, .center
 
   // --- Live Zones ---
-  html += F("<div class='center' style='margin-top:16px'><div class='card'>");
+  html += F("<div class='center' style='margin-top:12px'><div class='card'>");
   html += F("<h3>Zones</h3><div class='zones'>");
   for (int z=0; z<(int)zonesCount; z++) {
     unsigned long rem=0, total=(unsigned long)durationMin[z]*60 + durationSec[z];
@@ -1718,21 +1747,24 @@ html += F("</div></div></div>"); // #schedBody, .card.sched, .center
     }
     int pctDone = (zoneActive[z] && total>0) ? (int)((100UL*(total-rem))/total) : 0;
 
-    html += F("<div class='card'><div class='zone-head'>");
+    html += F("<div class='card'><div class='zone-head' style='display:flex;justify-content:space-between;gap:8px;align-items:center'>");
     html += F("<div class='big'>"); html += zoneNames[z]; html += F("</div>");
     html += F("<div id='zone-"); html += String(z); html += F("-state' class='badge ");
     html += (zoneActive[z] ? "b-ok" : ""); html += F("'>");
     html += (zoneActive[z] ? "▶︎ Running" : "⏹ Off"); html += F("</div></div>");
 
-    html += F("<div class='sub' style='margin:6px 0'><span id='zone-"); html += String(z); html += F("-rem'>");
-    if (zoneActive[z]) { int rm=rem/60, rs=rem%60; html += String(rm)+"m "+(rs<10?"0":"")+String(rs)+"s left"; }
-    else html += F("—");
+    html += F("<div class='sub' style='margin:5px 0'><span id='zone-"); html += String(z); html += F("-rem'>");
+    if (zoneActive[z]) {
+      int rm=rem/60, rs=rem%60;
+      html += String(rm)+"m "+(rs<10?"0":"")+String(rs)+"s left";
+    } else html += F("—");
     html += F("</span></div>");
 
-    html += F("<div class='meter' title='Progress'><div id='zone-"); html += String(z); html += F("-bar' class='fill' style='width:");
+    html += F("<div class='meter' title='Progress'><div id='zone-");
+    html += String(z); html += F("-bar' class='fill' style='width:");
     html += String(pctDone); html += F("%'></div></div>");
 
-    html += F("<div class='toolbar' style='margin-top:10px'>");
+    html += F("<div class='toolbar' style='margin-top:8px'>");
     if (zoneActive[z]) {
       html += F("<button type='button' class='btn' disabled>▶️ On</button>");
       html += F("<button type='button' class='btn btn-danger' onclick='toggleZone("); html += String(z); html += F(",0)'>⏹ Off</button>");
@@ -1745,22 +1777,22 @@ html += F("</div></div></div>"); // #schedBody, .card.sched, .center
   html += F("</div></div></div>"); // Close zones block
 
   // --- Tools / System Controls ---
-  html += F("<div class='grid center' style='margin:16px auto 24px'><div class='card' style='grid-column:1/-1'>");
+  html += F("<div class='grid center' style='margin:12px auto 20px'><div class='card' style='grid-column:1/-1'>");
   html += F("<h3>Tools</h3><div class='toolbar'>");
   html += F("<a class='btn' href='/setup'>Setup</a>");
   html += F("<a class='btn' href='/events'>Events</a>");
   html += F("<a class='btn' href='/tank'>Calibrate Tank</a>");
-  html += F("<a class='btn' href='/whereami' role='button' class='btn'>Connection Info</a>");
-  html += F("<a class='btn' href='/status'>Status</a>");
+  html += F("<a class='btn' href='/whereami' role='button'>Connection Info</a>");
+  html += F("<a class='btn' href='/status'>Status JSON</a>");
   html += F("</div></div></div>");
 
-  html += F("<div class='grid center' style='margin:16px auto 24px'><div class='card' style='grid-column:1/-1'>");
+  html += F("<div class='grid center' style='margin:0 auto 24px'><div class='card' style='grid-column:1/-1'>");
   html += F("<h3>System Controls</h3><div class='toolbar'>");
   html += F("<button class='btn' id='btn-pause-24' title='Pause all starts for 24 hours'>Pause 24h</button>");
   html += F("<button class='btn' id='btn-pause-7d' title='Pause 7d'>Pause 7d</button>");
   html += F("<button class='btn' id='btn-resume' title='Resume now'>Resume</button>");
   html += F("<button class='btn' id='btn-clear-delays' title='Clear queued starts and delays'>Clear Delays</button>");
-  html += F("<button class='btn' id='toggle-backlight-btn' title='Invert OLED (quick night toggle)'>LCD Toggle</button>");
+  html += F("<button class='btn' id='toggle-backlight-btn' title='Invert OLED (night mode)'>LCD Toggle</button>");
   html += F("<button class='btn btn-danger' id='rebootBtn'>Reboot</button>");
   html += F("</div></div></div>");
 
@@ -1768,37 +1800,44 @@ html += F("</div></div></div>"); // #schedBody, .card.sched, .center
   html += F("<script>");
   html += F("function pad(n){return n<10?'0'+n:n;}");
   html += F("let _devEpoch=null; let _tickTimer=null;");
-  html += F("function startDeviceClock(seedSec){_devEpoch=seedSec; if(_tickTimer)clearInterval(_tickTimer);");
+  html += F("function startDeviceClock(seedSec){_devEpoch=seedSec;if(_tickTimer)clearInterval(_tickTimer);");
   html += F("const draw=()=>{if(_devEpoch==null)return; const d=new Date(_devEpoch*1000);");
-  html += F("const h=pad(d.getHours()),m=pad(d.getMinutes()),s=pad(d.getSeconds()); const el=document.getElementById('clock'); if(el) el.textContent=h+':'+m+':'+s; _devEpoch++;};");
+  html += F("const h=pad(d.getHours()),m=pad(d.getMinutes()),s=pad(d.getSeconds());");
+  html += F("const el=document.getElementById('clock'); if(el) el.textContent=h+':'+m+':'+s; _devEpoch++;};");
   html += F("draw(); _tickTimer=setInterval(draw,1000);} ");
-
   html += F("function fmtUptime(sec){const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;return pad(h)+':'+pad(m)+':'+pad(s);} ");
-
   html += F("let _busy=false; async function postJson(url,payload){const body=payload?JSON.stringify(payload):\"{}\";");
   html += F("return fetch(url,{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},body});}");
-  html += F("async function postForm(url, body){const opts={method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'}}; if(body)opts.body=body; return fetch(url,opts);} ");
+  html += F("async function postForm(url, body){const opts={method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'}};");
+  html += F("if(body)opts.body=body; return fetch(url,opts);} ");
   html += F("async function toggleZone(z,on){if(_busy)return;_busy=true;try{await postJson('/valve/'+(on?'on/':'off/')+z,{t:Date.now()});setTimeout(()=>location.reload(),150);}catch(e){console.error(e);}finally{_busy=false;}}");
 
-  html += F("const btnBack=document.getElementById('toggle-backlight-btn'); if(btnBack){btnBack.addEventListener('click',async()=>{if(_busy)return;_busy=true;try{await postJson('/toggleBacklight',{t:Date.now()});}catch(e){}finally{_busy=false;}});} ");
-  html += F("const btnReboot=document.getElementById('rebootBtn'); if(btnReboot){btnReboot.addEventListener('click',async()=>{if(confirm('Reboot controller now?')){try{await postJson('/reboot',{t:Date.now()});}catch(e){}}});} ");
-  html += F("const bClr=document.getElementById('btn-clear-delays'); if(bClr){bClr.addEventListener('click',async()=>{await postForm('/clear_delays','a=1'); setTimeout(()=>location.reload(),150);});}");
-  html += F("const bP24=document.getElementById('btn-pause-24'); if(bP24){bP24.addEventListener('click',async()=>{await postForm('/pause','sec=86400'); setTimeout(()=>location.reload(),200);});}");
-  html += F("const bP7=document.getElementById('btn-pause-7d'); if(bP7){bP7.addEventListener('click',async()=>{await postForm('/pause','sec='+(7*86400)); setTimeout(()=>location.reload(),200);});}");
-  html += F("const bRes=document.getElementById('btn-resume'); if(bRes){bRes.addEventListener('click',async()=>{await postForm('/resume','x=1'); setTimeout(()=>location.reload(),150);});}");
+  html += F("const btnBack=document.getElementById('toggle-backlight-btn');");
+  html += F("if(btnBack){btnBack.addEventListener('click',async()=>{if(_busy)return;_busy=true;try{await postJson('/toggleBacklight',{t:Date.now()});}catch(e){}finally{_busy=false;}});} ");
+  html += F("const btnReboot=document.getElementById('rebootBtn');");
+  html += F("if(btnReboot){btnReboot.addEventListener('click',async()=>{if(confirm('Reboot controller now?')){try{await postJson('/reboot',{t:Date.now()});}catch(e){}}});} ");
+  html += F("document.getElementById('btn-clear-delays')?.addEventListener('click',async()=>{await postForm('/clear_delays','a=1');setTimeout(()=>location.reload(),150);});");
+  html += F("document.getElementById('btn-pause-24')?.addEventListener('click',async()=>{await postForm('/pause','sec=86400');setTimeout(()=>location.reload(),200);});");
+  html += F("document.getElementById('btn-pause-7d')?.addEventListener('click',async()=>{await postForm('/pause','sec='+(7*86400));setTimeout(()=>location.reload(),200);});");
+  html += F("document.getElementById('btn-resume')?.addEventListener('click',async()=>{await postForm('/resume','x=1');setTimeout(()=>location.reload(),150);});");
 
-  // Master pill → POST /master and optimistic flip
+  // Master pill
   html += F("const btnMaster=document.getElementById('btn-master');");
   html += F("if(btnMaster){btnMaster.addEventListener('click',async()=>{");
   html += F("  const cur=(btnMaster.getAttribute('aria-pressed')==='true'); const turnOn=!cur;");
   html += F("  try{await fetch('/master',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:turnOn?'on=1':''});");
-  html += F("      btnMaster.setAttribute('aria-pressed',turnOn?'true':'false'); const st=document.getElementById('master-state'); if(st) st.textContent=turnOn?'On':'Off';");
+  html += F("      btnMaster.setAttribute('aria-pressed',turnOn?'true':'false');");
+  html += F("      const st=document.getElementById('master-state'); if(st) st.textContent=turnOn?'On':'Off';");
   html += F("  }catch(e){console.error(e);} ");
   html += F("});}");
 
+  // Theme
   html += F("function applyTheme(t){document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');}");
-  html += F("(function(){let saved=localStorage.getItem('theme');if(saved!=='light'&&saved!=='dark'){saved=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';localStorage.setItem('theme',saved);}applyTheme(saved);})();");
-  html += F("const themeBtn=document.getElementById('themeBtn'); if(themeBtn){themeBtn.addEventListener('click',()=>{const cur=(document.documentElement.getAttribute('data-theme')==='dark')?'dark':'light';const nxt=(cur==='dark')?'light':'dark';applyTheme(nxt);localStorage.setItem('theme',nxt);});}");
+  html += F("(function(){let saved=localStorage.getItem('theme');");
+  html += F("if(saved!=='light'&&saved!=='dark'){saved=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';");
+  html += F("localStorage.setItem('theme',saved);}applyTheme(saved);})();");
+  html += F("document.getElementById('themeBtn')?.addEventListener('click',()=>{const cur=(document.documentElement.getAttribute('data-theme')==='dark')?'dark':'light';");
+  html += F("const nxt=(cur==='dark')?'light':'dark';applyTheme(nxt);localStorage.setItem('theme',nxt);});");
 
   html += F("function toLocalHHMM(epoch){if(!epoch||epoch===0)return'--:--'; const d=new Date(epoch*1000); return pad(d.getHours())+':'+pad(d.getMinutes());}");
   html += F("async function refreshStatus(){try{const r=await fetch('/status');const st=await r.json();");
@@ -1813,7 +1852,7 @@ html += F("</div></div></div>"); // #schedBody, .card.sched, .center
   html += F("const up=document.getElementById('upChip'); if(up) up.textContent=fmtUptime(st.uptimeSec||0);");
   html += F("const rssi=document.getElementById('rssiChip'); if(rssi) rssi.textContent=(st.rssi)+' dBm';");
 
-  // 1h (now) + 24h (actual)
+  // 1h & 24h
   html += F("var acc1h=document.getElementById('acc1h');");
   html += F("if(acc1h){var v=(typeof st.rain1hNow==='number')?st.rain1hNow:NaN;acc1h.textContent=isNaN(v)?'--':v.toFixed(1);}");
   html += F("const acc24=document.getElementById('acc24'); if(acc24){ const v=(typeof st.rain24hActual==='number')?st.rain24hActual:(typeof st.rain24h==='number'?st.rain24h:NaN); acc24.textContent=isNaN(v)?'--':v.toFixed(1);} ");
@@ -1833,12 +1872,9 @@ html += F("</div></div></div>"); // #schedBody, .card.sched, .center
   html += F("if(suns) suns.textContent = st.sunsetLocal  || '--:--';");
   html += F("if(press) press.textContent = (typeof st.pressure==='number' && st.pressure>0) ? st.pressure : '--';");
 
-  // keep master pill synced if /status returns it
+  // keep master pill synced
   html += F("const bm=document.getElementById('btn-master'); const ms=document.getElementById('master-state');");
   html += F("if(bm && ms && typeof st.systemMasterEnabled==='boolean'){ bm.setAttribute('aria-pressed', st.systemMasterEnabled?'true':'false'); ms.textContent = st.systemMasterEnabled?'On':'Off'; }");
-
-  // Run mode label
-  html += F("const rm=document.getElementById('runModeLabel'); if(rm && typeof st.runConcurrent==='boolean'){ rm.textContent = st.runConcurrent ? 'Concurrent' : 'Sequential'; }");
 
   // Next Water
   html += F("(function(){ const zEl=document.getElementById('nwZone'); const tEl=document.getElementById('nwTime'); const eEl=document.getElementById('nwETA'); const dEl=document.getElementById('nwDur');");
@@ -1848,12 +1884,10 @@ html += F("</div></div></div>"); // #schedBody, .card.sched, .center
   html += F("if(zEl) zEl.textContent = (zone>=0 && zone<255) ? (name) : '--'; if(tEl) tEl.textContent = toLocalHHMM(epoch); if(dEl) dEl.textContent = fmtDur(dur);");
   html += F("let nowEpoch = (typeof st.deviceEpoch==='number' && st.deviceEpoch>0 && _devEpoch!=null) ? _devEpoch : Math.floor(Date.now()/1000);");
   html += F("if(eEl) eEl.textContent = epoch ? fmtETA(epoch - nowEpoch) : '--'; })();");
-  html += F("}catch(e){} } setInterval(refreshStatus,1200); refreshStatus();");
+  html += F("}catch(e){} } setInterval(refreshStatus,1300); refreshStatus();");
 
-  // expose zones count to JS
+  // expose zonesCount & Save All
   html += F("const ZC="); html += String(zonesCount); html += F(";");
-
-  // Save All (collect all zone forms and POST once to /submit)
   html += F("async function saveAll(){");
   html += F("  const fd=new URLSearchParams();");
   html += F("  for(let z=0; z<ZC; z++){");
@@ -1873,28 +1907,33 @@ html += F("</div></div></div>"); // #schedBody, .card.sched, .center
 }
 
 
-
 // ---------- Setup Page ----------
 void handleSetupPage() {
   HttpScope _scope;
   loadConfig();
-  String html; html.reserve(24000);
+  String html; html.reserve(26000);
 
   html += F("<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>");
   html += F("<title>Setup — ESP32 Irrigation</title>");
-  html += F("<style>body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0e1726;color:#e8eef6}");
-  html += F(".wrap{max-width:900px;margin:32px auto;padding:0 12px}h1{margin:0 0 16px 0;font-size:1.6em}");
-  html += F(".card{background:#111927;border:1px solid #1f2a44;border-radius:14px;box-shadow:0 8px 34px rgba(0,0,0,.35);padding:16px 14px;margin-bottom:14px}");
-  html += F("label{display:inline-block;min-width:180px}");
-  html += F("input[type=text],input[type=number]{width:100%;max-width:420px;background:#0b1220;color:#e8eef6;border:1px solid #233357;border-radius:10px;padding:8px 10px}");
-  html += F(".row{display:flex;align-items:center;gap:10px;margin:10px 0;flex-wrap:wrap}.row small{color:#aab8d0}");
-  html += F(".btn{background:#1976d2;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer;box-shadow:0 6px 16px rgba(25,118,210,.25)}");
-  html += F(".btn-alt{background:#263244;color:#e8eef6;border:none;border-radius:10px;padding:10px 14px}.grid{display:grid;grid-template-columns:1fr;gap:10px}");
-  html += F(".cols2{display:grid;grid-template-columns:1fr 1fr;gap:12px} @media(max-width:760px){.cols2{grid-template-columns:1fr}}");
+  html += F("<style>");
+  html += F("body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0e1726;color:#e8eef6}");
+  html += F(".wrap{max-width:900px;margin:24px auto;padding:0 10px}");
+  html += F("h1{margin:0 0 14px 0;font-size:1.4em}");
+  html += F(".card{background:#111927;border:1px solid #1f2a44;border-radius:14px;box-shadow:0 8px 34px rgba(0,0,0,.35);padding:14px 12px;margin-bottom:14px}");
+  html += F("label{display:inline-block;min-width:180px;font-size:.9rem}");
+  html += F("input[type=text],input[type=number]{width:100%;max-width:420px;background:#0b1220;color:#e8eef6;border:1px solid #233357;border-radius:10px;padding:8px 10px;font-size:.9rem}");
+  html += F(".row{display:flex;align-items:center;gap:10px;margin:8px 0;flex-wrap:wrap}.row small{color:#aab8d0;font-size:.8rem}");
+  html += F(".btn{background:#1976d2;color:#fff;border:none;border-radius:10px;padding:8px 12px;font-weight:600;cursor:pointer;box-shadow:0 6px 16px rgba(25,118,210,.25);font-size:.9rem}");
+  html += F(".btn-alt{background:#263244;color:#e8eef6;border:none;border-radius:10px;padding:8px 12px;font-size:.9rem}");
+  html += F(".grid{display:grid;grid-template-columns:1fr;gap:10px}");
+  html += F(".cols2{display:grid;grid-template-columns:1fr 1fr;gap:12px}");
+  html += F("@media(max-width:760px){.cols2{grid-template-columns:1fr}label{min-width:130px}}");
   html += F(".switchline{display:flex;gap:10px;align-items:center;flex-wrap:wrap}");
-  html += F(".subhead{opacity:.8;margin:8px 0 4px 0;font-weight:700;font-size:.95rem}");
-  html += F(".hr{height:1px;background:#1f2a44;margin:10px 0 6px 0;border:none}</style></head>");
-  html += F("<body><div class='wrap'><h1>⚙️ Setup</h1><form action='/configure' method='POST'>");
+  html += F(".subhead{opacity:.85;margin:6px 0 4px 0;font-weight:700;font-size:.9rem}");
+  html += F(".hr{height:1px;background:#1f2a44;margin:8px 0 6px 0;border:none}");
+  html += F("</style></head><body>");
+
+  html += F("<div class='wrap'><h1>⚙️ Setup</h1><form action='/configure' method='POST'>");
 
   // Weather
   html += F("<div class='card'><h3>Weather</h3>");
@@ -1905,84 +1944,84 @@ void handleSetupPage() {
   // Zones
   html += F("<div class='card'><h3>Zones</h3>");
   html += F("<div class='row switchline'><label>Mode</label>");
-  html += F("<label><input type='radio' name='zonesMode' value='4' "); html += (zonesCount==4?"checked":""); html += F("> 4 Zone + (Mains/Tank)</label>");
+  html += F("<label><input type='radio' name='zonesMode' value='4' "); html += (zonesCount==4?"checked":""); html += F("> 4 Zone + Mains/Tank</label>");
   html += F("<label><input type='radio' name='zonesMode' value='6' "); html += (zonesCount==6?"checked":""); html += F("> 6 Zone</label></div>");
 
   // Run mode
   html += F("<div class='row switchline'><label>Run Mode</label>");
-  html += F("<label><input type='checkbox' name='runConcurrent' ");
-  html += (runZonesConcurrent ? "checked" : "");
-  html += F("> Run Zones Together</label><small>Unchecked = Individually</small></div>");
-
+  html += F("<label><input type='checkbox' name='runConcurrent' "); html += (runZonesConcurrent ? "checked" : "");
+  html += F("> Run Zones Together</label><small>Unchecked = sequential</small></div>");
   html += F("</div>");
 
   // Physical rain & forecast
   html += F("<div class='card'><h3>Rain Sources</h3>");
-  html += F("<div class='row switchline'><label>Disable OpenWeatherMap Rain</label><input type='checkbox' name='rainForecastDisabled' ");
+  html += F("<div class='row switchline'><label>Disable OWM Rain</label><input type='checkbox' name='rainForecastDisabled' ");
   html += (!rainDelayFromForecastEnabled ? "checked" : ""); html += F("><small>Checked = ignore OpenWeather rain</small></div>");
   html += F("<div class='row switchline'><label>Enable Rain Sensor</label><input type='checkbox' name='rainSensorEnabled' "); html += (rainSensorEnabled?"checked":""); html += F("></div>");
-  html += F("<div class='row'><label>Rain Sensor GPIO</label><input type='number' min='0' max='39' name='rainSensorPin' value='"); html += String(rainSensorPin); html += F("'><small>Uses INPUT_PULLUP (e.g., 27)</small></div>");
-  html += F("<div class='row switchline'><label>Invert Sensor</label><input type='checkbox' name='rainSensorInvert' "); html += (rainSensorInvert?"checked":""); html += F("><small>Enable if sensor board is NO</small></div>");
+  html += F("<div class='row'><label>Rain Sensor GPIO</label><input type='number' min='0' max='39' name='rainSensorPin' value='"); html += String(rainSensorPin); html += F("'><small>e.g. 27</small></div>");
+  html += F("<div class='row switchline'><label>Invert Sensor</label><input type='checkbox' name='rainSensorInvert' "); html += (rainSensorInvert?"checked":""); html += F("><small>Use if board is NO</small></div>");
   html += F("</div>");
 
-  // Delays & Pause + thresholds (improved layout)
+  // Delays & Pause + thresholds
   html += F("<div class='card'><h3>Delays & Pause</h3>");
   html += F("<div class='cols2'>");
 
   // Left column: toggles
   html += F("<div>");
   html += F("<div class='subhead'>Delay Toggles</div><hr class='hr'>");
-  html += F("<div class='row switchline'><label>Rain Delay Enable</label><input type='checkbox' name='rainDelay' ");
+  html += F("<div class='row switchline'><label>Rain Delay</label><input type='checkbox' name='rainDelay' ");
   html += (rainDelayEnabled ? "checked" : ""); html += F("></div>");
-  html += F("<div class='row switchline'><label>Wind Delay Enable</label><input type='checkbox' name='windCancelEnabled' ");
+  html += F("<div class='row switchline'><label>Wind Delay</label><input type='checkbox' name='windCancelEnabled' ");
   html += (windDelayEnabled ? "checked" : ""); html += F("></div>");
   html += F("<div class='row switchline'><label>System Pause</label><input type='checkbox' name='pauseEnable' ");
   html += (systemPaused ? "checked" : ""); html += F("><small>Enable System Pause</small></div>");
-  html += F("<button class='btn' type='button' id='btn-pause-24'>Pause 24h</button>"
-            "<button class='btn' type='button' id='btn-pause-7d'>Pause 7d</button>"
-            "<button class='btn' type='button' id='btn-resume'>Resume</button>");
+  html += F("<div class='row' style='gap:8px;flex-wrap:wrap'>");
+  html += F("<button class='btn' type='button' id='btn-pause-24'>Pause 24h</button>");
+  html += F("<button class='btn' type='button' id='btn-pause-7d'>Pause 7d</button>");
+  html += F("<button class='btn' type='button' id='btn-resume'>Resume</button>");
+  html += F("</div>");
   html += F("</div>");
 
   // Right column: numeric thresholds / timers
   html += F("<div>");
   html += F("<div class='subhead'>Thresholds & Timers</div><hr class='hr'>");
-  html += F("<div class='row'><label>Wind Threshold (m/s)</label><input type='number' step='0.1' min='0' max='50' name='windSpeedThreshold' value='"); 
+  html += F("<div class='row'><label>Wind Threshold (m/s)</label><input type='number' step='0.1' min='0' max='50' name='windSpeedThreshold' value='");
   html += String(windSpeedThreshold,1); html += F("'></div>");
   html += F("<div class='row'><label>Rain Cooldown (hours)</label><input type='number' min='0' max='720' name='rainCooldownHours' value='");
   html += String(rainCooldownMin / 60);
-  html += F("'><small>Wait after rain clears before running</small></div>");
+  html += F("'><small>Wait after rain clears</small></div>");
   html += F("<div class='row'><label>Rain Threshold 24h (mm)</label><input type='number' min='0' max='200' name='rainThreshold24h' value='");
   html += String(rainThreshold24h_mm);
-  html += F("'><small>Delay if 24h total ≥ threshold</small></div>");
-  html += F("<div class='row'><label>Pause for (Hours)</label><input type='number' min='0' max='720' name='pauseHours' value='");
+  html += F("'><small>Delay if ≥ threshold</small></div>");
+  html += F("<div class='row'><label>Pause for (hours)</label><input type='number' min='0' max='720' name='pauseHours' value='");
   time_t nowEp = time(nullptr);
   { uint32_t remain = (pauseUntilEpoch > nowEp && systemPaused) ? (pauseUntilEpoch - nowEp) : 0;
     html += String(remain/3600); }
-  html += F("'><small>0 = Until Manually Resumed</small></div>");
+  html += F("'><small>0 = until manually resumed</small></div>");
   html += F("</div>");
 
   html += F("</div>"); // end cols2
 
-  // Tank/Main row with two checkboxes
+  // Tank/Mains
   html += F("<hr class='hr'><div class='row switchline'><label>Water Source</label>");
-  html += F("<label><input type='checkbox' name='justUseTank' "); html += (justUseTank?"checked":""); html += F("> Only Use Tank</label>");
-  html += F("<label><input type='checkbox' name='justUseMains' "); html += (justUseMains?"checked":""); html += F("> Only Use Mains</label>");
-  html += F("<small>(Only applies in 4-zone mode)</small></div>");
+  html += F("<label><input type='checkbox' name='justUseTank' "); html += (justUseTank?"checked":""); html += F("> Only Tank</label>");
+  html += F("<label><input type='checkbox' name='justUseMains' "); html += (justUseMains?"checked":""); html += F("> Only Mains</label>");
+  html += F("<small>(4-zone mode only)</small></div>");
 
   // Quick actions
-  html += F("<div class='row' style='gap:10px;flex-wrap:wrap;margin-top:6px'>"
-            "<button class='btn' type='button' id='btn-toggle-backlight'>Toggle LCD</button>"
-            "</div>");
+  html += F("<div class='row' style='gap:8px;flex-wrap:wrap;margin-top:6px'>");
+  html += F("<button class='btn' type='button' id='btn-toggle-backlight'>Toggle LCD</button>");
+  html += F("</div>");
 
   // Save / nav
-  html += F("<div class='row' style='gap:10px;margin-top:8px'>"
-            "<button class='btn' type='submit'>Save</button>"
-            "<button class='btn btn-alt' formaction='/' formmethod='GET'>Home</button>"
-            "<button class='btn btn-alt' type='button' onclick=\"fetch('/clear_cooldown',{method:'POST'})\">Clear Cooldown</button>"
-            "<button class='btn btn-alt' formaction='/configure' formmethod='POST' name='resumeNow' value='1'>Resume Now</button>"
-            "</div>");
+  html += F("<div class='row' style='gap:8px;margin-top:8px;flex-wrap:wrap'>");
+  html += F("<button class='btn' type='submit'>Save</button>");
+  html += F("<button class='btn-alt' formaction='/' formmethod='GET'>Home</button>");
+  html += F("<button class='btn-alt' type='button' onclick=\"fetch('/clear_cooldown',{method:'POST'})\">Clear Cooldown</button>");
+  html += F("<button class='btn-alt' formaction='/configure' formmethod='POST' name='resumeNow' value='1'>Resume Now</button>");
+  html += F("</div>");
 
-  html += F("</div>"); // end card
+  html += F("</div>"); // end Delays card
 
   // GPIO fallback pins
   html += F("<div class='card'><h3>GPIO Fallback (if I²C relays not found)</h3><div class='grid'>");
@@ -1991,8 +2030,10 @@ void handleSetupPage() {
     html += F(" Pin</label><input type='number' min='0' max='39' name='zonePin"); html += String(i);
     html += F("' value='"); html += String(zonePins[i]); html += F("'></div>");
   }
-  html += F("<div class='row'><label>Main Pin</label><input type='number' min='0' max='39' name='mainsPin' value='"); html += String(mainsPin); html += F("'><small>4-zone fallback</small></div>");
-  html += F("<div class='row'><label>Tank Pin</label><input type='number' min='0' max='39' name='tankPin' value='"); html += String(tankPin); html += F("'><small>4-zone fallback</small></div>");
+  html += F("<div class='row'><label>Main Pin</label><input type='number' min='0' max='39' name='mainsPin' value='");
+  html += String(mainsPin); html += F("'><small>4-zone fallback</small></div>");
+  html += F("<div class='row'><label>Tank Pin</label><input type='number' min='0' max='39' name='tankPin' value='");
+  html += String(tankPin); html += F("'><small>4-zone fallback</small></div>");
   html += F("</div></div>");
 
   // Timezone
@@ -2000,10 +2041,10 @@ void handleSetupPage() {
   html += F("<div class='row switchline'><label>Mode</label>");
   html += F("<label><input type='radio' name='tzMode' value='0' "); html += (tzMode==TZ_POSIX?"checked":""); html += F("> POSIX</label>");
   html += F("<label><input type='radio' name='tzMode' value='1' "); html += (tzMode==TZ_IANA?"checked":""); html += F("> IANA</label>");
-  html += F("<label><input type='radio' name='tzMode' value='2' "); html += (tzMode==TZ_FIXED?"checked":""); html += F("> Fixed Offset</label></div>");
+  html += F("<label><input type='radio' name='tzMode' value='2' "); html += (tzMode==TZ_FIXED?"checked":""); html += F("> Fixed</label></div>");
 
-  html += F("<div class='row'><label>POSIX TZ</label><input type='text' name='tzPosix' value='"); html += tzPosix; html += F("'><small>e.g. ACST-9:30ACDT-10:30,M10.1.0/2,M4.1.0/3</small></div>");
-  html += F("<div class='row'><label>IANA Zone</label><input type='text' name='tzIANA' value='"); html += tzIANA; html += F("'><small>e.g. Australia/Adelaide</small></div>");
+  html += F("<div class='row'><label>POSIX TZ</label><input type='text' name='tzPosix' value='"); html += tzPosix; html += F("'><small>ACST-9:30ACDT-10:30,...</small></div>");
+  html += F("<div class='row'><label>IANA Zone</label><input type='text' name='tzIANA' value='"); html += tzIANA; html += F("'><small>Australia/Adelaide</small></div>");
   html += F("<div class='row'><label>Fixed Offset (min)</label><input type='number' name='tzFixed' value='"); html += String(tzFixedOffsetMin); html += F("'><small>Minutes from UTC</small></div>");
   html += F("</div>");
 
@@ -2026,7 +2067,6 @@ void handleSetupPage() {
   html += F("g('btn-toggle-backlight')?.addEventListener('click',()=>post('/toggleBacklight','x=1'));");
   html += F("g('btn-pause-24')?.addEventListener('click',()=>post('/pause','sec=86400'));");
   html += F("g('btn-pause-7d')?.addEventListener('click',()=>post('/pause','sec='+(7*86400)));");
-  html += F("g('btn-clear-delays')?.addEventListener('click',()=>post('/clear_delays','x=1'));");
   html += F("g('btn-resume')?.addEventListener('click',()=>post('/resume','x=1'));");
   html += F("</script>");
 
@@ -2034,6 +2074,7 @@ void handleSetupPage() {
 
   server.send(200,"text/html",html);
 }
+
 
 // ---------- Schedule POST (per-zone card or full form) ----------
 void handleSubmit() {
@@ -2088,37 +2129,79 @@ void handleSubmit() {
 void handleLogPage() {
   HttpScope _scope;
   File f = LittleFS.open("/events.csv","r");
-  if (!f) { server.send(404,"text/plain","No event log"); return; }
+  if (!f) {
+    server.send(404,"text/plain","No event log");
+    return;
+  }
 
-  String html; html.reserve(8000);
+  String html; html.reserve(9000);
   html += F("<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>");
   html += F("<title>Event Log</title>");
-  html += F("<style>body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0f1522;color:#e8eef6;margin:0}");
-  html += F("header{background:#13213a;color:#fff;text-align:center;padding:20px 0 14px;font-size:1.4em}");
-  html += F(".wrap{max-width:980px;margin:18px auto;padding:0 12px}");
-  html += F("table{width:100%;border-collapse:collapse;background:#0b1220;border:1px solid #22314f;border-radius:12px;overflow:hidden}");
-  html += F("th,td{border:1px solid #22314f;padding:8px 6px;font-size:.96em}th{background:#172540}a{color:#a9cbff}</style></head><body>");
+  html += F("<style>");
+  html += F("body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0f1522;color:#e8eef6;margin:0}");
+  html += F("header{background:#13213a;color:#fff;text-align:center;padding:16px 0 10px;font-size:1.2em}");
+  html += F(".wrap{max-width:980px;margin:16px auto;padding:0 10px}");
+  html += F(".toolbar{margin:8px 0;display:flex;flex-wrap:wrap;gap:8px}");
+  html += F(".btn{padding:8px 12px;background:#1e2d4c;border-radius:10px;text-decoration:none;color:#fff;font-size:.9rem;border:none;cursor:pointer;display:inline-block}");
+  html += F(".btn-danger{background:#b93b3b}.btn-warn{background:#a15517}");
+  html += F(".table-wrap{margin-top:8px;overflow-x:auto;border-radius:12px;border:1px solid #22314f}");
+  html += F("table{width:100%;border-collapse:collapse;background:#0b1220;min-width:720px}");
+  html += F("th,td{border:1px solid #22314f;padding:7px 6px;font-size:.9em;text-align:left;white-space:nowrap}");
+  html += F("th{background:#172540;position:sticky;top:0;z-index:1}");
+  html += F("td:last-child{white-space:normal;max-width:260px}");
+  html += F("a{color:#a9cbff}");
+  html += F("@media(max-width:760px){header{font-size:1.05em}.wrap{padding:0 6px}.btn{flex:1;text-align:center}}");
+  html += F("</style></head><body>");
+
   html += F("<header>📜 Irrigation Event Log</header><div class='wrap'>");
-  html += F("<div style='margin:10px 0'><a class='btn' href='/' style='padding:8px 12px;background:#1e2d4c;border-radius:10px;text-decoration:none;color:#fff'>Home</a>");
-  html += F("&nbsp; <a class='btn' href='/download/events.csv' style='padding:8px 12px;background:#1e2d4c;border-radius:10px;text-decoration:none;color:#fff'>Download CSV</a>");
-  html += F("&nbsp; <form style='display:inline' method='POST' action='/clearevents'><button style='padding:8px 12px;background:#b93b3b;border:none;border-radius:10px;color:#fff;cursor:pointer'>Clear</button></form>");
-  html += F("&nbsp; <form style='display:inline' method='POST' action='/stopall'><button style='padding:8px 12px;background:#a15517;border:none;border-radius:10px;color:#fff;cursor:pointer'>Stop All</button></form>");
-  html += F("</div><table><tr><th>Time</th><th>Zone</th><th>Event</th><th>Source</th><th>RainDelay</th><th>Details</th></tr>");
+  html += F("<div class='toolbar'>");
+  html += F("<a class='btn' href='/'>Home</a>");
+  html += F("<a class='btn' href='/download/events.csv'>Download CSV</a>");
+  html += F("<form style='display:inline' method='POST' action='/clearevents'>");
+  html += F("<button class='btn btn-danger' type='submit'>Clear</button></form>");
+  html += F("<form style='display:inline' method='POST' action='/stopall'>");
+  html += F("<button class='btn btn-warn' type='submit'>Stop All</button></form>");
+  html += F("</div>");
+
+  html += F("<div class='table-wrap'><table><tr>");
+  html += F("<th>Time</th><th>Zone</th><th>Event</th><th>Source</th><th>RainDelay</th><th>Details</th></tr>");
 
   while (f.available()) {
-    String line=f.readStringUntil('\n'); if (line.length()<5) continue;
+    String line=f.readStringUntil('\n');
+    if (line.length()<5) continue;
+
     int i1=line.indexOf(','), i2=line.indexOf(',',i1+1), i3=line.indexOf(',',i2+1), i4=line.indexOf(',',i3+1);
     int i5=line.indexOf(',',i4+1), i6=line.indexOf(',',i5+1), i7=line.indexOf(',',i6+1), i8=line.indexOf(',',i7+1), i9=line.indexOf(',',i8+1);
-    String ts=line.substring(0,i1), zone=line.substring(i1+1,i2), ev=line.substring(i2+1,i3), src=line.substring(i3+1,i4), rd=line.substring(i4+1,i5);
-    String temp=(i6>i5)?line.substring(i5+1,i6):"", hum=(i7>i6)?line.substring(i6+1,i7):"", wind=(i8>i7)?line.substring(i7+1,i8):"";
-    String cond=(i9>i8)?line.substring(i8+1,i9):"", city=(i9>=0)?line.substring(i9+1):"";
-    String details = (temp.length()?("T="+temp+"°C, H="+hum+"%, W="+wind+"m/s, "+cond+" @ "+city):"n/a");
-    html += F("<tr><td>"); html += ts; html += F("</td><td>"); html += zone; html += F("</td><td>"); html += ev; html += F("</td><td>"); html += src; html += F("</td><td>"); html += rd; html += F("</td><td>"); html += details; html += F("</td></tr>");
+
+    String ts   = line.substring(0,i1);
+    String zone = line.substring(i1+1,i2);
+    String ev   = line.substring(i2+1,i3);
+    String src  = line.substring(i3+1,i4);
+    String rd   = line.substring(i4+1,i5);
+
+    String temp =(i6>i5)?line.substring(i5+1,i6):"";
+    String hum  =(i7>i6)?line.substring(i6+1,i7):"";
+    String wind =(i8>i7)?line.substring(i7+1,i8):"";
+    String cond =(i9>i8)?line.substring(i8+1,i9):"";
+    String city =(i9>=0)?line.substring(i9+1):"";
+
+    String details = (temp.length()
+                      ? ("T="+temp+"°C, H="+hum+"%, W="+wind+"m/s, "+cond+" @ "+city)
+                      : "n/a");
+
+    html += F("<tr><td>"); html += ts;
+    html += F("</td><td>"); html += zone;
+    html += F("</td><td>"); html += ev;
+    html += F("</td><td>"); html += src;
+    html += F("</td><td>"); html += rd;
+    html += F("</td><td>"); html += details; html += F("</td></tr>");
   }
   f.close();
-  html += F("</table></div></body></html>");
+
+  html += F("</table></div></div></body></html>");
   server.send(200,"text/html",html);
 }
+
 
 // ---------- Tank Calibration Page ----------
 void handleTankCalibration() {
