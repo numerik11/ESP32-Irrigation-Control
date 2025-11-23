@@ -98,7 +98,7 @@ bool     rainDelayFromForecastEnabled = true;  // gate for forecast-based rain
 bool     systemMasterEnabled = true;     // Master On/Off
 uint32_t rainCooldownUntilEpoch = 0;     // when > now => block starts
 int      rainCooldownMin = 60;           // minutes to wait after rain clears
-int      rainThreshold24h_mm = 5;        // forecast 24h total triggers delay
+int      rainThreshold24h_mm = 5;        // forecast/actual 24h total triggers delay
 
 // NEW Run mode: sequential (false) or concurrent (true)
 bool runZonesConcurrent = false;
@@ -158,7 +158,7 @@ static tm cachedTm = {};
 // Uptime
 uint32_t bootMillis = 0;
 
-// ---------- NEW: Actual rainfall history (rolling 24h) + globals for 1h/3h ----------
+// ---------- NEW: Actual rainfall history (rolling 24h) + globals for 1h ----------
 static float rainHist[24] = {0};   // last 24 hourly buckets (mm/hour)
 static int   rainIdx = 0;          // points to most recent bucket
 static time_t lastRainHistHour = 0;
@@ -284,6 +284,7 @@ void mqttEnsureConnected(){
     _mqtt.subscribe( (mqttBase + "/cmd/#").c_str() );
   }
 }
+static float last24hActualRain(); // forward
 void mqttPublishStatus(){
   if (!mqttEnabled || !_mqtt.connected()) return;
   if (millis() - _lastMqttPub < 3000) return;
@@ -324,7 +325,6 @@ static inline bool isBlockedNow(){
   if (rainCooldownUntilEpoch && now < (time_t)rainCooldownUntilEpoch) return true;
   return false;
 }
-
 
 // --- Cancel helper: cancel a (would-be) start instead of queueing ---
 static inline void cancelStart(int z, const char* reason, bool dueToRain) {
@@ -406,7 +406,6 @@ struct NextWaterInfo {
   uint32_t durSec;   // duration in seconds
 };
 static NextWaterInfo computeNextWatering();
-
 
 // ---------- I2C init ----------
 bool initExpanders() {
@@ -810,7 +809,6 @@ void setup() {
   mqttEnsureConnected();
 }
 
-
 // ---------- Loop ----------
 void loop() {
   const uint32_t now = millis();
@@ -824,6 +822,8 @@ void loop() {
   server.handleClient();
   wifiCheck();
   checkWindRain();
+  mqttEnsureConnected();
+  mqttPublishStatus();
 
   // Hard block while paused/master off/cooldown
   if (isBlockedNow()) {
@@ -864,24 +864,23 @@ void loop() {
 
     if (!isBlockedNow()) {
       for (int z=0; z<(int)zonesCount; z++) {
-  if (shouldStartZone(z)) {
-    // NEW: cancel (don't queue) when blocked or delayed by rain/wind
-    if (isBlockedNow()) { cancelStart(z, "BLOCKED", false); continue; }
-    if (rainActive)     { cancelStart(z, "RAIN",    true ); continue; }
-    if (windActive)     { cancelStart(z, "WIND",    false); continue; }
+        if (shouldStartZone(z)) {
+          // NEW: cancel (don't queue) when blocked or delayed by rain/wind
+          if (isBlockedNow()) { cancelStart(z, "BLOCKED", false); continue; }
+          if (rainActive)     { cancelStart(z, "RAIN",    true ); continue; }
+          if (windActive)     { cancelStart(z, "WIND",    false); continue; }
 
-    if (!runZonesConcurrent) {
-      // sequential: only start if nothing is running; else queue (still allowed)
-      if (anyActive) { pendingStart[z] = true; logEvent(z,"QUEUED","ACTIVE RUN",false); }
-      else { turnOnZone(z); anyActive = true; }
-    } else {
-      // concurrent: start regardless of other active zones
-      turnOnZone(z); anyActive = true;
-    }
-  }
-  if (zoneActive[z] && hasDurationCompleted(z)) turnOffZone(z);
-}
-
+          if (!runZonesConcurrent) {
+            // sequential: only start if nothing is running; else queue (still allowed)
+            if (anyActive) { pendingStart[z] = true; logEvent(z,"QUEUED","ACTIVE RUN",false); }
+            else { turnOnZone(z); anyActive = true; }
+          } else {
+            // concurrent: start regardless of other active zones
+            turnOnZone(z); anyActive = true;
+          }
+        }
+        if (zoneActive[z] && hasDurationCompleted(z)) turnOffZone(z);
+      }
 
       if (!runZonesConcurrent) {
         // sequential: drain one queued zone if nothing currently running
@@ -1109,7 +1108,6 @@ void tickWeather(){
   updateCachedWeather();
 }
 
-
 // ---------- Rain/Wind logic with cooldown & threshold ----------
 bool checkWindRain() {
   updateCachedWeather(); // safe: early-out if g_inHttp set
@@ -1129,10 +1127,13 @@ bool checkWindRain() {
   // Physical sensor
   rainBySensorActive = (rainSensorEnabled ? physicalRainNowRaw() : false);
 
-  // Forecast accumulation threshold (24h)
+  // Forecast accumulation threshold (24h) OR actual 24h
   bool forecastThresholdActive = false;
+  float actual24 = last24hActualRain();
   if (rainDelayEnabled && rainDelayFromForecastEnabled) {
-    if (!isnan(rainNext24h_mm) && rainNext24h_mm >= (float)rainThreshold24h_mm) {
+    bool forecastHit = (!isnan(rainNext24h_mm) && rainNext24h_mm >= (float)rainThreshold24h_mm);
+    bool actualHit   = (!isnan(actual24)      && actual24        >= (float)rainThreshold24h_mm);
+    if (forecastHit || actualHit) {
       forecastThresholdActive = true;
     }
   }
@@ -1158,7 +1159,7 @@ bool checkWindRain() {
   }
 
   // Start cooldown when rain clears
-  // *** CHANGED: only if this rain period had the 24h threshold active ***
+  // Only if this rain period had the 24h threshold (forecast OR actual) active
   if (prevRain && !newRainActive) {
     if (rainCooldownMin > 0 && rainWasFromThreshold) {
       time_t now = time(nullptr);
@@ -1174,7 +1175,6 @@ bool checkWindRain() {
 
   return !(rainActive || windActive);
 }
-
 
 // ---------- Event log ----------
 void logEvent(int zone, const char* eventType, const char* source, bool rainDelayed) {
@@ -1390,20 +1390,19 @@ void turnOnValveManual(int z) {
 
   // Respect run mode overlap rules
   for (int i=0;i<(int)zonesCount;i++){
-  if (zoneActive[i]) {
-    if (!runZonesConcurrent) {
-      Serial.println("[VALVE] Manual start blocked: another zone is running");
-      return;
+    if (zoneActive[i]) {
+      if (!runZonesConcurrent) {
+        Serial.println("[VALVE] Manual start blocked: another zone is running");
+        return;
+      }
+      break; // concurrent: allow additional zone
     }
-    break; // concurrent: allow additional zone
-   }
- }
+  }
 
   // NEW: cancel manual requests during block/delay instead of queueing
   if (isBlockedNow())  { cancelStart(z, "BLOCKED", false); return; }
   if (rainActive)      { cancelStart(z, "RAIN",    true ); return; }
   if (windActive)      { cancelStart(z, "WIND",    false); return; }
-
 
   zoneStartMs[z] = millis();
   zoneActive[z] = true;
@@ -1884,7 +1883,7 @@ void handleRoot() {
 
   // keep master pill synced
   html += F("const bm=document.getElementById('btn-master'); const ms=document.getElementById('master-state');");
-  html += F("if(bm && ms && typeof st.systemMasterEnabled==='boolean'){ bm.setAttribute('aria-pressed', st.systemMasterEnabled?'true':'false'); ms.textContent = st.systemMasterEnabled?'On':'Off'; }");
+  html += F("if(bm && ms && typeof st.masterOn==='boolean'){ bm.setAttribute('aria-pressed', st.masterOn?'true':'false'); ms.textContent = st.masterOn?'On':'Off'; }");
 
   // Next Water
   html += F("(function(){ const zEl=document.getElementById('nwZone'); const tEl=document.getElementById('nwTime'); const eEl=document.getElementById('nwETA'); const dEl=document.getElementById('nwDur');");
@@ -2011,7 +2010,7 @@ void handleSetupPage() {
   html += F("'><small>Wait after rain clears</small></div>");
   html += F("<div class='row'><label>Rain Threshold 24h (mm)</label><input type='number' min='0' max='200' name='rainThreshold24h' value='");
   html += String(rainThreshold24h_mm);
-  html += F("'><small>Delay if ≥ threshold</small></div>");
+  html += F("'><small>Delay if ≥ threshold (forecast or actual)</small></div>");
   html += F("<div class='row'><label>Pause for (hours)</label><input type='number' min='0' max='720' name='pauseHours' value='");
   time_t nowEp = time(nullptr);
   { uint32_t remain = (pauseUntilEpoch > nowEp && systemPaused) ? (pauseUntilEpoch - nowEp) : 0;
@@ -2219,7 +2218,6 @@ void handleLogPage() {
   html += F("</table></div></div></body></html>");
   server.send(200,"text/html",html);
 }
-
 
 // ---------- Tank Calibration Page ----------
 void handleTankCalibration() {
@@ -2475,7 +2473,6 @@ void handleConfigure() {
   if (server.hasArg("masterOn"))  systemMasterEnabled = true;
   if (server.hasArg("masterOff")) systemMasterEnabled = false;
 
-
   // New UI posts HOURS; still accept legacy MINUTES if present
   if (server.hasArg("rainCooldownHours")) {
     int h = server.arg("rainCooldownHours").toInt();
@@ -2492,6 +2489,7 @@ void handleConfigure() {
     if (mm < 0) mm = 0; if (mm > 200) mm = 200;
     rainThreshold24h_mm = mm;
   }
+
   // Debug toggles (if you add in UI later)
   dbgForceRain = server.hasArg("dbgRain");
   dbgForceWind = server.hasArg("dbgWind");
