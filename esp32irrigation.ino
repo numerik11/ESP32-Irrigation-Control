@@ -207,6 +207,9 @@ bool initExpanders();
 void toggleBacklight();
 void logEvent(int zone, const char* eventType, const char* source, bool rainDelayed);
 void printCurrentTime();
+int    tankPercent();
+bool   isTankLow();
+String sourceModeText();
 
 // ===================== Timezone config =====================
 enum TZMode : uint8_t { TZ_POSIX = 0, TZ_IANA = 1, TZ_FIXED = 2 };
