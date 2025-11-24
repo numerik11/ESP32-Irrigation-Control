@@ -157,20 +157,19 @@ Manual On/Off
 
 ## Screenshots
 
-<img width="747" height="824" alt="image" src="https://github.com/user-attachments/assets/c53fdaab-ac65-4a68-a3af-c4897e85c146" />
+<img width="494" height="521" alt="image" src="https://github.com/user-attachments/assets/49f1a556-e5d9-4fcf-9cd7-30b06043207a" />
 
 -Main Page
 
-<img width="734" height="593" alt="image" src="https://github.com/user-attachments/assets/bd64e765-bef1-4559-97d2-e84ef14b604b" />
+<img width="474" height="472" alt="image" src="https://github.com/user-attachments/assets/38d6b62d-7b06-4faa-973d-7db548c6ea24" />
 
 -Schedules 
 
-
-<img width="610" height="920" alt="image" src="https://github.com/user-attachments/assets/f4e7e342-a88d-446c-9012-cf67dab6f9da" />
+<img width="454" height="689" alt="image" src="https://github.com/user-attachments/assets/ff5557e9-78b7-4b91-86d2-97fd165d5069" />
 
 -Setup Page
 
-<img width="615" height="853" alt="image" src="https://github.com/user-attachments/assets/028f4c13-4d80-44ea-b1d3-929364a260e5" />
+<img width="454" height="659" alt="image" src="https://github.com/user-attachments/assets/60983e2d-27af-42c0-900a-911618412314" />
 
 -GPIO/Timezone/MQTT Page
 
