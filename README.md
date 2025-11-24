@@ -1,12 +1,17 @@
 # ESP32 4/6-Zone Irrigation Controller
 
 Irrigation controller for ESP32 driving up to 6 zones/solenoids.
+
 Auto Tank/Mains selection 
+
 Live weather and weather delays
+
 Web UI (espirrigation.local)
 
 Manual On/Off
+
 2x startimes a day, 7 Days, Mins and Secs.
+
 ---
 
 ## Highlights
