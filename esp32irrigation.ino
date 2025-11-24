@@ -2022,9 +2022,30 @@ void handleSetupPage() {
 
   // Tank/Mains
   html += F("<hr class='hr'><div class='row switchline'><label>Water Source</label>");
-  html += F("<label><input type='checkbox' name='justUseTank' "); html += (justUseTank?"checked":""); html += F("> Only Tank</label>");
-  html += F("<label><input type='checkbox' name='justUseMains' "); html += (justUseMains?"checked":""); html += F("> Only Mains</label>");
-  html += F("<small>(4-zone mode only)</small></div>");
+
+  // Auto (default: use tank if above threshold, otherwise mains)
+  html += F("<label><input type='radio' name='waterMode' value='auto' ");
+  if (!justUseTank && !justUseMains) html += F("checked");
+  html += F("> Auto (Tank → Mains)</label>");
+
+  // Only Tank
+  html += F("<label><input type='radio' name='waterMode' value='tank' ");
+  if (justUseTank) html += F("checked");
+  html += F("> Only Tank</label>");
+
+  // Only Mains
+  html += F("<label><input type='radio' name='waterMode' value='mains' ");
+  if (justUseMains) html += F("checked");
+  html += F("> Only Mains</label>");
+
+  html += F("<small>(4-zone Tank/Mains mode only)</small></div>");
+
+  html += F("<div class='row'><label>Tank Low Threshold (%)</label>"
+            "<input type='number' min='0' max='100' name='tankThresh' value='");
+  html += String(tankLowThresholdPct);
+  html += F("'><small>Switch to mains if tank ≤ this level</small></div>");
+
+
 
   // Quick actions
   html += F("<div class='row' style='gap:8px;flex-wrap:wrap;margin-top:6px'>");
@@ -2419,115 +2440,221 @@ void saveSchedule() {
 // ---------- Configure (POST) ----------
 void handleConfigure() {
   HttpScope _scope;
-  bool needRestart=false;
-  if (server.hasArg("apiKey")) { apiKey = server.arg("apiKey"); needRestart=true; }
-  if (server.hasArg("city"))   { city   = server.arg("city");   needRestart=true; }
 
+  bool weatherCfgChanged = false;
+  bool tzCfgChanged      = false;
+
+  // --- Weather / city ---
+  if (server.hasArg("apiKey")) {
+    String newApi = server.arg("apiKey");
+    newApi.trim();
+    if (newApi != apiKey) {
+      apiKey = newApi;
+      weatherCfgChanged = true;
+    }
+  }
+  if (server.hasArg("city")) {
+    String newCity = server.arg("city");
+    newCity.trim();
+    if (newCity != city) {
+      city = newCity;
+      weatherCfgChanged = true;
+    }
+  }
+
+  // --- Zone mode (4 vs 6) ---
   if (server.hasArg("zonesMode")) {
     int zm = server.arg("zonesMode").toInt();
-    zonesCount = (zm==6)?6:4; needRestart=true;
-  }
-  if (server.hasArg("tankThresh")) {
-    int th=server.arg("tankThresh").toInt();
-    if (th>=0 && th<=100) tankLowThresholdPct = th;
+    uint8_t newZones = (zm == 6) ? 6 : 4;
+    if (newZones != zonesCount) {
+      zonesCount = newZones;
+    }
   }
 
+  // --- Tank threshold (switch to mains when ≤ this %) ---
+  if (server.hasArg("tankThresh")) {
+    int th = server.arg("tankThresh").toInt();
+    if (th >= 0 && th <= 100) {
+      tankLowThresholdPct = (uint8_t)th;
+    }
+  }
+
+  // --- Delay toggles / basic flags ---
   rainDelayEnabled = server.hasArg("rainDelay");
   windDelayEnabled = server.hasArg("windCancelEnabled");
+
   justUseTank  = server.hasArg("justUseTank");
   justUseMains = server.hasArg("justUseMains");
-  if (justUseTank && justUseMains){ justUseTank=false; justUseMains=true; }
-  if (zonesCount==6){ justUseTank=false; justUseMains=false; }
+  // Avoid both being true at once
+  if (justUseTank && justUseMains) {
+    justUseTank  = false;
+    justUseMains = true;
+  }
+  // In 6-zone mode, mains/tank switching is irrelevant
+  if (zonesCount == 6) {
+    justUseTank  = false;
+    justUseMains = false;
+  }
 
-  if (server.hasArg("windSpeedThreshold")) windSpeedThreshold = server.arg("windSpeedThreshold").toFloat();
-
-  // Physical rain sensor
-  rainSensorEnabled = server.hasArg("rainSensorEnabled");
-  if (server.hasArg("rainSensorPin"))  rainSensorPin = server.arg("rainSensorPin").toInt();
-  rainSensorInvert  = server.hasArg("rainSensorInvert");
-
-  // Forecast rain toggle (saved)
-  rainDelayFromForecastEnabled = !server.hasArg("rainForecastDisabled");
-
-  // NEW: Run mode
+  // Run mode: sequential vs concurrent
   runZonesConcurrent = server.hasArg("runConcurrent");
 
-  // Pause controls
-  if (server.hasArg("resumeNow")) {
-    systemPaused = false; pauseUntilEpoch = 0;
-  } else {
-    bool reqPause = server.hasArg("pauseEnable");
-    int pauseHours = 0;
-    if (server.hasArg("pauseHours")) {
-      pauseHours = server.arg("pauseHours").toInt();
-      if (pauseHours < 0) pauseHours = 0;
-    }
-    if (reqPause) {
-      systemPaused = true;
-      pauseUntilEpoch = (pauseHours == 0) ? 0 : (uint32_t)(time(nullptr) + (pauseHours * 3600));
-    } else {
-      systemPaused = false; pauseUntilEpoch = 0;
-    }
+  // Wind speed threshold
+  if (server.hasArg("windSpeedThreshold")) {
+    windSpeedThreshold = server.arg("windSpeedThreshold").toFloat();
+    if (windSpeedThreshold < 0.0f) windSpeedThreshold = 0.0f;
   }
 
-  if (server.hasArg("masterOn"))  systemMasterEnabled = true;
-  if (server.hasArg("masterOff")) systemMasterEnabled = false;
-
-  // New UI posts HOURS; still accept legacy MINUTES if present
+  // Rain cooldown (hours → minutes)
   if (server.hasArg("rainCooldownHours")) {
     int h = server.arg("rainCooldownHours").toInt();
-    if (h < 0) h = 0; if (h > 720) h = 720;
-    rainCooldownMin = h * 60;                 // store internally in minutes
-  } else if (server.hasArg("rainCooldownMin")) {
-    int m = server.arg("rainCooldownMin").toInt();
-    if (m < 0) m = 0; if (m > 43200) m = 43200; // 720h cap as minutes
-    rainCooldownMin = m;
+    if (h < 0) h = 0;
+    if (h > 720) h = 720; // cap 30 days
+    rainCooldownMin = h * 60;
   }
 
+  // Rain threshold 24h (mm)
   if (server.hasArg("rainThreshold24h")) {
     int mm = server.arg("rainThreshold24h").toInt();
-    if (mm < 0) mm = 0; if (mm > 200) mm = 200;
+    if (mm < 0) mm = 0;
+    if (mm > 500) mm = 500;
     rainThreshold24h_mm = mm;
   }
 
-  // Debug toggles (if you add in UI later)
-  dbgForceRain = server.hasArg("dbgRain");
-  dbgForceWind = server.hasArg("dbgWind");
+  // Forecast rain toggle (saved)
+  // UI: "rainForecastDisabled" checkbox (Disable OWM Rain)
+  rainDelayFromForecastEnabled = !server.hasArg("rainForecastDisabled");
 
-  // Fallback pins
-  for (int i=0;i<MAX_ZONES;i++) if (server.hasArg("zonePin"+String(i))) zonePins[i]=server.arg("zonePin"+String(i)).toInt();
-  if (server.hasArg("mainsPin")) mainsPin = server.arg("mainsPin").toInt();
-  if (server.hasArg("tankPin"))  tankPin  = server.arg("tankPin").toInt();
-
-  // Timezone fields
-  if (server.hasArg("tzMode")) {
-    int m = server.arg("tzMode").toInt();
-    tzMode = (m==1) ? TZ_IANA : (m==2) ? TZ_FIXED : TZ_POSIX;
+  // Physical rain sensor
+  rainSensorEnabled = server.hasArg("rainSensorEnabled");
+  if (server.hasArg("rainSensorPin")) {
+    rainSensorPin = server.arg("rainSensorPin").toInt();
   }
-  if (server.hasArg("tzPosix")) { String s = server.arg("tzPosix"); s.trim(); if (s.length() > 0) tzPosix = s; }
-  if (server.hasArg("tzIANA"))  { String s = server.arg("tzIANA");  s.trim(); if (s.length() > 0) tzIANA = s; }
-  if (server.hasArg("tzFixed")) { tzFixedOffsetMin = (int16_t)server.arg("tzFixed").toInt(); }
-  needRestart = true; // clean SNTP reapply
+  rainSensorInvert = server.hasArg("rainSensorInvert");
 
-  // MQTT
+  // --- Pause logic (config-page view of pause) ---
+  if (server.hasArg("resumeNow")) {
+    // Resume immediately
+    systemPaused   = false;
+    pauseUntilEpoch = 0;
+  } else {
+    bool reqPause = server.hasArg("pauseEnable");
+    int  ph       = 0;
+    if (server.hasArg("pauseHours")) {
+      ph = server.arg("pauseHours").toInt();
+    }
+    if (ph < 0) ph = 0;
+    if (ph > 720) ph = 720; // 30 days max
+
+    time_t nowEp = time(nullptr);
+    if (reqPause) {
+      systemPaused = true;
+      if (ph > 0) {
+        pauseUntilEpoch = (uint32_t)(nowEp + (uint32_t)ph * 3600u);
+      } else {
+        // 0 = indefinitely until resume
+        pauseUntilEpoch = 0;
+      }
+    } else {
+      systemPaused    = false;
+      pauseUntilEpoch = 0;
+    }
+  }
+
+  // --- GPIO fallback mappings ---
+  for (int i = 0; i < (int)MAX_ZONES; i++) {
+    String key = "zonePin" + String(i);
+    if (server.hasArg(key)) {
+      int p = server.arg(key).toInt();
+      if (p >= 0 && p <= 39) zonePins[i] = (uint8_t)p;
+    }
+  }
+  if (server.hasArg("mainsPin")) {
+    int p = server.arg("mainsPin").toInt();
+    if (p >= 0 && p <= 39) mainsPin = (uint8_t)p;
+  }
+  if (server.hasArg("tankPin")) {
+    int p = server.arg("tankPin").toInt();
+    if (p >= 0 && p <= 39) tankPin = (uint8_t)p;
+  }
+
+  // --- Timezone mode / values ---
+  if (server.hasArg("tzMode")) {
+    int tm = server.arg("tzMode").toInt();
+    if (tm < 0 || tm > 2) tm = 0;
+    if ((int)tzMode != tm) {
+      tzMode = (TZMode)tm;
+      tzCfgChanged = true;
+    }
+  }
+  if (server.hasArg("tzPosix")) {
+    String v = server.arg("tzPosix");
+    v.trim();
+    if (v.length() && v != tzPosix) {
+      tzPosix = v;
+      tzCfgChanged = true;
+    }
+  }
+  if (server.hasArg("tzIANA")) {
+    String v = server.arg("tzIANA");
+    v.trim();
+    if (v.length() && v != tzIANA) {
+      tzIANA = v;
+      tzCfgChanged = true;
+    }
+  }
+  if (server.hasArg("tzFixed")) {
+    int mins = server.arg("tzFixed").toInt();
+    if (mins != tzFixedOffsetMin) {
+      tzFixedOffsetMin = (int16_t)mins;
+      tzCfgChanged = true;
+    }
+  }
+
+  // --- MQTT config ---
   mqttEnabled = server.hasArg("mqttEnabled");
-  if (server.hasArg("mqttBroker")) mqttBroker = server.arg("mqttBroker");
-  if (server.hasArg("mqttPort"))   mqttPort   = (uint16_t)server.arg("mqttPort").toInt();
-  if (server.hasArg("mqttUser"))   mqttUser   = server.arg("mqttUser");
-  if (server.hasArg("mqttPass"))   mqttPass   = server.arg("mqttPass");
-  if (server.hasArg("mqttBase"))   mqttBase   = server.arg("mqttBase");
+  if (server.hasArg("mqttBroker")) {
+    mqttBroker = server.arg("mqttBroker");
+    mqttBroker.trim();
+  }
+  if (server.hasArg("mqttPort")) {
+    int p = server.arg("mqttPort").toInt();
+    if (p <= 0) p = 1883;
+    mqttPort = (uint16_t)p;
+  }
+  if (server.hasArg("mqttUser")) mqttUser = server.arg("mqttUser");
+  if (server.hasArg("mqttPass")) mqttPass = server.arg("mqttPass");
+  if (server.hasArg("mqttBase")) {
+    mqttBase = server.arg("mqttBase");
+    mqttBase.trim();
+    if (mqttBase.length() == 0) mqttBase = "espirrigation";
+  }
 
-  saveConfig(); loadConfig();
+  // --- Persist everything ---
+  saveConfig();
 
-  String html = F(
-    "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<meta http-equiv='refresh' content='2;url=/'/>"
-    "<title>Saved</title><style>body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;text-align:center;padding:40px;color:#e8eef6;background:#0e1726}</style></head>"
-    "<body><h2>✅ Settings Saved</h2><p>Returning to Main Page…</p></body></html>"
-  );
-  server.send(200,"text/html",html);
-  if (needRestart){ delay(1200); ESP.restart(); }
+  // --- Reapply timezone / NTP if changed ---
+  if (tzCfgChanged) {
+    applyTimezoneAndSNTP();
+  }
+
+  // --- Clear weather caches if API/city changed (refetched in tickWeather) ---
+  if (weatherCfgChanged) {
+    cachedWeatherData   = "";
+    cachedForecastData  = "";
+    lastWeatherUpdate   = 0;
+    lastForecastUpdate  = 0;
+  }
+
+  // --- Re-wire MQTT client with new settings ---
+  mqttSetup();
+  mqttEnsureConnected();
+
+  // Go back to Setup page
+  server.sendHeader("Location", "/setup", true);
+  server.send(302, "text/plain", "");
 }
+
 
 void handleClearEvents() {
   HttpScope _scope;
