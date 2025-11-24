@@ -1,7 +1,12 @@
 # ESP32 4/6-Zone Irrigation Controller
 
-Irrigation controller for ESP32 driving up to 6 zones/solenoids with auto Tank/Mains selection, live weather and weather delays, web UI, manual on/off, and 2x a day, 7 day, min,sec schedule.
+Irrigation controller for ESP32 driving up to 6 zones/solenoids.
+Auto Tank/Mains selection 
+Live weather and weather delays
+Web UI (espirrigation.local)
 
+Manual On/Off
+2x startimes a day, 7 Days, Mins and Secs.
 ---
 
 ## Highlights
@@ -95,7 +100,7 @@ Irrigation controller for ESP32 driving up to 6 zones/solenoids with auto Tank/M
 
 6. **Access & Configure**  
    Goto   http://espirrigation.local/ or assigned local IP to accsess home page, OLED shows assigned IP on startup.  
-   Goto - **Setup**: enter OpenWeather API Key + City ID, timezone, zones (4/6), wind/rain/tank, GPIO pins, sensors.  
+   Goto - **Setup**: enter OpenWeather API Key + City ID, set timezone, use zones (4 or 6), wind enable?/rain enable?, GPIO pins.
    Goto - **Home**: set days, start times, durations per zone.
 
 ---
