@@ -10,7 +10,7 @@ Web UI (espirrigation.local)
 
 Manual On/Off
 
-2x startimes a day, 7 Days, Mins and Secs.
+2x Startimes per day, 7 Days, Mins and Secs.
 
 ---
 
@@ -28,7 +28,7 @@ Manual On/Off
   - 6-zone mode (six zones)
   - Two start times per zone (optional Start 2), per-day enable, minute precision
   - Per-zone duration (minutes + seconds)
-  - Overlapping starts will run one at a time or together chooose in setup
+  - Overlapping starts will run one at a time or together choose in setup
   - Editable zone names stored in esp32
 
 - **Delays & Sensors**
