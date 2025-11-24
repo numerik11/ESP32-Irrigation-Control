@@ -149,8 +149,7 @@ Free OpenWeatherMap API key → https://home.openweathermap.org/users/sign_up
 - **mDNS:** `http://espirrigation.local/` after joining your Wi-Fi.  
 - **OTA:** enabled (hostname `ESP32-Irrigation`).  
 - **Fallback:** If I²C expanders from KC868 aren’t detected, GPIO fallback is enabled and pins for other ESP32 boards from Setup are used.
-
----
+- **Any issues, questions or feedback please send me a message.
 
 ## Links
 
