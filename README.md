@@ -14,6 +14,10 @@ Manual On/Off
 
 ---
 
+Free OpenWeather API key → https://home.openweathermap.org/users/sign_up
+
+---
+
 ## Highlights
 
 - **Dashboard**
