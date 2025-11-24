@@ -1,6 +1,6 @@
 # ESP32 4/6-Zone Irrigation Controller
 
-Irrigation controller for ESP32 driving up to 6 zones/solenoids with Tank/Mains selection, live weather + tank status, a modern web UI, manual overrides, and on-device scheduling.
+Irrigation controller for ESP32 driving up to 6 zones/solenoids with auto Tank/Mains selection, live weather and weather delays, web UI, manual on/off, and 2x a day, 7 day, min,sec schedule.
 
 ---
 
@@ -36,7 +36,6 @@ Irrigation controller for ESP32 driving up to 6 zones/solenoids with Tank/Mains 
 - **Networking & UX**
   - WiFiManager captive portal: `ESPIrrigationAP` (first boot/failure)
   - mDNS: `http://espirrigation.local/`
-  - OTA updates (hostname `ESP32-Irrigation`)
   - Event logger to CSV (weather snapshot per event, downloadable)
 
 ---
@@ -53,10 +52,11 @@ Irrigation controller for ESP32 driving up to 6 zones/solenoids with Tank/Mains 
 
 ## Materials
 
-- KC868-A6 (recommended) or ESP32 dev board + 6-relay module  
-- 6 irrigation solenoids (12V DC or 24V AC to match supply)  
-- 7-core irrigation cable to the pit/box  
+- KC868-A6 (recommended) or ESP32 dev board and a 6-relay module  
+- 6 irrigation solenoids (12V DC or 24V AC to match power Source)  
+- 7-core irrigation cable to the solenoid pit/box  
 - Tank level sensor with 0–3.3V output to ESP32 ADC
+- Power Source for solenoids (AC12v/24v,DC12/24v) 
 
 ---
 
