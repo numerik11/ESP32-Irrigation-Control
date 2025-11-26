@@ -68,6 +68,8 @@ int  rainSensorPin     = 27;
 // ---------- Config / State ----------
 String apiKey, city; // OpenWeather (city = city ID)
 String cachedWeatherData;
+
+// Weather cache / metrics
 unsigned long lastWeatherUpdate = 0;
 const unsigned long weatherUpdateInterval = 60UL * 60UL * 1000UL; // 1h
 
@@ -109,10 +111,12 @@ bool days[MAX_ZONES][7] = {{false}};
 bool zoneActive[MAX_ZONES] = {false};
 bool pendingStart[MAX_ZONES] = {false};
 
-bool rainActive = false; // combined
-bool windActive = false;
-bool rainByWeatherActive = false;
-bool rainBySensorActive  = false;
+bool     windActive = false;
+bool     rainActive             = false;
+bool     rainByWeatherActive    = false;
+bool     rainBySensorActive     = false;
+uint8_t  rainCooldownHours      = 24;      // or loaded from config
+
 
 // legacy (kept for file compat; not used in logic)
 float tzOffsetHours = 9.5f;
@@ -210,6 +214,7 @@ void printCurrentTime();
 int    tankPercent();
 bool   isTankLow();
 String sourceModeText();
+
 
 // ===================== Timezone config =====================
 enum TZMode : uint8_t { TZ_POSIX = 0, TZ_IANA = 1, TZ_FIXED = 2 };
@@ -377,13 +382,45 @@ String sourceModeText() {
 
 String rainDelayCauseText() {
   if (!rainDelayEnabled) return "Disabled";
+
+  time_t now = time(nullptr);
+
+  // Not currently raining, check for active cooldown with countdown
   if (!rainActive) {
-    time_t now=time(nullptr);
-    if (rainCooldownUntilEpoch && now<(time_t)rainCooldownUntilEpoch) return "Cooldown";
+    if (rainCooldownUntilEpoch && now < (time_t)rainCooldownUntilEpoch) {
+      uint32_t rem = (uint32_t)(rainCooldownUntilEpoch - now); // seconds left
+      // Round up to minutes so "59s" still shows as "1m"
+      uint32_t mins = (rem + 59U) / 60U;
+
+      char buf[40];
+
+      if (mins >= 60U) {
+        uint32_t h = mins / 60U;
+        uint32_t m = mins % 60U;
+        if (m > 0U) {
+          // Example: "Cooldown 1h 05m"
+          snprintf(buf, sizeof(buf), "Cooldown %luh %lum",
+                   (unsigned long)h, (unsigned long)m);
+        } else {
+          // Example: "Cooldown 2h"
+          snprintf(buf, sizeof(buf), "Cooldown %luh",
+                   (unsigned long)h);
+        }
+      } else {
+        // Under 1 hour: "Cooldown 23m"
+        snprintf(buf, sizeof(buf), "Cooldown %lum",
+                 (unsigned long)mins);
+      }
+
+      return String(buf);
+    }
+
     if (!systemMasterEnabled) return "Master Off";
-    if (isPausedNow()) return "Paused";
+    if (isPausedNow())        return "Paused";
     return "No Rain";
   }
+
+  // Currently in a rain-delay state
   if (rainByWeatherActive && rainBySensorActive) return "Both";
   if (rainByWeatherActive) return "Raining";
   if (rainBySensorActive)  return "Sensor Wet";
@@ -1112,71 +1149,92 @@ void tickWeather(){
 }
 
 // ---------- Rain/Wind logic with cooldown & threshold ----------
-bool checkWindRain() {
-  updateCachedWeather(); // safe: early-out if g_inHttp set
+  bool checkWindRain() {
+  // Remember previous "any rain" state so we can detect edges (raining -> not raining)
+  bool prevRainActive = rainActive;
+
+  bool newWeatherRainActive = false;
+  bool newSensorRainActive  = false;
+  bool newWindActive        = false;
+
+  // --- 1) Parse cached weather JSON (OpenWeather) ---
   DynamicJsonDocument js(1024);
-  bool weatherOk = (deserializeJson(js, cachedWeatherData) == DeserializationError::Ok);
+  DeserializationError err = deserializeJson(js, cachedWeatherData);
 
-  // Current-conditions rain
-  rainByWeatherActive = false; 
-  lastRainAmount = 0.0f;
-  if (weatherOk && rainDelayEnabled && rainDelayFromForecastEnabled) {
-    float r1 = js["rain"]["1h"] | 0.0f;
-    String wmain  = js["weather"][0]["main"] | "";
-    lastRainAmount = r1;
-    rainByWeatherActive = (r1 > 0.0f) || (wmain=="Rain" || wmain=="Thunderstorm" || wmain=="Drizzle");
+  if (!err) {
+    // ----- RAIN BY WEATHER -----
+    float rain1h = js["rain"]["1h"] | 0.0f;
+    float rain3h = js["rain"]["3h"] | 0.0f;
+
+    if (rain1h > 0.0f || rain3h > 0.0f) {
+      newWeatherRainActive = true;
+    } else {
+      // Fallback: use weather condition code (2xx/3xx/5xx = rain-ish)
+      int wid = js["weather"][0]["id"] | 0;
+      if (wid >= 200 && wid < 600) {
+        newWeatherRainActive = true;
+      }
+    }
+
+    // ----- WIND DELAY -----
+    float windSpeed = js["wind"]["speed"] | 0.0f;  // m/s normally
+
+    if (windDelayEnabled && windSpeedThreshold > 0.0f) {
+      newWindActive = (windSpeed >= windSpeedThreshold);
+    } else {
+      newWindActive = false;
+    }
+  } else {
+    // If weather JSON is bad, don't assert rain/wind based on it
+    newWeatherRainActive = false;
+    newWindActive        = false;
   }
 
-  // Physical sensor
-  rainBySensorActive = (rainSensorEnabled ? physicalRainNowRaw() : false);
+  // --- 2) Physical rain sensor (if fitted) ---
+  // Adjust to your actual hardware logic. This example assumes:
+  //   - RAIN_SENSOR_PIN is defined
+  //   - RAIN_SENSOR_ACTIVE_LOW means "LOW = wet"
+#ifdef RAIN_SENSOR_PIN
+  {
+    int raw = digitalRead(RAIN_SENSOR_PIN);
+  #ifdef RAIN_SENSOR_ACTIVE_LOW
+    newSensorRainActive = (raw == LOW);
+  #else
+    newSensorRainActive = (raw == HIGH);
+  #endif
+  }
+#endif
 
-  // Forecast accumulation threshold (24h) OR actual 24h
-  bool forecastThresholdActive = false;
-  float actual24 = last24hActualRain();
-  if (rainDelayEnabled && rainDelayFromForecastEnabled) {
-    bool forecastHit = (!isnan(rainNext24h_mm) && rainNext24h_mm >= (float)rainThreshold24h_mm);
-    bool actualHit   = (!isnan(actual24)      && actual24        >= (float)rainThreshold24h_mm);
-    if (forecastHit || actualHit) {
-      forecastThresholdActive = true;
+  // --- 3) Commit flags ---
+  rainByWeatherActive = newWeatherRainActive;
+  rainBySensorActive  = newSensorRainActive;
+  rainActive          = (rainByWeatherActive || rainBySensorActive);
+  windActive          = newWindActive;
+
+  // --- 4) Cooldown logic (based on transitions) ---
+  time_t now = time(nullptr);
+
+  // (a) If we were raining and now we're not → start cooldown window
+  if (prevRainActive && !rainActive) {
+    if (rainDelayEnabled && rainCooldownHours > 0) {
+      rainCooldownUntilEpoch = (uint32_t)now + (uint32_t)rainCooldownHours * 3600UL;
+    } else {
+      rainCooldownUntilEpoch = 0;   // no delay configured
     }
   }
 
-  // NEW: track if this “rain episode” ever included the 24h threshold
-  static bool rainWasFromThreshold = false;
-  if (forecastThresholdActive) {
-    rainWasFromThreshold = true;
+  // (b) If it's raining again, cancel any cooldown
+  if (rainActive) {
+    rainCooldownUntilEpoch = 0;
   }
 
-  // Combined (+ debug)
-  bool rainForce = dbgForceRain;
-  bool windForce = dbgForceWind;
-
-  static bool prevRain = false;
-  bool newRainActive =
-      rainDelayEnabled && (rainByWeatherActive || rainBySensorActive || forecastThresholdActive || rainForce);
-  bool newWindActive = false;
-
-  if (weatherOk && windDelayEnabled) {
-    float windSpd = js["wind"]["speed"] | 0.0f;
-    newWindActive = (windSpd >= windSpeedThreshold) || windForce;
+  // (c) If cooldown expired, clear it
+  if (!rainActive && rainCooldownUntilEpoch > 0 && (uint32_t)now >= rainCooldownUntilEpoch) {
+    rainCooldownUntilEpoch = 0;
   }
 
-  // Start cooldown when rain clears
-  // Only if this rain period had the 24h threshold (forecast OR actual) active
-  if (prevRain && !newRainActive) {
-    if (rainCooldownMin > 0 && rainWasFromThreshold) {
-      time_t now = time(nullptr);
-      rainCooldownUntilEpoch = (uint32_t)(now + (uint32_t)rainCooldownMin * 60u);
-    }
-    // reset for next dry→rain episode
-    rainWasFromThreshold = false;
-  }
-  prevRain = newRainActive;
-
-  rainActive = newRainActive;
-  windActive = newWindActive;
-
-  return !(rainActive || windActive);
+  // Return "any block due to weather"
+  return (rainActive || windActive);
 }
 
 // ---------- Event log ----------
@@ -1501,6 +1559,8 @@ static NextWaterInfo computeNextWatering() {
 
 // Main Page
 void handleRoot() {
+  HttpScope _scope;  // NEW: mark that we're in an HTTP handler so no blocking fetches
+
   // --- Precompute state / snapshots ---
   checkWindRain();
 
@@ -1918,6 +1978,7 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
+
 // Setup Page 
 void handleSetupPage() {
   HttpScope _scope;
@@ -2097,7 +2158,7 @@ void handleSetupPage() {
   html += F("' placeholder='Australia/Adelaide'>");
   html += F("<select id='tzIANASelect'><option value=''>— Select from list —</option></select>");
   html += F("</div>");
-  html += F("<small>Leave empty to let browser guess</small>");
+  html += F("<small>Leave empty</small>");
   html += F("</div>");
 
   html += F("<div class='row'><label>Fixed Offset (min)</label><input type='number' name='tzFixed' value='"); 
