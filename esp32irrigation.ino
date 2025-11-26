@@ -1764,7 +1764,7 @@ void handleRoot() {
   html += F("<div class='chip'>🕒 <b id='nwTime'>--:--</b></div>");
   html += F("<div class='chip'>⏳ In <b id='nwETA'>--</b></div>");
   html += F("<div class='chip'>🧮 Dur <b id='nwDur'>--</b></div>");
-  html += F("</div><div class='hint'>Weather delays cancel the start instead of queueing.</div></div>");
+  html += F("</div><div class='hint'>Active weather delays cancel watering if scheduled.</div></div>");
 
   html += F("</div></div>"); // end glass / grid
 
@@ -2061,7 +2061,7 @@ void handleSetupPage() {
   // Run mode
   html += F("<div class='row switchline'><label>Run Mode</label>");
   html += F("<label><input type='checkbox' name='runConcurrent' "); html += (runZonesConcurrent ? "checked" : "");
-  html += F("> Run Zones Together</label><small>Unchecked = sequential</small></div>");
+  html += F("> Run Zones Together</label><small>Unchecked = One at a time</small></div>");
   html += F("</div>");
 
   // Physical rain & forecast
@@ -2100,10 +2100,10 @@ void handleSetupPage() {
   html += String(windSpeedThreshold,1); html += F("'></div>");
   html += F("<div class='row'><label>Rain Cooldown (hours)</label><input type='number' min='0' max='720' name='rainCooldownHours' value='");
   html += String(rainCooldownMin / 60);
-  html += F("'><small>Wait after rain clears</small></div>");
+  html += F("'><small>Cooldown period after rain stops</small></div>");
   html += F("<div class='row'><label>Rain Threshold 24h (mm)</label><input type='number' min='0' max='200' name='rainThreshold24h' value='");
   html += String(rainThreshold24h_mm);
-  html += F("'><small>Delay if ≥ threshold (forecast or actual)</small></div>");
+  html += F("'><small>Delay if ≥ threshold (24 Total)</small></div>");
   html += F("<div class='row'><label>Pause for (hours)</label><input type='number' min='0' max='720' name='pauseHours' value='");
   time_t nowEp = time(nullptr);
   {
@@ -2187,7 +2187,6 @@ void handleSetupPage() {
   html += F("' placeholder='Australia/Adelaide'>");
   html += F("<select id='tzIANASelect'><option value=''>— Select from list —</option></select>");
   html += F("</div>");
-  html += F("<small>Leave empty</small>");
   html += F("</div>");
 
   html += F("<div class='row'><label>Fixed Offset (min)</label><input type='number' name='tzFixed' value='"); 
