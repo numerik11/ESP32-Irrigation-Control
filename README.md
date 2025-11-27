@@ -160,23 +160,25 @@ Free OpenWeatherMap API key → https://home.openweathermap.org/users/sign_up
 
 ## Screenshots
 
-<img width="635" height="767" alt="image" src="https://github.com/user-attachments/assets/3382f3ab-7658-4a2f-a676-27eb8bf7f35b" />
-
 -Main Page
 
-<img width="474" height="472" alt="image" src="https://github.com/user-attachments/assets/38d6b62d-7b06-4faa-973d-7db548c6ea24" />
+<img width="635" height="767" alt="image" src="https://github.com/user-attachments/assets/3382f3ab-7658-4a2f-a676-27eb8bf7f35b" />
 
 -Schedules 
 
-<img width="615" height="902" alt="image" src="https://github.com/user-attachments/assets/0199fd7a-4d08-4c7c-afe6-8b436df439be" />
+<img width="474" height="472" alt="image" src="https://github.com/user-attachments/assets/38d6b62d-7b06-4faa-973d-7db548c6ea24" />
 
 -Setup Page
 
-<img width="616" height="852" alt="image" src="https://github.com/user-attachments/assets/f4ae6757-4e88-4c60-a3ff-280654a8260c" />
+<img width="615" height="902" alt="image" src="https://github.com/user-attachments/assets/0199fd7a-4d08-4c7c-afe6-8b436df439be" />
 
 -GPIO/Timezone/MQTT Page
 
-<img width="791" height="754" alt="Screenshot 2025-07-25 233726" src="https://github.com/user-attachments/assets/f601fb06-e70c-4fc6-a7f3-5fdf410b4e73" />
+<img width="616" height="852" alt="image" src="https://github.com/user-attachments/assets/f4ae6757-4e88-4c60-a3ff-280654a8260c" />
 
 -KC868-A6 Wiring
+
+<img width="791" height="754" alt="Screenshot 2025-07-25 233726" src="https://github.com/user-attachments/assets/f601fb06-e70c-4fc6-a7f3-5fdf410b4e73" />
+
+
 
