@@ -1713,12 +1713,13 @@ void handleRoot() {
   // --- Summary cards ---
   html += F("<div class='wrap'><div class='glass section'><div class='grid summary-grid'>");
 
-  // Location card with clickable OpenWeatherMap link
-  html += F("<div class='card'><h3>Location</h3>"
+  // NEW location card with OpenWeatherMap link
+html += F("<div class='card'><h3>Location</h3>"
           "<a class='chip' id='owmLink' href='#' target='_blank' rel='noopener'>"
           "🏙️ <b id='cityName'>");
-html += cityName;   // initial placeholder; JS will update from /status
+html += cityName;   // initial label; JS will overwrite from /status
 html += F("</b></a></div>");
+
 
 
   html += F("<div class='card'><h3>Uptime</h3><div id='upChip' class='big'>--:--:--</div><div class='hint'>Since last boot</div></div>");
@@ -1779,7 +1780,7 @@ html += F("</b></a></div>");
             "const open=b.style.display!=='none';"
             "b.style.display=open?'none':'block';"
             "a.textContent=open?'▸':'▾';\">");
-  html += F("<span>Schedules</span><span class='arr'>▸</span></h3>");
+  html += F("<span>Schedules (Click Here)</span><span class='arr'>▸</span></h3>");
   html += F("<div id='schedBody' class='sched-ctr' style='display:none'>");
   html += F("<div class='sched-grid'>");
 
@@ -1954,6 +1955,7 @@ html += F("</b></a></div>");
   html += F("  if(cityEl) cityEl.textContent=st.cityName;");
   html += F("  if(cityLink) cityLink.href='https://openweathermap.org/find?q='+encodeURIComponent(st.cityName);");
   html += F("}");
+
 
 
 
