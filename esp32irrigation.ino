@@ -1713,10 +1713,13 @@ void handleRoot() {
   // --- Summary cards ---
   html += F("<div class='wrap'><div class='glass section'><div class='grid summary-grid'>");
 
+  // Location card with clickable OpenWeatherMap link
   html += F("<div class='card'><h3>Location</h3>"
-            "<div class='chip'>🏙️ <b id='cityName'>");
-  html += cityName;   // this is whatever you’re currently using
-  html += F("</b></div></div>");
+          "<a class='chip' id='owmLink' href='#' target='_blank' rel='noopener'>"
+          "🏙️ <b id='cityName'>");
+  html += cityName;   // initial placeholder; JS will update from /status
+  html += F("</b></a></div>");
+
 
   html += F("<div class='card'><h3>Uptime</h3><div id='upChip' class='big'>--:--:--</div><div class='hint'>Since last boot</div></div>");
 
@@ -1886,10 +1889,6 @@ void handleRoot() {
 
   html += F("<div class='grid center' style='margin:0 auto 24px'><div class='card' style='grid-column:1/-1'>");
   html += F("<h3>System Controls</h3><div class='toolbar'>");
-  html += F("<button class='btn' id='btn-pause-24' title='Pause all starts for 24 hours'>Pause 24h</button>");
-  html += F("<button class='btn' id='btn-pause-7d' title='Pause 7d'>Pause 7d</button>");
-  html += F("<button class='btn' id='btn-resume' title='Resume now'>Resume</button>");
-  html += F("<button class='btn' id='btn-clear-delays' title='Clear queued starts and delays'>Clear Delays</button>");
   html += F("<button class='btn' id='toggle-backlight-btn' title='Invert OLED (night mode)'>LCD Toggle</button>");
   html += F("<button class='btn btn-danger' id='rebootBtn'>Reboot</button>");
   html += F("</div></div></div>");
@@ -1949,8 +1948,13 @@ void handleRoot() {
   html += F("const src=document.getElementById('srcChip'); if(src) src.textContent=st.sourceMode||'';");
   html += F("const up=document.getElementById('upChip'); if(up) up.textContent=fmtUptime(st.uptimeSec||0);");
   html += F("const rssi=document.getElementById('rssiChip'); if(rssi) rssi.textContent=(st.rssi)+' dBm';");
-  // NEW: keep Location chip in sync with /status
-  html += F("const cityEl=document.getElementById('cityName'); if(cityEl && typeof st.cityName==='string' && st.cityName.length){ cityEl.textContent=st.cityName; }");
+  // NEW: Location chip + OpenWeatherMap link
+  html += F("const cityEl=document.getElementById('cityName'); const cityLink=document.getElementById('owmLink');");
+  html += F("if(typeof st.cityName==='string' && st.cityName.length){");
+  html += F("  if(cityEl) cityEl.textContent=st.cityName;");
+  html += F("  if(cityLink) cityLink.href='https://openweathermap.org/find?q='+encodeURIComponent(st.cityName);");
+  html += F("}");
+
 
 
   // 1h & 24h
