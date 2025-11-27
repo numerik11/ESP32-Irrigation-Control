@@ -165,7 +165,7 @@ Free OpenWeatherMap API key → https://home.openweathermap.org/users/sign_up
 
 -Schedules 
 
-<img width="474" height="472" alt="image" src="https://github.com/user-attachments/assets/38d6b62d-7b06-4faa-973d-7db548c6ea24" />
+<img width="846" height="747" alt="image" src="https://github.com/user-attachments/assets/145b160c-50ac-4ff5-b3f4-28608ebaee5c" />
 
 -Setup Page
 
