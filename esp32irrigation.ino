@@ -2013,7 +2013,6 @@ html += F("</b></a></div>");
   server.send(200, "text/html", html);
 }
 
-
 // Setup Page 
 void handleSetupPage() {
   HttpScope _scope;
@@ -2028,7 +2027,8 @@ void handleSetupPage() {
   html += F("h1{margin:0 0 14px 0;font-size:1.4em}");
   html += F(".card{background:#111927;border:1px solid #1f2a44;border-radius:14px;box-shadow:0 8px 34px rgba(0,0,0,.35);padding:14px 12px;margin-bottom:14px}");
   html += F("label{display:inline-block;min-width:180px;font-size:.9rem}");
-  html += F("input[type=text],input[type=number]{width:100%;max-width:420px;background:#0b1220;color:#e8eef6;border:1px solid #233357;border-radius:10px;padding:8px 10px;font-size:.9rem}");
+  // Inputs + select share the same theme
+  html += F("input[type=text],input[type=number],select{width:100%;max-width:420px;background:#0b1220;color:#e8eef6;border:1px solid #233357;border-radius:10px;padding:8px 10px;font-size:.9rem}");
   html += F(".row{display:flex;align-items:center;gap:10px;margin:8px 0;flex-wrap:wrap}.row small{color:#aab8d0;font-size:.8rem}");
   html += F(".btn{background:#1976d2;color:#fff;border:none;border-radius:10px;padding:8px 12px;font-weight:600;cursor:pointer;box-shadow:0 6px 16px rgba(25,118,210,.25);font-size:.9rem}");
   html += F(".btn-alt{background:#263244;color:#e8eef6;border:none;border-radius:10px;padding:8px 12px;font-size:.9rem}");
@@ -2039,14 +2039,29 @@ void handleSetupPage() {
   html += F(".subhead{opacity:.85;margin:6px 0 4px 0;font-weight:700;font-size:.9rem}");
   html += F(".hr{height:1px;background:#1f2a44;margin:8px 0 6px 0;border:none}");
 
-  // desktop tuning
+  // Chips + inline options for timezone mode
+  html += F(".inline-options{display:flex;flex-wrap:wrap;gap:8px}");
+  html += F(".chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#0b1220;border:1px solid #233357;font-size:.8rem;color:#e8eef6}");
+  html += F(".chip input{margin:0}");
+  html += F(".chip span{white-space:nowrap}");
+
+  // Help text row: let the text wrap nicely
+  html += F(".helptext label{min-width:0}");
+  html += F(".helptext small{max-width:420px;display:block}");
+
+  // Make native select look like themed dropdown with a chevron
+  html += F("select{appearance:none;-webkit-appearance:none;-moz-appearance:none;padding-right:32px;");
+  html += F("background-image:linear-gradient(45deg,transparent 50%,#9aa6c2 50%),linear-gradient(135deg,#9aa6c2 50%,transparent 50%);");
+  html += F("background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;}");
+
+  // Desktop tuning
   html += F("@media(min-width:1024px){");
   html += F("body{font-size:15px;}");
   html += F(".wrap{max-width:1040px;padding:0 18px;}");
   html += F(".card{padding:18px 16px;}");
   html += F(".row{justify-content:space-between;}");
   html += F("label{min-width:220px;}");
-  html += F("input[type=text],input[type=number]{max-width:480px;}");
+  html += F("input[type=text],input[type=number],select{max-width:480px;}");
   html += F("}");
   html += F("</style></head><body>");
 
@@ -2176,15 +2191,43 @@ void handleSetupPage() {
 
   // Timezone
   html += F("<div class='card'><h3>Timezone</h3>");
-  html += F("<div class='row switchline'><label>Mode</label>");
-  html += F("<label><input type='radio' name='tzMode' value='0' "); html += (tzMode==TZ_POSIX?"checked":""); html += F("> POSIX</label>");
-  html += F("<label><input type='radio' name='tzMode' value='2' "); html += (tzMode==TZ_FIXED?"checked":""); html += F("> Fixed</label></div>");
 
-  html += F("<div class='row'><label>Timezone:</label><input type='text' name='tzPosix' value='");
+  // Mode selector – cleaner row, better labels
+  html += F("<div class='row switchline'>");
+  html += F("<label>Mode</label>");
+  html += F("<div class='inline-options'>");
+
+  html += F("<label class='chip'>");
+  html += F("<input type='radio' name='tzMode' value='0' ");
+  html += (tzMode==TZ_POSIX ? "checked" : "");
+  html += F(">");
+  html += F("<span>POSIX string</span>");
+  html += F("</label>");
+
+  html += F("<label class='chip'>");
+  html += F("<input type='radio' name='tzMode' value='2' ");
+  html += (tzMode==TZ_FIXED ? "checked" : "");
+  html += F(">");
+  html += F("<span>Fixed offset</span>");
+  html += F("</label>");
+
+  html += F("</div></div>"); // end row + inline-options
+
+  // POSIX string input
+  html += F("<div class='row'>");
+  html += F("<label>Timezone</label>");
+  html += F("<input type='text' name='tzPosix' value='");
   html += tzPosix;
-  html += F("'><small>e.g. ACST-9:30ACDT-10:30,M10.1.0/2,M4.1.0/3</small></div>");
+  html += F("' placeholder='ACST-9:30ACDT-10:30,M10.1.0/2,M4.1.0/3'>");
+  html += F("</div>");
 
-  // IANA input + select
+  // Help text on its own row so it wraps nicely on mobile
+  html += F("<div class='row helptext'>");
+  html += F("<label></label>");
+  html += F("<small>Example POSIX string with DST: ACST-9:30ACDT-10:30,M10.1.0/2,M4.1.0/3</small>");
+  html += F("</div>");
+
+  // IANA input + themed select
   html += F("<div class='row'><label>Select Timezone</label>");
   html += F("<div style='flex:1;display:grid;gap:6px'>");
   html += F("<input type='text' name='tzIANA' value='");
@@ -2197,7 +2240,7 @@ void handleSetupPage() {
   html += F("<div class='row'><label>Fixed Offset (min)</label><input type='number' name='tzFixed' value='");
   html += String(tzFixedOffsetMin);
   html += F("'><small>Minutes from UTC</small></div>");
-  html += F("</div>");
+  html += F("</div>"); // end Timezone card
 
   // MQTT
   html += F("<div class='card'><h3>MQTT (Home Assistant)</h3>");
@@ -2220,7 +2263,7 @@ void handleSetupPage() {
   html += F("g('btn-pause-7d')?.addEventListener('click',()=>post('/pause','sec='+(7*86400)));");
   html += F("g('btn-resume')?.addEventListener('click',()=>post('/resume','x=1'));");
 
-  // === NEW: Timezone loading from Nayarsystems posix_tz_db with fallback ===
+  // === Timezone loading from Nayarsystems posix_tz_db with fallback ===
   html += F("const TZ_DB_URL='https://raw.githubusercontent.com/nayarsystems/posix_tz_db/master/zones.json';");
   html += F("const tzInput=document.getElementsByName('tzIANA')[0]||null;");
   html += F("const tzPosixInput=document.getElementsByName('tzPosix')[0]||null;");
@@ -2290,7 +2333,7 @@ void handleSetupPage() {
   html += F("}");
 
   html += F("loadTimezones();");
-  // === END NEW TZ CODE ===
+  // === END TZ CODE ===
 
   html += F("</script>");
 
@@ -2298,8 +2341,6 @@ void handleSetupPage() {
 
   server.send(200,"text/html",html);
 }
-
-
 
 // ---------- Schedule POST (per-zone card or full form) ----------
 void handleSubmit() {
