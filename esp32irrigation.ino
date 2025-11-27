@@ -1717,8 +1717,8 @@ void handleRoot() {
   html += F("<div class='card'><h3>Location</h3>"
           "<a class='chip' id='owmLink' href='#' target='_blank' rel='noopener'>"
           "🏙️ <b id='cityName'>");
-  html += cityName;   // initial placeholder; JS will update from /status
-  html += F("</b></a></div>");
+html += cityName;   // initial placeholder; JS will update from /status
+html += F("</b></a></div>");
 
 
   html += F("<div class='card'><h3>Uptime</h3><div id='upChip' class='big'>--:--:--</div><div class='hint'>Since last boot</div></div>");
@@ -2176,25 +2176,24 @@ void handleSetupPage() {
   html += F("<div class='card'><h3>Timezone</h3>");
   html += F("<div class='row switchline'><label>Mode</label>");
   html += F("<label><input type='radio' name='tzMode' value='0' "); html += (tzMode==TZ_POSIX?"checked":""); html += F("> POSIX</label>");
-  html += F("<label><input type='radio' name='tzMode' value='1' "); html += (tzMode==TZ_IANA?"checked":""); html += F("> IANA</label>");
   html += F("<label><input type='radio' name='tzMode' value='2' "); html += (tzMode==TZ_FIXED?"checked":""); html += F("> Fixed</label></div>");
 
-  html += F("<div class='row'><label>POSIX TZ</label><input type='text' name='tzPosix' value='"); 
-  html += tzPosix; 
+  html += F("<div class='row'><label>Timezone:</label><input type='text' name='tzPosix' value='");
+  html += tzPosix;
   html += F("'><small>e.g. ACST-9:30ACDT-10:30,M10.1.0/2,M4.1.0/3</small></div>");
 
-  // IANA input + select (using aviflax gist)
-  html += F("<div class='row'><label>IANA Zone</label>");
+  // IANA input + select
+  html += F("<div class='row'><label>Select Timezone</label>");
   html += F("<div style='flex:1;display:grid;gap:6px'>");
-  html += F("<input type='text' name='tzIANA' value='"); 
-  html += tzIANA; 
+  html += F("<input type='text' name='tzIANA' value='");
+  html += tzIANA;
   html += F("' placeholder='Australia/Adelaide'>");
   html += F("<select id='tzIANASelect'><option value=''>— Select from list —</option></select>");
   html += F("</div>");
   html += F("</div>");
 
-  html += F("<div class='row'><label>Fixed Offset (min)</label><input type='number' name='tzFixed' value='"); 
-  html += String(tzFixedOffsetMin); 
+  html += F("<div class='row'><label>Fixed Offset (min)</label><input type='number' name='tzFixed' value='");
+  html += String(tzFixedOffsetMin);
   html += F("'><small>Minutes from UTC</small></div>");
   html += F("</div>");
 
@@ -2219,26 +2218,85 @@ void handleSetupPage() {
   html += F("g('btn-pause-7d')?.addEventListener('click',()=>post('/pause','sec='+(7*86400)));");
   html += F("g('btn-resume')?.addEventListener('click',()=>post('/resume','x=1'));");
 
-  // IANA TZ selector using aviflax gist
+  // === NEW: Timezone loading from Nayarsystems posix_tz_db with fallback ===
+  html += F("const TZ_DB_URL='https://raw.githubusercontent.com/nayarsystems/posix_tz_db/master/zones.json';");
   html += F("const tzInput=document.getElementsByName('tzIANA')[0]||null;");
+  html += F("const tzPosixInput=document.getElementsByName('tzPosix')[0]||null;");
   html += F("const tzSel=g('tzIANASelect');");
-  html += F("if(tzSel&&tzInput){");
-  html += F("fetch('https://gist.githubusercontent.com/aviflax/a4093965be1cd008f172/raw/e2e93b35b85a0f78f1236c42f9d8c548d2d7000b/IANA%2520Time%2520Zone%2520Names.go')");
-  html += F(".then(r=>r.text()).then(txt=>{");
-  html += F("const lines=txt.split('\\n');const opts=[];");
-  html += F("for(let line of lines){line=line.trim();if(!line)continue;const q1=line.indexOf(String.fromCharCode(34));if(q1<0)continue;const q2=line.indexOf(String.fromCharCode(34),q1+1);if(q2>q1+1){opts.push(line.slice(q1+1,q2));}}");
-  html += F("opts.sort();");
-  html += F("opts.forEach(name=>{const opt=document.createElement('option');opt.value=name;opt.textContent=name;if(tzInput.value===name)opt.selected=true;tzSel.appendChild(opt);});");
-  html += F("if(!tzInput.value&&window.Intl&&Intl.DateTimeFormat){const guess=Intl.DateTimeFormat().resolvedOptions().timeZone;if(guess){tzInput.value=guess;for(const opt of tzSel.options){if(opt.value===guess){opt.selected=true;break;}}}}");
-  html += F("}).catch(e=>console.error('tz load',e));");
-  html += F("tzSel.addEventListener('change',()=>{tzInput.value=tzSel.value;});");
+
+  // Hard-coded fallback zones used if fetch fails
+  html += F("const FALLBACK_ZONES={");
+  html += F("'Australia/Adelaide':'ACST-9:30ACDT-10:30,M10.1.0/2,M4.1.0/3',");
+  html += F("'Australia/Sydney':'AEST-10AEDT-11,M10.1.0/2,M4.1.0/3',");
+  html += F("'UTC':'UTC0'");
+  html += F("};");
+
+  // Helper to populate the select + sync inputs from a map of { IANA: POSIX }
+  html += F("function buildTzOptions(zones){");
+  html += F(" if(!tzSel||!tzInput) return;");
+  html += F(" tzSel.innerHTML='<option value=\"\">— Select from list —</option>';");
+
+  html += F(" const names=Object.keys(zones).sort();");
+  html += F(" names.forEach(name=>{");
+  html += F("   const opt=document.createElement('option');");
+  html += F("   opt.value=name;");
+  html += F("   opt.textContent=name;");
+  html += F("   if(tzInput.value===name) opt.selected=true;");
+  html += F("   tzSel.appendChild(opt);");
+  html += F(" });");
+
+  // If tzInput already has a valid value, sync POSIX
+  html += F(" if(tzInput.value && zones[tzInput.value] && tzPosixInput){");
+  html += F("   tzPosixInput.value=zones[tzInput.value];");
+  html += F(" }");
+
+  // Try to guess browser zone if empty and available
+  html += F(" if(!tzInput.value && window.Intl && Intl.DateTimeFormat){");
+  html += F("   const guess=Intl.DateTimeFormat().resolvedOptions().timeZone;");
+  html += F("   if(guess && zones[guess]){");
+  html += F("     tzInput.value=guess;");
+  html += F("     if(tzPosixInput) tzPosixInput.value=zones[guess];");
+  html += F("     for(const opt of tzSel.options){");
+  html += F("       if(opt.value===guess){opt.selected=true;break;}");
+  html += F("     }");
+  html += F("   }");
+  html += F(" }");
+
+  // When user picks a zone, update IANA + POSIX fields
+  html += F(" tzSel.addEventListener('change',()=>{");
+  html += F("   const val=tzSel.value;");
+  html += F("   if(!val) return;");
+  html += F("   tzInput.value=val;");
+  html += F("   if(tzPosixInput && zones[val]) tzPosixInput.value=zones[val];");
+  html += F(" });");
+  html += F("}"); // end buildTzOptions
+
+  html += F("async function loadTimezones(){");
+  html += F(" if(!tzSel||!tzInput) return;");
+
+  html += F(" tzSel.innerHTML='<option value=\"\">Loading…</option>';");
+
+  html += F(" try{");
+  html += F("   const res=await fetch(TZ_DB_URL);");
+  html += F("   if(!res.ok) throw new Error('HTTP '+res.status);");
+  html += F("   const zones=await res.json();");
+  html += F("   buildTzOptions(zones);");
+  html += F(" }catch(e){");
+  html += F("   console.error('tz load failed, using fallback',e);");
+  html += F("   buildTzOptions(FALLBACK_ZONES);");
+  html += F(" }");
   html += F("}");
+
+  html += F("loadTimezones();");
+  // === END NEW TZ CODE ===
+
   html += F("</script>");
 
   html += F("</div></body></html>");
 
   server.send(200,"text/html",html);
 }
+
 
 
 // ---------- Schedule POST (per-zone card or full form) ----------
