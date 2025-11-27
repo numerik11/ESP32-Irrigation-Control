@@ -160,7 +160,7 @@ Free OpenWeatherMap API key → https://home.openweathermap.org/users/sign_up
 
 ## Screenshots
 
-<img width="494" height="521" alt="image" src="https://github.com/user-attachments/assets/49f1a556-e5d9-4fcf-9cd7-30b06043207a" />
+<img width="635" height="767" alt="image" src="https://github.com/user-attachments/assets/3382f3ab-7658-4a2f-a676-27eb8bf7f35b" />
 
 -Main Page
 
@@ -168,11 +168,11 @@ Free OpenWeatherMap API key → https://home.openweathermap.org/users/sign_up
 
 -Schedules 
 
-<img width="454" height="689" alt="image" src="https://github.com/user-attachments/assets/ff5557e9-78b7-4b91-86d2-97fd165d5069" />
+<img width="615" height="902" alt="image" src="https://github.com/user-attachments/assets/0199fd7a-4d08-4c7c-afe6-8b436df439be" />
 
 -Setup Page
 
-<img width="454" height="659" alt="image" src="https://github.com/user-attachments/assets/60983e2d-27af-42c0-900a-911618412314" />
+<img width="616" height="852" alt="image" src="https://github.com/user-attachments/assets/f4ae6757-4e88-4c60-a3ff-280654a8260c" />
 
 -GPIO/Timezone/MQTT Page
 
