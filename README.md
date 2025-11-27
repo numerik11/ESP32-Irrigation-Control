@@ -133,7 +133,6 @@ Free OpenWeatherMap API key → https://home.openweathermap.org/users/sign_up
 - `/download/schedule.txt` — Download schedule  
 - `/download/events.csv` — Download event log CSV  
 - `/i2c-test` — I²C relay pulse test  
-- `/i2c-scan` — I²C bus scan  
 - `/api/time` — Local/UTC time probe  
 - `/whereami` — IP/SSID/RSSI/Mode  
 - `/reboot` — Reboot controller  
