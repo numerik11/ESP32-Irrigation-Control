@@ -990,21 +990,39 @@ String fetchForecast(float lat, float lon) {
 }
 
 // ---------- NEW helpers for rain history ----------
+// Rolling 24h rain history (ACTUAL ONLY, no forecast)
 static void tickActualRainHistory() {
   time_t now = time(nullptr);
-  struct tm lt; localtime_r(&now, &lt);
+  struct tm lt;
+  localtime_r(&now, &lt);
+
+  // Only record once at the start of each hour,
+  // and make sure we don't double-count within 5 minutes.
   if (lt.tm_min == 0 && lt.tm_sec < 5 && (now - lastRainHistHour) > 300) {
-    float v = (!isnan(rain1hNow) && rain1hNow > 0.0f) ? rain1hNow : 0.0f;
+    float v = rain1hNow;
+
+    // Sanity: NaN / negative => 0
+    if (!isfinite(v) || v < 0.0f) {
+      v = 0.0f;
+    }
+
+    // Optional: clamp crazy hourly spikes from OWM
+    const float MAX_HOURLY_MM = 20.0f;  // tweak to taste: 10, 15, 20, etc.
+    if (v > MAX_HOURLY_MM) {
+      v = MAX_HOURLY_MM;
+    }
+
+    // Advance ring buffer and store
     rainIdx = (rainIdx + 1) % 24;
     rainHist[rainIdx] = v;
     lastRainHistHour = now;
+
+    // Optional debug:
+    // Serial.printf("[RainHist] %02d:00 -> v=%.2f, sum24=%.2f\n",
+    //               lt.tm_hour, v, last24hActualRain());
   }
 }
-static float last24hActualRain() {
-  float s = 0.0f;
-  for (int i = 0; i < 24; ++i) s += rainHist[i];
-  return s;
-}
+
 
 void updateCachedWeather() {
   // NEW: never start fetches while handling HTTP requests
@@ -1136,6 +1154,7 @@ void tickWeather(){
   updateCachedWeather();
 }
 
+
 // ---------- Rain/Wind logic with cooldown & threshold ----------
 bool checkWindRain() {
   // Remember previous "effective rain" state so we can detect edges
@@ -1150,11 +1169,26 @@ bool checkWindRain() {
   DeserializationError err = deserializeJson(js, cachedWeatherData);
 
   if (!err) {
-    // ----- RAIN BY WEATHER (instant) -----
-    float rain1h = js["rain"]["1h"] | 0.0f;
-    float rain3h = js["rain"]["3h"] | 0.0f;
+    // NOTE: We only use *current* weather here.
+    //       No forecast arrays (hourly/daily) are used in this function.
 
-    if (rain1h > 0.0f || rain3h > 0.0f) {
+    // ----- RAIN BY WEATHER (instant, use 1h / condition code) -----
+    float rain1hRaw = js["rain"]["1h"] | 0.0f;
+
+    // Optional sanity clamp: treat insane values as "raining", but don't
+    // let them bleed into any future "amount-based" logic.
+    float rain1hLogic = rain1hRaw;
+    if (rain1hLogic < 0.0f) {
+      rain1hLogic = 0.0f;
+    }
+    // If your API sometimes spikes to silly numbers (e.g. 29.2 mm when
+    // reality is ~1–4 mm), you can clamp for logic here:
+    const float MAX_RAIN1H_FOR_LOGIC = 20.0f;  // mm, adjust if you like
+    if (rain1hLogic > MAX_RAIN1H_FOR_LOGIC) {
+      rain1hLogic = MAX_RAIN1H_FOR_LOGIC;
+    }
+
+    if (rain1hLogic > 0.0f) {
       newWeatherRainActual = true;
     } else {
       // Fallback: use weather condition code (2xx/3xx/5xx = rain-ish)
@@ -1180,23 +1214,30 @@ bool checkWindRain() {
   // --- 2) Physical rain sensor (raw state) ---
   newSensorRainActual = physicalRainNowRaw();  // already respects enable/invert/pin
 
-  // --- 3) Accumulated rainfall (24h) & forecast threshold ---
+  // --- 3) Accumulated rainfall (24h ACTUAL ONLY) ---
+  // This should come from your rolling history of *actual* rain.
   float actual24 = last24hActualRain();        // rolling 24h from history
-  float fc24     = rainNext24h_mm;             // 24h forecast total
   bool aboveThreshold = false;
   if (rainThreshold24h_mm > 0) {
-    if (actual24 >= rainThreshold24h_mm) aboveThreshold = true;
-    if (rainDelayFromForecastEnabled && fc24 >= rainThreshold24h_mm) aboveThreshold = true;
+    if (actual24 >= rainThreshold24h_mm) {
+      aboveThreshold = true;
+    }
   }
 
   // --- 4) Apply feature gates and build "effective" flags ---
 
-  // Weather-based rain only counts if both global rain delay AND
-  // forecast-based rain are enabled.
-  bool effectiveWeatherRain =
+  // Instant weather rain: only cares about "raining now" (1h / code),
+  // NOT forecast. Still obeys global rainDelayEnabled.
+  bool effectiveInstantRain =
       rainDelayEnabled &&
-      rainDelayFromForecastEnabled &&
       newWeatherRainActual;
+
+  // Threshold-based "rain" (heavy actual 24h total) — ACTUAL ONLY.
+  // Forecast DOES NOT affect this.
+  bool effectiveThresholdRain =
+      rainDelayEnabled &&
+      (rainThreshold24h_mm > 0) &&
+      aboveThreshold;
 
   // Sensor-based rain only counts if rain delay and sensor are enabled.
   bool effectiveSensorRain =
@@ -1204,14 +1245,8 @@ bool checkWindRain() {
       rainSensorEnabled &&
       newSensorRainActual;
 
-  // Threshold-based "rain" (heavy actual or forecast) also obeys rainDelayEnabled
-  bool effectiveThresholdRain =
-      rainDelayEnabled &&
-      (rainThreshold24h_mm > 0) &&
-      aboveThreshold;
-
   // Commit source flags (for UI/debug)
-  rainByWeatherActive = effectiveWeatherRain || effectiveThresholdRain;
+  rainByWeatherActive = effectiveInstantRain || effectiveThresholdRain;
   rainBySensorActive  = effectiveSensorRain;
 
   // Final rainActive that actually blocks & drives cooldown
@@ -1226,7 +1261,8 @@ bool checkWindRain() {
   // (a) If we were raining and now we're not → start cooldown window
   if (prevRainActive && !rainActive) {
     if (rainDelayEnabled && rainCooldownHours > 0) {
-      rainCooldownUntilEpoch = (uint32_t)now + (uint32_t)rainCooldownHours * 3600UL;
+      rainCooldownUntilEpoch =
+          (uint32_t)now + (uint32_t)rainCooldownHours * 3600UL;
     } else {
       rainCooldownUntilEpoch = 0;   // no delay configured
     }
@@ -1238,7 +1274,9 @@ bool checkWindRain() {
   }
 
   // (c) If cooldown expired, clear it
-  if (!rainActive && rainCooldownUntilEpoch > 0 && (uint32_t)now >= rainCooldownUntilEpoch) {
+  if (!rainActive &&
+      rainCooldownUntilEpoch > 0 &&
+      (uint32_t)now >= rainCooldownUntilEpoch) {
     rainCooldownUntilEpoch = 0;
   }
 
@@ -1248,6 +1286,8 @@ bool checkWindRain() {
   // Return "any block due to weather" for callers
   return (rainActive || windActive);
 }
+
+
 
 // ---------- Event log ----------
 void logEvent(int zone, const char* eventType, const char* source, bool rainDelayed) {
