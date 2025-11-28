@@ -975,7 +975,7 @@ String fetchWeather() {
 String fetchForecast(float lat, float lon) {
   if (apiKey.length() < 5) return "{}";
   HTTPClient http; 
-  http.setTimeout(1500); // NEW: shorter timeout
+  http.setTimeout(3000); // NEW: shorter timeout
 
   String url = "http://api.openweathermap.org/data/2.5/onecall?lat=" + String(lat,6) +
                "&lon=" + String(lon,6) +
