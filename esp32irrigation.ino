@@ -1249,22 +1249,28 @@ bool checkWindRain() {
   rainByWeatherActive = effectiveInstantRain || effectiveThresholdRain;
   rainBySensorActive  = effectiveSensorRain;
 
-  // Final rainActive that actually blocks & drives cooldown
+  // Final rainActive that actually blocks watering & can drive cooldown
   rainActive = (rainByWeatherActive || rainBySensorActive);
 
   // Wind only blocks when wind delay is enabled
   windActive = (windDelayEnabled && newWindActual);
 
-  // --- 5) Cooldown logic (based on transitions of rainActive) ---
+  // --- 5) Cooldown logic (only if 24h total has reached threshold) ---
   time_t now = time(nullptr);
 
-  // (a) If we were raining and now we're not → start cooldown window
+  // Only start a cooldown window if:
+  //  - we are transitioning from "raining" to "not raining"
+  //  - AND the 24h actual rain total is at/above the configured threshold
+  bool thresholdMetNow = effectiveThresholdRain;  // 24h total >= threshold, delay enabled
+
+  // (a) If we were raining and now we're not → maybe start cooldown
   if (prevRainActive && !rainActive) {
-    if (rainDelayEnabled && rainCooldownHours > 0) {
+    if (thresholdMetNow && rainCooldownHours > 0) {
       rainCooldownUntilEpoch =
           (uint32_t)now + (uint32_t)rainCooldownHours * 3600UL;
     } else {
-      rainCooldownUntilEpoch = 0;   // no delay configured
+      // Threshold not met or cooldown disabled → no after-rain lockout
+      rainCooldownUntilEpoch = 0;
     }
   }
 
@@ -1286,6 +1292,7 @@ bool checkWindRain() {
   // Return "any block due to weather" for callers
   return (rainActive || windActive);
 }
+
 
 
 
