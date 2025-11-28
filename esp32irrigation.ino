@@ -170,6 +170,15 @@ static time_t lastRainHistHour = 0;
 float rain1hNow = 0.0f;  // mm from /weather last 1h
 float rain3hNow = 0.0f;  // mm from /weather last 3h
 
+// ADD THIS FUNCTION
+static float last24hActualRain() {
+  float s = 0.0f;
+  for (int i = 0; i < 24; ++i) {
+    s += rainHist[i];
+  }
+  return s;
+}
+
 // ---------- NEW: guard to avoid fetching while serving HTTP ----------
 volatile bool g_inHttp = false;
 struct HttpScope {
@@ -291,7 +300,7 @@ void mqttEnsureConnected(){
     _mqtt.subscribe( (mqttBase + "/cmd/#").c_str() );
   }
 }
-static float last24hActualRain(); // forward
+
 void mqttPublishStatus(){
   if (!mqttEnabled || !_mqtt.connected()) return;
   if (millis() - _lastMqttPub < 3000) return;
@@ -996,32 +1005,14 @@ static void tickActualRainHistory() {
   struct tm lt;
   localtime_r(&now, &lt);
 
-  // Only record once at the start of each hour,
-  // and make sure we don't double-count within 5 minutes.
   if (lt.tm_min == 0 && lt.tm_sec < 5 && (now - lastRainHistHour) > 300) {
     float v = rain1hNow;
-
-    // Sanity: NaN / negative => 0
-    if (!isfinite(v) || v < 0.0f) {
-      v = 0.0f;
-    }
-
-    // Optional: clamp crazy hourly spikes from OWM
-    const float MAX_HOURLY_MM = 20.0f;  // tweak to taste: 10, 15, 20, etc.
-    if (v > MAX_HOURLY_MM) {
-      v = MAX_HOURLY_MM;
-    }
-
-    // Advance ring buffer and store
     rainIdx = (rainIdx + 1) % 24;
     rainHist[rainIdx] = v;
     lastRainHistHour = now;
-
-    // Optional debug:
-    // Serial.printf("[RainHist] %02d:00 -> v=%.2f, sum24=%.2f\n",
-    //               lt.tm_hour, v, last24hActualRain());
   }
 }
+
 
 
 void updateCachedWeather() {
@@ -2991,4 +2982,3 @@ void handleClearEvents() {
   server.sendHeader("Location", "/events", true);
   server.send(302, "text/plain", "");
 }
-
