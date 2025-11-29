@@ -1165,8 +1165,18 @@ void updateCachedWeather() {
 
 // NEW: called only from loop()
 void tickWeather(){
+  static uint32_t lastTick = 0;
+  uint32_t nowMs = millis();
+  const uint32_t WEATHER_TICK_MS = 10000UL; // every 10s is plenty
+
+  if (nowMs - lastTick < WEATHER_TICK_MS) {
+    return;
+  }
+  lastTick = nowMs;
+
   updateCachedWeather();
 }
+
 
 
 // ---------- Rain/Wind logic with cooldown & threshold ----------
