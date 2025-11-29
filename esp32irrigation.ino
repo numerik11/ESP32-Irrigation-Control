@@ -1181,6 +1181,17 @@ void tickWeather(){
 
 // ---------- Rain/Wind logic with cooldown & threshold ----------
 bool checkWindRain() {
+  // Throttle to at most once per second
+  static uint32_t lastCheckMs = 0;
+  static bool     lastResult  = false;
+
+  uint32_t nowMs = millis();
+  if (nowMs - lastCheckMs < 1000UL) {
+    // Reuse last computed state (rainActive/windActive already set)
+    return lastResult;
+  }
+  lastCheckMs = nowMs;
+
   // Remember previous "effective rain" state so we can detect edges
   bool prevRainActive = rainActive;
 
@@ -1193,21 +1204,12 @@ bool checkWindRain() {
   DeserializationError err = deserializeJson(js, cachedWeatherData);
 
   if (!err) {
-    // NOTE: We only use *current* weather here.
-    //       No forecast arrays (hourly/daily) are used in this function.
-
     // ----- RAIN BY WEATHER (instant, use 1h / condition code) -----
     float rain1hRaw = js["rain"]["1h"] | 0.0f;
 
-    // Optional sanity clamp: treat insane values as "raining", but don't
-    // let them bleed into any future "amount-based" logic.
     float rain1hLogic = rain1hRaw;
-    if (rain1hLogic < 0.0f) {
-      rain1hLogic = 0.0f;
-    }
-    // If your API sometimes spikes to silly numbers (e.g. 29.2 mm when
-    // reality is ~1–4 mm), you can clamp for logic here:
-    const float MAX_RAIN1H_FOR_LOGIC = 20.0f;  // mm, adjust if you like
+    if (rain1hLogic < 0.0f) rain1hLogic = 0.0f;
+    const float MAX_RAIN1H_FOR_LOGIC = 20.0f;  // mm, tweak if needed
     if (rain1hLogic > MAX_RAIN1H_FOR_LOGIC) {
       rain1hLogic = MAX_RAIN1H_FOR_LOGIC;
     }
@@ -1215,7 +1217,7 @@ bool checkWindRain() {
     if (rain1hLogic > 0.0f) {
       newWeatherRainActual = true;
     } else {
-      // Fallback: use weather condition code (2xx/3xx/5xx = rain-ish)
+      // Fallback: weather condition code (2xx/3xx/5xx = rain-ish)
       int wid = js["weather"][0]["id"] | 0;
       if (wid >= 200 && wid < 600) {
         newWeatherRainActual = true;
@@ -1223,24 +1225,22 @@ bool checkWindRain() {
     }
 
     // ----- WIND DELAY (raw) -----
-    float windSpeed = js["wind"]["speed"] | 0.0f;  // m/s normally
+    float windSpeed = js["wind"]["speed"] | 0.0f;  // m/s
     if (windSpeedThreshold > 0.0f) {
       newWindActual = (windSpeed >= windSpeedThreshold);
     } else {
       newWindActual = false;
     }
   } else {
-    // If weather JSON is bad, don't assert rain/wind based on it
     newWeatherRainActual = false;
     newWindActual        = false;
   }
 
   // --- 2) Physical rain sensor (raw state) ---
-  newSensorRainActual = physicalRainNowRaw();  // already respects enable/invert/pin
+  newSensorRainActual = physicalRainNowRaw();
 
   // --- 3) Accumulated rainfall (24h ACTUAL ONLY) ---
-  // This should come from your rolling history of *actual* rain.
-  float actual24 = last24hActualRain();        // rolling 24h from history
+  float actual24 = last24hActualRain();
   bool aboveThreshold = false;
   if (rainThreshold24h_mm > 0) {
     if (actual24 >= rainThreshold24h_mm) {
@@ -1249,34 +1249,24 @@ bool checkWindRain() {
   }
 
   // --- 4) Apply feature gates and build "effective" flags ---
-
-  // Instant weather rain: only cares about "raining now" (1h / code),
-  // NOT forecast. Still obeys global rainDelayEnabled.
   bool effectiveInstantRain =
       rainDelayEnabled &&
       newWeatherRainActual;
 
-  // Threshold-based "rain" (heavy actual 24h total) — ACTUAL ONLY.
-  // Forecast DOES NOT affect this.
   bool effectiveThresholdRain =
       rainDelayEnabled &&
       (rainThreshold24h_mm > 0) &&
       aboveThreshold;
 
-  // Sensor-based rain only counts if rain delay and sensor are enabled.
   bool effectiveSensorRain =
       rainDelayEnabled &&
       rainSensorEnabled &&
       newSensorRainActual;
 
-  // Commit source flags (for UI/debug)
   rainByWeatherActive = effectiveInstantRain || effectiveThresholdRain;
   rainBySensorActive  = effectiveSensorRain;
+  rainActive          = (rainByWeatherActive || rainBySensorActive);
 
-  // Final rainActive that actually blocks & drives cooldown
-  rainActive = (rainByWeatherActive || rainBySensorActive);
-
-  // Wind only blocks when wind delay is enabled
   windActive = (windDelayEnabled && newWindActual);
 
   // --- 5) Cooldown logic (based on transitions of rainActive) ---
@@ -1288,7 +1278,7 @@ bool checkWindRain() {
       rainCooldownUntilEpoch =
           (uint32_t)now + (uint32_t)rainCooldownHours * 3600UL;
     } else {
-      rainCooldownUntilEpoch = 0;   // no delay configured
+      rainCooldownUntilEpoch = 0;
     }
   }
 
@@ -1304,12 +1294,12 @@ bool checkWindRain() {
     rainCooldownUntilEpoch = 0;
   }
 
-  // Update "lastRainAmount" for RainScreen (show 24h actual total)
   lastRainAmount = actual24;
 
-  // Return "any block due to weather" for callers
-  return (rainActive || windActive);
+  lastResult = (rainActive || windActive);
+  return lastResult;
 }
+
 
 
 
