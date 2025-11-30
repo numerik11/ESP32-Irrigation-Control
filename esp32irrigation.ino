@@ -1177,13 +1177,13 @@ void tickWeather(){
   updateCachedWeather();
 }
 
-
-
 // ---------- Rain/Wind logic with cooldown & threshold ----------
 bool checkWindRain() {
   // Throttle to at most once per second
   static uint32_t lastCheckMs = 0;
   static bool     lastResult  = false;
+  // Track only the kind of "rain" that is allowed to start cooldown
+  static bool     prevCoolRain = false;
 
   uint32_t nowMs = millis();
   if (nowMs - lastCheckMs < 1000UL) {
@@ -1191,9 +1191,6 @@ bool checkWindRain() {
     return lastResult;
   }
   lastCheckMs = nowMs;
-
-  // Remember previous "effective rain" state so we can detect edges
-  bool prevRainActive = rainActive;
 
   bool newWeatherRainActual = false;   // raw "is it raining now" from OWM
   bool newSensorRainActual  = false;   // raw sensor state
@@ -1253,27 +1250,36 @@ bool checkWindRain() {
       rainDelayEnabled &&
       newWeatherRainActual;
 
+  // 24h threshold rain: only when actual 24h rainfall >= user threshold.
   bool effectiveThresholdRain =
       rainDelayEnabled &&
       (rainThreshold24h_mm > 0) &&
       aboveThreshold;
 
+  // Physical sensor rain: used for both blocking + cooldown.
   bool effectiveSensorRain =
       rainDelayEnabled &&
       rainSensorEnabled &&
       newSensorRainActual;
 
+  // Public flags / state
   rainByWeatherActive = effectiveInstantRain || effectiveThresholdRain;
   rainBySensorActive  = effectiveSensorRain;
   rainActive          = (rainByWeatherActive || rainBySensorActive);
 
   windActive = (windDelayEnabled && newWindActual);
 
-  // --- 5) Cooldown logic (based on transitions of rainActive) ---
+  // --- 5) Cooldown logic (ONLY threshold/sensor-based rain) ---
+  // Define which rain sources are allowed to start cooldown when they clear:
+  //  - 24h threshold actual rainfall
+  //  - Physical rain sensor
+  bool coolRainNow = (effectiveThresholdRain || effectiveSensorRain);
+
   time_t now = time(nullptr);
 
-  // (a) If we were raining and now we're not → start cooldown window
-  if (prevRainActive && !rainActive) {
+  // (a) If we *previously* had threshold/sensor rain, and now it's clear,
+  //     start cooldown window.
+  if (prevCoolRain && !coolRainNow) {
     if (rainDelayEnabled && rainCooldownHours > 0) {
       rainCooldownUntilEpoch =
           (uint32_t)now + (uint32_t)rainCooldownHours * 3600UL;
@@ -1282,26 +1288,28 @@ bool checkWindRain() {
     }
   }
 
-  // (b) If it's raining again, cancel any cooldown
-  if (rainActive) {
+  // (b) While threshold/sensor rain is active, there is no cooldown.
+  if (coolRainNow) {
     rainCooldownUntilEpoch = 0;
   }
 
-  // (c) If cooldown expired, clear it
-  if (!rainActive &&
+  // (c) When cooldown expires, clear it.
+  if (!coolRainNow &&
       rainCooldownUntilEpoch > 0 &&
       (uint32_t)now >= rainCooldownUntilEpoch) {
     rainCooldownUntilEpoch = 0;
   }
 
+  // Track last 24h amount for UI (RainScreen "Last: x.xx mm")
   lastRainAmount = actual24;
 
+  // Remember for next edge detection
+  prevCoolRain = coolRainNow;
+
+  // Final combined state that the rest of the code cares about
   lastResult = (rainActive || windActive);
   return lastResult;
 }
-
-
-
 
 // ---------- Event log ----------
 void logEvent(int zone, const char* eventType, const char* source, bool rainDelayed) {
