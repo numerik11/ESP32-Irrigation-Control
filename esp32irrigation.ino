@@ -1,11 +1,16 @@
+#ifndef ENABLE_DEBUG_ROUTES
+  #define ENABLE_DEBUG_ROUTES 0   // set to 1 when you need them
+#endif
+#if ENABLE_DEBUG_ROUTES
+  server.on("/i2c-test", HTTP_GET, handleI2CTest);
+  server.on("/whereami", HTTP_GET, handleWhereAmI);
+#endif
 #ifndef ENABLE_OTA
   #define ENABLE_OTA 0   
 #endif
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#if ENABLE_OTA
-  #include <ArduinoOTA.h>
-#endif
+#include <ArduinoOTA.h>
 #include <DNSServer.h>
 #include <WiFiManager.h>
 #include <WiFi.h>
@@ -51,8 +56,11 @@ uint8_t mainsChannel = P4; // 4-zone mode
 uint8_t tankChannel  = P5; // 4-zone mode
 uint8_t zonesCount   = 4;  // 4 or 6
 
-// GPIO fallback (active-HIGH)
+// GPIO fallback (configurable polarity)
 bool useGpioFallback = false;
+bool gpioActiveLow   = true;
+bool relayActiveHigh = true;
+
 uint8_t zonePins[MAX_ZONES] = {18, 19, 12, 13, 25, 26};
 uint8_t mainsPin = 25;
 uint8_t tankPin  = 26;
@@ -438,6 +446,35 @@ static void mdnsStart() {
   }
 }
 
+// ---------- GPIO fallback helpers ----------
+inline int gpioLevel(bool on) {
+  // on = true → valve ON
+  // on = false → valve OFF
+  if (gpioActiveLow) {
+    // Active-LOW: LOW = ON, HIGH = OFF
+    return on ? LOW : HIGH;
+  } else {
+    // Active-HIGH: HIGH = ON, LOW = OFF
+    return on ? HIGH : LOW;
+  }
+}
+
+inline void gpioInitOutput(int pin) {
+  pinMode(pin, OUTPUT);
+  digitalWrite(pin, gpioLevel(false));  // ensure OFF
+}
+
+inline void gpioZoneWrite(int z, bool on) {
+  if (z < 0 || z >= (int)MAX_ZONES) return;
+  digitalWrite(zonePins[z], gpioLevel(on));
+}
+
+inline void gpioSourceWrite(bool mainsOn, bool tankOn) {
+  digitalWrite(mainsPin, gpioLevel(mainsOn));
+  digitalWrite(tankPin, gpioLevel(tankOn));
+}
+
+
 // ---------- Next Water type + forward decl ----------
 struct NextWaterInfo {
   time_t   epoch;    // local epoch for the next start
@@ -775,17 +812,7 @@ void setup() {
   server.on("/reboot", HTTP_POST, [](){
     HttpScope _scope;
     server.send(200,"text/plain","restarting"); delay(200); ESP.restart();
-  });
-  server.on("/whereami", HTTP_GET, [](){
-  HttpScope _scope;
-  String s = "IP: " + WiFi.localIP().toString() + "\n";
-  s += "Host: espirrigation.local\n";
-  s += "SSID: " + WiFi.SSID() + "\n";
-  s += "RSSI: " + String(WiFi.RSSI()) + " dBm\n";
-  server.send(200, "text/plain", s);
-});
-
-
+  }); 
   // Pause/Resume/Delays/Forecast toggle
   server.on("/clear_delays", HTTP_POST, [](){
     HttpScope _scope;
@@ -955,9 +982,13 @@ void checkI2CHealth() {
 
 void initGpioFallback() {
   useGpioFallback = true;
-  for (uint8_t i=0;i<MAX_ZONES;i++){ pinMode(zonePins[i],OUTPUT); digitalWrite(zonePins[i],LOW); }
-  pinMode(mainsPin,OUTPUT); digitalWrite(mainsPin,LOW);
-  pinMode(tankPin, OUTPUT); digitalWrite(tankPin, LOW);
+
+  for (uint8_t i = 0; i < MAX_ZONES; i++) {
+    gpioInitOutput(zonePins[i]);    // OFF based on gpioActiveLow
+  }
+
+  gpioInitOutput(mainsPin);         // OFF
+  gpioInitOutput(tankPin);          // OFF
 }
 
 // ---------- Weather / Forecast ----------
@@ -1451,76 +1482,130 @@ bool hasDurationCompleted(int zone) {
   return (elapsed >= total);
 }
 
-// ---------- Valve control ----------
 void turnOnZone(int z) {
   checkWindRain();
-  Serial.printf("[VALVE] Request ON Z%d rain=%d wind=%d blocked=%d\n", z+1, rainActive?1:0, windActive?1:0, isBlockedNow()?1:0);
+  Serial.printf("[VALVE] Request ON Z%d rain=%d wind=%d blocked=%d\n",
+                z+1, rainActive?1:0, windActive?1:0, isBlockedNow()?1:0);
 
   if (isBlockedNow())  { cancelStart(z, "BLOCKED", false); return; }
   if (rainActive)      { cancelStart(z, "RAIN",    true ); return; }
   if (windActive)      { cancelStart(z, "WIND",    false); return; }
 
-  bool anyOn=false; for (int i=0;i<(int)zonesCount;i++) if (zoneActive[i]) { anyOn=true; break; }
-  if (!runZonesConcurrent && anyOn) { pendingStart[z]=true; logEvent(z,"QUEUED","ACTIVE RUN",false); return; }
+  bool anyOn = false;
+  for (int i = 0; i < (int)zonesCount; i++) {
+    if (zoneActive[i]) { anyOn = true; break; }
+  }
+  if (!runZonesConcurrent && anyOn) {
+    pendingStart[z] = true;
+    logEvent(z, "QUEUED", "ACTIVE RUN", false);
+    return;
+  }
 
   zoneStartMs[z] = millis();
   zoneActive[z] = true;
   const char* src = "None";
 
   if (useGpioFallback) {
-    digitalWrite(zonePins[z], HIGH);
-    if (zonesCount==4) {
-      if (justUseTank){ src="Tank";  digitalWrite(mainsPin,LOW);  digitalWrite(tankPin,HIGH); }
-      else if (justUseMains){ src="Mains"; digitalWrite(mainsPin,HIGH); digitalWrite(tankPin,LOW); }
-      else if (isTankLow()) { src="Mains"; digitalWrite(mainsPin,HIGH); digitalWrite(tankPin,LOW); }
-      else { src="Tank";  digitalWrite(mainsPin,LOW);  digitalWrite(tankPin,HIGH); }
+  // Use config for active level
+  gpioZoneWrite(z, true);   // ON
+
+  if (zonesCount == 4) {
+    if (justUseTank) {
+      src = "Tank";
+      gpioSourceWrite(false, true);   // mains OFF, tank ON
+    } else if (justUseMains) {
+      src = "Mains";
+      gpioSourceWrite(true, false);   // mains ON, tank OFF
+    } else if (isTankLow()) {
+      src = "Mains";
+      gpioSourceWrite(true, false);   // mains ON, tank OFF
+    } else {
+      src = "Tank";
+      gpioSourceWrite(false, true);   // mains OFF, tank ON
     }
-  } else {
+  }
+} else {
+    // PCF8574 path unchanged (still active-LOW via expander)
     pcfOut.digitalWrite(PCH[z], LOW); // active-LOW
-    if (zonesCount==4) {
-      if (justUseTank){ src="Tank";  pcfOut.digitalWrite(mainsChannel,HIGH); pcfOut.digitalWrite(tankChannel,LOW); }
-      else if (justUseMains){ src="Mains"; pcfOut.digitalWrite(mainsChannel,LOW);  pcfOut.digitalWrite(tankChannel,HIGH); }
-      else if (isTankLow()) { src="Mains"; pcfOut.digitalWrite(mainsChannel,LOW);  pcfOut.digitalWrite(tankChannel,HIGH); }
-      else { src="Tank";  pcfOut.digitalWrite(mainsChannel,HIGH); pcfOut.digitalWrite(tankChannel,LOW); }
+    if (zonesCount == 4) {
+      if (justUseTank) {
+        src = "Tank";
+        pcfOut.digitalWrite(mainsChannel, HIGH);
+        pcfOut.digitalWrite(tankChannel,  LOW);
+      } else if (justUseMains) {
+        src = "Mains";
+        pcfOut.digitalWrite(mainsChannel, LOW);
+        pcfOut.digitalWrite(tankChannel,  HIGH);
+      } else if (isTankLow()) {
+        src = "Mains";
+        pcfOut.digitalWrite(mainsChannel, LOW);
+        pcfOut.digitalWrite(tankChannel,  HIGH);
+      } else {
+        src = "Tank";
+        pcfOut.digitalWrite(mainsChannel, HIGH);
+        pcfOut.digitalWrite(tankChannel,  LOW);
+      }
     }
   }
 
-  logEvent(z,"START",src,false);
+  logEvent(z, "START", src, false);
 
   display.clearDisplay();
-  display.setTextSize(2); display.setCursor(2,0); display.print(zoneNames[z]); display.print(" ON");
-  display.display(); delay(350); HomeScreen();
+  display.setTextSize(2);
+  display.setCursor(2, 0);
+  display.print(zoneNames[z]);
+  display.print(" ON");
+  display.display();
+  delay(350);
+  HomeScreen();
 }
 
 void turnOffZone(int z) {
   Serial.printf("[VALVE] Request OFF Z%d\n", z+1);
-  const char* src="None";
-  if (zonesCount==4) src = justUseTank ? "Tank" : justUseMains ? "Mains" : isTankLow() ? "Mains" : "Tank";
+  const char* src = "None";
+  if (zonesCount == 4)
+    src = justUseTank ? "Tank"
+         : justUseMains ? "Mains"
+         : isTankLow() ? "Mains"
+         : "Tank";
 
-  bool wasDelayed = rainActive || windActive || isPausedNow() || !systemMasterEnabled || (rainCooldownUntilEpoch>time(nullptr));
-  logEvent(z,"STOPPED",src,wasDelayed);
+  bool wasDelayed = rainActive || windActive || isPausedNow() ||
+                    !systemMasterEnabled ||
+                    (rainCooldownUntilEpoch > time(nullptr));
+  logEvent(z, "STOPPED", src, wasDelayed);
 
   if (useGpioFallback) {
-    digitalWrite(zonePins[z], LOW);
-    if (zonesCount==4) { digitalWrite(mainsPin,LOW); digitalWrite(tankPin,LOW); }
-  } else {
+  // OFF everything in fallback according to config
+  gpioZoneWrite(z, false);       // OFF
+  if (zonesCount == 4) {
+    gpioSourceWrite(false, false);  // mains OFF, tank OFF
+  }
+} else {
+    // PCF8574 path unchanged
     pcfOut.digitalWrite(PCH[z], HIGH);
-    if (zonesCount==4) { pcfOut.digitalWrite(mainsChannel,HIGH); pcfOut.digitalWrite(tankChannel,HIGH); }
+    if (zonesCount == 4) {
+      pcfOut.digitalWrite(mainsChannel, HIGH);
+      pcfOut.digitalWrite(tankChannel,  HIGH);
+    }
   }
 
   zoneActive[z] = false;
 
   display.clearDisplay();
-  display.setTextSize(2); display.setCursor(4,0); display.print(zoneNames[z]); display.print(" OFF");
-  display.display(); delay(300);
+  display.setTextSize(2);
+  display.setCursor(4, 0);
+  display.print(zoneNames[z]);
+  display.print(" OFF");
+  display.display();
+  delay(300);
 }
 
 void turnOnValveManual(int z) {
-  if (z>=zonesCount) return;
-  if (zoneActive[z]) return;
+  if (z >= zonesCount) return;
+  if (zoneActive[z])   return;
 
   // Respect run mode overlap rules
-  for (int i=0;i<(int)zonesCount;i++){
+  for (int i = 0; i < (int)zonesCount; i++) {
     if (zoneActive[i]) {
       if (!runZonesConcurrent) {
         Serial.println("[VALVE] Manual start blocked: another zone is running");
@@ -1530,50 +1615,93 @@ void turnOnValveManual(int z) {
     }
   }
 
-  // NEW: cancel manual requests during block/delay instead of queueing
+  // cancel manual requests during block/delay instead of queueing
   if (isBlockedNow())  { cancelStart(z, "BLOCKED", false); return; }
   if (rainActive)      { cancelStart(z, "RAIN",    true ); return; }
   if (windActive)      { cancelStart(z, "WIND",    false); return; }
 
   zoneStartMs[z] = millis();
   zoneActive[z] = true;
-  const char* src="None";
+  const char* src = "None";
 
   if (useGpioFallback) {
-    digitalWrite(zonePins[z], HIGH);
-    if (zonesCount==4) {
-      if (justUseTank){ src="Tank";  digitalWrite(mainsPin,LOW);  digitalWrite(tankPin,HIGH); }
-      else if (justUseMains){ src="Mains"; digitalWrite(mainsPin,HIGH); digitalWrite(tankPin,LOW); }
-      else if (isTankLow()) { src="Mains"; digitalWrite(mainsPin,HIGH); digitalWrite(tankPin,LOW); }
-      else { src="Tank";  digitalWrite(mainsPin,LOW);  digitalWrite(tankPin,HIGH); }
-    }
-  } else {
-    pcfOut.digitalWrite(PCH[z], LOW);
-    if (zonesCount==4) {
-      if (justUseTank){ src="Tank";  pcfOut.digitalWrite(mainsChannel,HIGH); pcfOut.digitalWrite(tankChannel,LOW); }
-      else if (justUseMains){ src="Mains"; pcfOut.digitalWrite(mainsChannel,LOW);  pcfOut.digitalWrite(tankChannel,HIGH); }
-      else if (isTankLow()) { src="Mains"; pcfOut.digitalWrite(mainsChannel,LOW);  pcfOut.digitalWrite(tankChannel,HIGH); }
-      else { src="Tank";  pcfOut.digitalWrite(mainsChannel,HIGH); pcfOut.digitalWrite(tankChannel,LOW); }
+  gpioZoneWrite(z, true);   // ON
+
+  if (zonesCount == 4) {
+    if (justUseTank) {
+      src = "Tank";
+      gpioSourceWrite(false, true);
+    } else if (justUseMains) {
+      src = "Mains";
+      gpioSourceWrite(true, false);
+    } else if (isTankLow()) {
+      src = "Mains";
+      gpioSourceWrite(true, false);
+    } else {
+      src = "Tank";
+      gpioSourceWrite(false, true);
     }
   }
-  logEvent(z,"MANUAL START",src,false);
+} else {
+    // PCF8574 path unchanged
+    pcfOut.digitalWrite(PCH[z], LOW);
+    if (zonesCount == 4) {
+      if (justUseTank) {
+        src = "Tank";
+        pcfOut.digitalWrite(mainsChannel, HIGH);
+        pcfOut.digitalWrite(tankChannel,  LOW);
+      } else if (justUseMains) {
+        src = "Mains";
+        pcfOut.digitalWrite(mainsChannel, LOW);
+        pcfOut.digitalWrite(tankChannel,  HIGH);
+      } else if (isTankLow()) {
+        src = "Mains";
+        pcfOut.digitalWrite(mainsChannel, LOW);
+        pcfOut.digitalWrite(tankChannel,  HIGH);
+      } else {
+        src = "Tank";
+        pcfOut.digitalWrite(mainsChannel, HIGH);
+        pcfOut.digitalWrite(tankChannel,  LOW);
+      }
+    }
+  }
+
+  logEvent(z, "MANUAL START", src, false);
 }
 
 void turnOffValveManual(int z) {
-  if (z>=MAX_ZONES) return;
+  if (z >= MAX_ZONES) return;
   if (!zoneActive[z]) return;
 
-  if (useGpioFallback)  digitalWrite(zonePins[z], LOW);
-  else                  pcfOut.digitalWrite(PCH[z], HIGH);
+  // Turn this zone OFF
+  if (useGpioFallback) {
+    // Use configured polarity for GPIO fallback
+    gpioZoneWrite(z, false);          // OFF
+  } else {
+    // PCF8574 path: keep active-LOW semantics (HIGH = OFF)
+    pcfOut.digitalWrite(PCH[z], HIGH);
+  }
 
   zoneActive[z] = false;
 
-  bool anyStillOn=false;
-  for (int i=0;i<(int)zonesCount;i++) if (zoneActive[i]) { anyStillOn=true; break; }
+  bool anyStillOn = false;
+  for (int i = 0; i < (int)zonesCount; i++) {
+    if (zoneActive[i]) {
+      anyStillOn = true;
+      break;
+    }
+  }
 
-  if (!anyStillOn && zonesCount==4) {
-    if (useGpioFallback){ digitalWrite(mainsPin,LOW); digitalWrite(tankPin,LOW); }
-    else { pcfOut.digitalWrite(mainsChannel,HIGH); pcfOut.digitalWrite(tankChannel,HIGH); }
+  // If no zones left on and we are in 4-zone (tank/mains) mode, turn both feed relays OFF
+  if (!anyStillOn && zonesCount == 4) {
+    if (useGpioFallback) {
+      // Respect configured polarity for mains/tank
+      gpioSourceWrite(false, false);   // mains OFF, tank OFF
+    } else {
+      // PCF8574: HIGH = OFF on both channels
+      pcfOut.digitalWrite(mainsChannel, HIGH);
+      pcfOut.digitalWrite(tankChannel,  HIGH);
+    }
   }
 }
 
@@ -2007,7 +2135,6 @@ html += F("</b></a></div>");
   html += F("<a class='btn' href='/setup'>Setup</a>");
   html += F("<a class='btn' href='/events'>Events</a>");
   html += F("<a class='btn' href='/tank'>Calibrate Tank</a>");
-  html += F("<a class='btn' href='/whereami' role='button'>Connection Info</a>");
   html += F("<a class='btn' href='/status'>Status JSON</a>");
   html += F("</div></div></div>");
 
@@ -2311,7 +2438,16 @@ void handleSetupPage() {
   html += String(mainsPin); html += F("'><small>4-zone fallback</small></div>");
   html += F("<div class='row'><label>Tank Pin</label><input type='number' min='0' max='39' name='tankPin' value='");
   html += String(tankPin); html += F("'><small>4-zone fallback</small></div>");
+
+  // NEW: GPIO active polarity
+  html += F("<div class='row switchline'><label>GPIO Active Low</label>");
+  html += F("<input type='checkbox' name='gpioActiveLow' ");
+  html += (gpioActiveLow ? "checked" : "");
+  html += F(">");
+  html += F("<small>Checked = LOW = ON (active-low relay modules). Unchecked = HIGH = ON.</small></div>");
+
   html += F("</div></div>");
+
 
   // Timezone
   html += F("<div class='card'><h3>Timezone</h3>");
@@ -2694,6 +2830,12 @@ void loadConfig() {
   if (f.available()) { if ((s = _safeReadLine(f)).length()) mqttPass    = s; }
   if (f.available()) { if ((s = _safeReadLine(f)).length()) mqttBase    = s; }
 
+  // ✅ NEW: relay polarity (optional trailing line, backwards compatible)
+  if (f.available()) { 
+    if ((s = _safeReadLine(f)).length()) 
+      relayActiveHigh = (s.toInt() == 1);
+  }
+
   f.close();
 
   // Derive hours from minutes (for UI & cooldown logic)
@@ -2722,6 +2864,9 @@ void saveConfig() {
   f.println(rainSensorPin);
   f.println(rainSensorInvert ? 1 : 0);
   f.println(tankLowThresholdPct);
+
+  // ❌ REMOVE this line from here (it breaks the alignment!)
+  // f.println(relayActiveHigh ? 1 : 0);
 
   for (int i = 0; i < MAX_ZONES; i++) f.println(zonePins[i]);
   f.println(mainsPin);
@@ -2757,9 +2902,11 @@ void saveConfig() {
   f.println(mqttPass);
   f.println(mqttBase);
 
+  // ✅ NEW: relay polarity written as trailing line to match loadConfig()
+  f.println(relayActiveHigh ? 1 : 0);
+
   f.close();
 }
-
 
 void loadSchedule() {
   File f = LittleFS.open("/schedule.txt","r");
@@ -2932,6 +3079,9 @@ void handleConfigure() {
     int p = server.arg("tankPin").toInt();
     if (p >= 0 && p <= 39) tankPin = p;
   }
+
+  // NEW: polarity setting
+  gpioActiveLow = server.hasArg("gpioActiveLow"); 
 
   // Timezone mode + values
   if (server.hasArg("tzMode")) {
