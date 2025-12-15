@@ -94,20 +94,24 @@ Free OpenWeatherMap API key → https://home.openweathermap.org/users/sign_up
 
 2. **Select a Board**  
    *Tools → Board →* **ESP32 Dev Module** (works for KC868-A6)  
-   Suggested: Flash 80 MHz, Upload 115200–921600, Partition: Default (4MB).
+   Suggested: Flash 80 MHz, Upload 115200–921600.
+   
+   - Important!! Set Partition Scheme.
 
-3. **(KC868-A6) PCF8574 Library**  
+   ***Tools → Partition Scheme: Large APP (4MB).****
+   
+4. **(KC868-A6) PCF8574 Library**  
    Download Kincony PCF8574 zip: <https://www.kincony.com/forum/attachment.php?aid=1697>  
    *Sketch → Include Library → Add .ZIP Library…*
 
-4. **Upload**  
+5. **Upload**  
    Open the  esp32irrigation.ino sketch and click **Upload**.
 
-5. **First-Run Wi-Fi**  
+6. **First-Run Wi-Fi**  
    Serial Monitor @ 115200. Connect to **ESPIrrigationAP** (captive portal),  
    or browse to **http://192.168.4.1** and set your Wifi SSID + password.
 
-6. **Access & Configure**  
+7. **Access & Configure**  
    Goto   http://espirrigation.local/ or assigned local IP to accsess home page, OLED shows assigned IP on startup.  
    Goto - **Setup**: enter OpenWeather API Key + City ID, set timezone, use zones (4 or 6), wind enable?/rain enable?, GPIO pins.
    Goto - **Home**: set days, start times, durations per zone.
