@@ -56,10 +56,11 @@ Free OpenWeatherMap API key → https://home.openweathermap.org/users/sign_up
 
 ## Requirements
 
-- **Board:** ESP32 Dev Module (KC868-A6 recommended)
-- **Tank analog pin:** IO36 (A1) (≤ 3.3V ADC)
-- **Rain sensor:** IO27 (configurable)
-- **Power:** Matches your solenoids (e.g., 12V DC or 24V AC; keep logic at 3.3V)
+- **Board:** Any ESP32 Module (KC868-A6 recommended)
+- ** 6-relay module ** (If mot using KC868-A6)
+- **Tank level Sensor - analog pin:** IO36 (A1) (≤ 3.3V ADC)
+- **Rain sensor:** IO27 (optional)
+- **Power:** Matches your solenoids (e.g., 12V DC or 12/24V AC)
 - **Weather API:** Free OpenWeather API key → https://home.openweathermap.org/users/sign_up
 
 ---
