@@ -178,7 +178,7 @@ Free OpenWeatherMap API key → https://home.openweathermap.org/users/sign_up
 
 -GPIO/Timezone/MQTT Page
 
-<img width="616" height="852" alt="image" src="https://github.com/user-attachments/assets/f4ae6757-4e88-4c60-a3ff-280654a8260c" />
+<img width="709" height="904" alt="image" src="https://github.com/user-attachments/assets/8630a990-62da-4bb1-95f8-b5ed7bf90363" />
 
 -KC868-A6 Wiring
 
