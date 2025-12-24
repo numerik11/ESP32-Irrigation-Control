@@ -1,3 +1,6 @@
+//130x230 TFT 
+//Wind Delay (starts after wind drops below threshold if watering is scheduled).
+
 #ifndef ENABLE_DEBUG_ROUTES
   #define ENABLE_DEBUG_ROUTES 0   // set to 1 when you need them
 #endif
