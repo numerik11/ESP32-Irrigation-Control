@@ -44,7 +44,7 @@ Free OpenWeatherMap API key → https://home.openweathermap.org/users/sign_up
 - **Hardware & I/O**
   - KC868-A6 support (PCF8574 @ 0x24 relays, 0x22 inputs)
   - Automatic I²C health + debounce → GPIO fallback for generic ESP32 boards
-  - All zone/mains/tank GPIO pins configurable in Setup (fallback mode)
+  - All zone/mains/tank GPIO pins high low and pins configurable in Setup (fallback       mode)
   - OLED status screens (Home / Rain Delay)
 
 - **Networking & UX**
