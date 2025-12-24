@@ -1,4 +1,4 @@
-//130x230 TFT 
+//130x230 SPI TFT 
 //Wind Delay (starts after wind drops below threshold if watering is scheduled).
 
 #ifndef ENABLE_DEBUG_ROUTES
