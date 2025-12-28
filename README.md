@@ -6,7 +6,7 @@ The system supports automatic tank/mains water source selection, live weather in
 
 The repository includes multiple hardware variants:
 
-1. ESP32 with 170×320 SPI TFT display — full-colour on-device interface for system status and active zones
+1. ESP32 with 170×320 SPI TFT display — full-colour device interface for system status, rain/wind delays and active zones
 
 2. ESP32 with I²C OLED display — compact, low-pin-count display for smaller enclosures
 
