@@ -131,7 +131,7 @@ Free OpenWeatherMap API key → https://home.openweathermap.org/users/sign_up
 
 - `/` — Dashboard  
 - `/setup` — Setup page (API keys, zones, GPIO, sensors, delays, MQTT, timezone)  
-- `/status` — JSON snapshot (device time/TZ, Next Water, zones, tank, weather roll-ups)  
+- `/status` — JSON snapshot (device time/TZ, Next Water, zones, tank, weather)  
 - `/events` — Event log (table)  
 - `/tank` — Tank calibration (Set Empty/Full)  
 - `/download/config.txt` — Download raw config  
