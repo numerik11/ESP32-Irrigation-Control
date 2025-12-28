@@ -121,10 +121,11 @@ Free OpenWeatherMap API key → https://home.openweathermap.org/users/sign_up
 
 ## Behaviour (Scheduling & Delays)
 
-- Starts during **rain/wind**, **pause**, **master off**, or **rain cooldown** → **CANCELLED** (logged)  
+- Starts during **rain**, **pause**, **master off**, or **rain cooldown** → **CANCELLED** (logged)  
 - Manual “On” commands also respect the same rules and cancel when blocked  
 - “Next Water” still reflects the next eligible schedule (no queueing)
-
+- Wind delay, when enabled, scheduled watering is automatically postponed until wind speed falls below the configured threshold, then starts automaticly.
+  
 ---
 
 ## Useful Endpoints
