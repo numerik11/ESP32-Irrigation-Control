@@ -1,16 +1,18 @@
-# ESP32 4/6-Zone Irrigation Controller
+ESP32 / ESP8266 Irrigation Controller
 
-Irrigation controller for ESP32 driving up to 6 zones/solenoids.
+ESP32 or ESP8266–based irrigation controllers designed to drive up to 6 solenoid zones.
 
-Auto Tank/Mains selection 
+The system supports automatic tank/mains water source selection, live weather integration with rain and wind delays, and manual zone control, all managed through a local web interface at espirrigation.local.
 
-Live weather and weather delays
+The repository includes multiple hardware variants:
 
-Web UI (espirrigation.local)
+1. ESP32 with 170×320 SPI TFT display — full-colour on-device interface for system status and active zones
 
-Manual On/Off
+2. ESP32 with I²C OLED display — compact, low-pin-count display for smaller enclosures
 
-2x Startimes per day, 7 Days, Mins and Secs.
+3. ESP8266 with I²C LCD — common, compact, low-pin-count display for smaller enclosures
+
+All versions support two programmable start times per day, 7-day scheduling, and minute/second-level run times, suitable for both small gardens and multi-zone irrigation setups.
 
 ---
 
