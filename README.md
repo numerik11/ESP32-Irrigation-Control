@@ -43,7 +43,9 @@ See controller status, active and upcoming zones, progress, weather, tank level,
 
 Configure zones, schedules, GPIO assignments, relay polarity, weather rules, sensors, MQTT, and displays from your browser.
 
+<p align="center">
 <img width="694" height="799" alt="image" src="https://github.com/user-attachments/assets/446509b8-eeec-40c7-93b4-62bde1730a58" />
+</p>
 
 ### Events
 
