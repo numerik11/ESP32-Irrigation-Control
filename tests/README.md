@@ -3,7 +3,7 @@
 Run the complete host-side suite from the repository root:
 
 ```sh
-npm test
+npm --prefix tests test
 ```
 
 The suite has no third-party dependencies and uses Node's built-in test runner
@@ -20,3 +20,9 @@ The ESP32 source-contract tests also verify that Browser OTA requires credential
 uses the application OTA partition, stops active zones before writing, and only
 restarts after a complete validated upload. They do not replace a real upload test
 on each supported board.
+
+Repository contract tests enforce Arduino IDE-compatible sketch directories and
+keep the documented GitHub Pages URL, worker CORS configuration, deployment files,
+verification scripts, and update-counter endpoints aligned. GitHub Actions also
+compiles the ESP32, ESP32-S3, and ESP8266 sketches with their pinned board cores
+and library dependencies.

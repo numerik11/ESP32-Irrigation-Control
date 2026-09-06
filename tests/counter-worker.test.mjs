@@ -10,7 +10,7 @@ import {
 } from "./helpers/load-worker.mjs";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
-const workerPath = path.resolve(testDirectory, "../counter-worker/worker.mjs");
+const workerPath = path.resolve(testDirectory, "../web-flasher/counter-worker/worker.mjs");
 const workerModule = await loadWorkerModule(workerPath);
 const worker = workerModule.default;
 
@@ -130,9 +130,9 @@ test("report endpoint rejects unsafe request shapes and invalid data", async () 
 test("CORS is granted only to the GitHub Pages updater", async () => {
   const { env } = makeCounterEnvironment();
   const allowed = await worker.fetch(new Request("https://worker.example/health", {
-    headers: { Origin: "https://hjennerway.github.io" },
+    headers: { Origin: "https://numerik11.github.io" },
   }), env);
-  assert.equal(allowed.headers.get("Access-Control-Allow-Origin"), "https://hjennerway.github.io");
+  assert.equal(allowed.headers.get("Access-Control-Allow-Origin"), "https://numerik11.github.io");
   assert.equal(allowed.headers.get("Vary"), "Origin");
 
   const denied = await worker.fetch(new Request("https://worker.example/health", {
@@ -142,7 +142,7 @@ test("CORS is granted only to the GitHub Pages updater", async () => {
 
   const preflight = await worker.fetch(new Request("https://worker.example/v1/report", {
     method: "OPTIONS",
-    headers: { Origin: "https://hjennerway.github.io" },
+    headers: { Origin: "https://numerik11.github.io" },
   }), env);
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers.get("Access-Control-Allow-Methods"), "GET, POST, OPTIONS");

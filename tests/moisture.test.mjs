@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFirmware, compileFirmwareFunctions } from "./helpers/firmware-source.mjs";
 
-const source = await readFirmware(new URL("../ESP32-Irrigation/ESP32-Irrigation.ino", import.meta.url));
+const source = await readFirmware(
+  new URL("../firmware/ESP32-Irrigation/ESP32-Irrigation.ino", import.meta.url),
+);
 
 test("Open-Meteo moisture converts volume fractions and rejects invalid values", () => {
   const { meteoSoilPercent } = compileFirmwareFunctions(source, ["meteoSoilPercent"]);

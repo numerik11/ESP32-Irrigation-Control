@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import test from 'node:test';
 
-const source = await readFile(new URL('../ESP32-Irrigation/ESP32-Irrigation.ino', import.meta.url), 'utf8');
+const source = await readFile(new URL('../firmware/ESP32-Irrigation/ESP32-Irrigation.ino', import.meta.url), 'utf8');
 const line = source.split('\n').find(line => line.includes('html += F("function githubFirmwareUrl'));
 const script = JSON.parse(line.trim().slice(10, -2));
 const context = vm.createContext({ URL });

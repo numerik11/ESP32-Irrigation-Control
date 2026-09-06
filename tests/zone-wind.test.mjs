@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFirmware, compileFirmwareFunctions, extractFunction } from './helpers/firmware-source.mjs';
 
-const source = await readFirmware(new URL('../ESP32-Irrigation/ESP32-Irrigation.ino', import.meta.url));
+const source = await readFirmware(new URL('../firmware/ESP32-Irrigation/ESP32-Irrigation.ino', import.meta.url));
 
 test('wind only blocks enabled zones while the master wind rule is active', () => {
   for (const windActive of [false, true]) {

@@ -6,9 +6,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$sketchDirectory = Join-Path $repositoryRoot ".arduino-sketch\ESP32-Irrigation"
+$sketchDirectory = Join-Path $PSScriptRoot ".arduino-sketch\ESP32-Irrigation"
 $sketchPath = Join-Path $sketchDirectory "ESP32-Irrigation.ino"
-$sourcePath = Join-Path $repositoryRoot "ESP32-Irrigation\ESP32-Irrigation.ino"
+$sourcePath = Join-Path $repositoryRoot "firmware\ESP32-Irrigation\ESP32-Irrigation.ino"
 
 $arduinoCommand = Get-Command arduino-cli -ErrorAction SilentlyContinue
 if ($arduinoCommand) {

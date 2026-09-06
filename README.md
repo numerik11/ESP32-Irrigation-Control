@@ -20,7 +20,6 @@ System Setup now uses the home page's compact styling, with seven grouped settin
 No Arduino IDE is required. Connect the ESP32 by USB and open the:
 
 ### 👉 [ESP32 Irrigation Web Flasher](https://numerik11.github.io/ESP32-Irrigation-Controller/web-flasher/)
-
 After flashing:
 
 1. Connect to the **ESPIrrigationAP** Wi-Fi network.
@@ -220,7 +219,7 @@ The PowerShell helper builds with Minimal SPIFFS and keeps Arduino's normal
 persistent compilation cache enabled:
 
 ```powershell
-.\scripts\verify-ota.ps1
+.\tests\verify-ota.ps1
 ```
 
 The default checks the ESP32 Dev Module. Use `-Target esp32s3` for the S3 or
@@ -249,7 +248,7 @@ cache and should be substantially faster.
 ## 🔗 Links
 
 - [Web Flasher](https://numerik11.github.io/ESP32-Irrigation-Controller/web-flasher/)
-- [GitHub repository](https://github.com/numerik11/ESP32-Irrigation-Controller)
+- [GitHub repository](https://github.com/hjennerway/ESP32-Irrigation-Controller)
 
 If this project helps you, consider giving it a ⭐ on GitHub. Bug reports, testing, and suggestions are welcome.
 

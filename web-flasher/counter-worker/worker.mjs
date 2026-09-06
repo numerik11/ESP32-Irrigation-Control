@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 
-const ALLOWED_ORIGIN = "https://hjennerway.github.io";
+const ALLOWED_ORIGIN = "https://numerik11.github.io";
 const VERSION_PATTERN = /^\d+\.\d+(?:\.\d+)?$/;
 const EVENT_ID_PATTERN = /^[a-f0-9]{32}$/;
 const VALID_BOARDS = new Set(["esp32-dev", "esp32-s3-devkitc-1"]);

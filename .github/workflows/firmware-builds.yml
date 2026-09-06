@@ -1,0 +1,89 @@
+name: Firmware builds
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/firmware-builds.yml"
+      - "firmware/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/firmware-builds.yml"
+      - "firmware/**"
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Compile ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ESP32 Dev Module
+            fqbn: esp32:esp32:esp32:PartitionScheme=min_spiffs
+            sketch: firmware/ESP32-Irrigation
+            platforms: |
+              - name: esp32:esp32
+                version: "3.3.11"
+                source-url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+            libraries: &esp32-libraries |
+              - name: ArduinoJson
+                version: "7.4.3"
+              - name: WiFiManager
+                version: "2.0.17"
+              - name: PCF8574 library
+                version: "2.4.0"
+              - name: Adafruit GFX Library
+                version: "1.12.6"
+              - name: Adafruit SSD1306
+                version: "2.5.17"
+              - name: Adafruit ST7735 and ST7789 Library
+                version: "1.11.0"
+              - name: Adafruit NeoPixel
+                version: "1.15.5"
+              - name: Adafruit AHTX0
+                version: "2.0.6"
+              - name: DHT sensor library
+                version: "1.4.7"
+              - name: PubSubClient
+                version: "2.8"
+          - name: ESP32-S3 Dev Module
+            fqbn: esp32:esp32:esp32s3:PartitionScheme=min_spiffs
+            sketch: firmware/ESP32-Irrigation
+            platforms: |
+              - name: esp32:esp32
+                version: "3.3.11"
+                source-url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+            libraries: *esp32-libraries
+          - name: ESP8266 D1 mini
+            fqbn: esp8266:esp8266:d1_mini
+            sketch: firmware/ESP8266-Irrigation
+            platforms: |
+              - name: esp8266:esp8266
+                version: "3.1.2"
+                source-url: https://arduino.esp8266.com/stable/package_esp8266com_index.json
+            libraries: |
+              - name: ArduinoJson
+                version: "7.4.3"
+              - name: WiFiManager
+                version: "2.0.17"
+              - name: LiquidCrystal I2C
+                version: "1.1.2"
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Compile sketch
+        uses: arduino/compile-sketches@v1
+        with:
+          cli-version: "1.5.1"
+          fqbn: ${{ matrix.fqbn }}
+          platforms: ${{ matrix.platforms }}
+          libraries: ${{ matrix.libraries }}
+          sketch-paths: |
+            - ${{ matrix.sketch }}
+          enable-warnings-report: true
