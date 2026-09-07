@@ -11,9 +11,15 @@ A flexible, locally controlled irrigation system for **1–16 solenoid valves**.
 
 Schedules run on the controller, so watering continues even when the internet is unavailable.
 
-## Firmware 2.8
+## Firmware 2.9
 
-System Setup now uses the home page's compact styling, with seven grouped settings sections and navigation that wraps on mobile. Firmware Updates starts collapsed. Updated ESP32 and ESP32-S3 images are available through the web flasher and Browser OTA downloads.
+Smart Watering now has an editable rule table and an immediate runtime preview for every zone and both start times. Choose current temperature, today's forecast maximum, or the midpoint of the forecast daily minimum and maximum. Very Hot replaces Hot; percentages do not stack.
+
+Minimum runtime, maximum combined increase, hysteresis, per-zone global/custom/no-adjustment modes, and an optional seasonal multiplier are saved with the configuration. Rain and wet-soil skips take priority, even for zones set to No adjustment. The minimum never lengthens schedules that were already below it. A -100% adjustment or 0% seasonal multiplier still skips watering.
+
+New configurations default to forecast maximum, a 5-minute minimum, a +100% maximum increase, and 1 C hysteresis. Existing configurations retain their original temperature basis, thresholds, percentages, and unrestricted legacy limits until edited. The forecast average is a min/max midpoint, not an hourly mean. If the selected forecast is unavailable, temperature contributes no adjustment; other rules still apply. Preview uses readings and schedules from page load, and Saving resets hysteresis state.
+
+Updated ESP32 and ESP32-S3 images are available through the web flasher and Browser OTA downloads.
 
 ## 🚀 Install from your browser
 

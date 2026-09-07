@@ -1,15 +1,15 @@
 {
   "name": "ESP32 Irrigation Controller - ESP32-S3 DevKitC-1",
-  "version": "2.8",
+  "version": "2.9",
   "new_install_prompt_erase": true,
   "builds": [
     {
       "chipFamily": "ESP32-S3",
       "parts": [
-        { "path": "bootloader.bin?v=2.8", "offset": 0 },
-        { "path": "partitions.bin?v=2.8", "offset": 32768 },
-        { "path": "boot_app0.bin?v=2.8", "offset": 57344 },
-        { "path": "firmware.bin?v=2.8", "offset": 65536 }
+        { "path": "bootloader.bin?v=2.9", "offset": 0 },
+        { "path": "partitions.bin?v=2.9", "offset": 32768 },
+        { "path": "boot_app0.bin?v=2.9", "offset": 57344 },
+        { "path": "firmware.bin?v=2.9", "offset": 65536 }
       ]
     }
   ]

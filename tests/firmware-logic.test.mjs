@@ -113,9 +113,13 @@ test("ESP32 smart watering skips, scales, and combines weather adjustments", () 
     };
     const { smartWateringFactor } = compileFirmwareFunctions(
       esp32,
-      ["smartWateringFactor"],
+      ["smartRuleForTemperature", "smartCurrentRule", "smartRuleAdjustment", "smartFactorForZone", "smartWateringFactor"],
       {
         ...state,
+        smartRuleState: -1, smartHysteresisC: 0, smartSeasonalPct: 100,
+        smartMaximumIncreasePct: 100, MAX_ZONES: 16,
+        smartZoneMode: Array(16).fill(0), smartZoneCoolPct: [], smartZoneHotPct: [], smartZoneVeryHotPct: [],
+        constrain: (v, low, high) => Math.max(low, Math.min(high, v)),
         last24hActualRain: () => state.actualRain,
         isSoilWetForSmartSkip: () => state.soilWet,
         smartWateringReferenceTempC: () => state.referenceTemp,

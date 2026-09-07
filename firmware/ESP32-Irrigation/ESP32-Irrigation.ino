@@ -54,7 +54,7 @@ extern "C" {
 // ---------- Hardware ----------
 static const char kFirmwareSignature[] __attribute__((used)) =
   "Original author: Beau Kaczmarek - https://github.com/numerik11/ESP32-Irrigation-Controller";
-static const char kFirmwareVersion[] = "2.8";
+static const char kFirmwareVersion[] = "2.9";
 static const char kFirmwareBuildDate[] = __DATE__ " " __TIME__;
 static const char kUpdateReportUrl[] =
   "https://irrigation-update-counter.beaukacz86.workers.dev/v1/report";
@@ -397,6 +397,17 @@ int      smartVeryHotAdjustPct = 40;
 float    smartActualRainSkipMm = 5.0f;
 int      smartLightRainAdjustPct = -30;
 float    smartForecastRainSkipMm = 5.0f;
+// Basis: 0=current (legacy forecast fallback), 1=forecast max, 2=forecast min/max midpoint.
+int      smartTempBasis = 1;
+int      smartMinimumMin = 5;
+int      smartMaximumIncreasePct = 100;
+float    smartHysteresisC = 1.0f;
+int      smartSeasonalPct = 100;  // 100% leaves runtimes unchanged
+int      smartRuleState = -1;    // -1=unavailable, 0=cool, 1=normal, 2=hot, 3=very hot
+int      smartZoneMode[MAX_ZONES] = {0}; // 0=global, 1=no adjustment, 2=custom
+int      smartZoneCoolPct[MAX_ZONES] = {0};
+int      smartZoneHotPct[MAX_ZONES] = {0};
+int      smartZoneVeryHotPct[MAX_ZONES] = {0};
 bool     moistureProbeEnabled = false;
 bool     moistureUseMeteo = false;
 int      meteoMoisturePct = -1;
@@ -1716,6 +1727,10 @@ static inline unsigned long durationForSlot(int z, int slot) {
 }
 
 static float smartWateringReferenceTempC() {
+  if (smartTempBasis == 1) return todayMax_C;
+  if (smartTempBasis == 2) {
+    return (isfinite(todayMin_C) && isfinite(todayMax_C)) ? (todayMin_C + todayMax_C) / 2.0f : NAN;
+  }
   if (isfinite(curTempC)) return curTempC;
   if (isfinite(todayMax_C)) return todayMax_C;
   return NAN;
@@ -1730,7 +1745,32 @@ static char temperatureUnitChar() {
   return tempUseFahrenheit ? 'F' : 'C';
 }
 
-static float smartWateringFactor() {
+// Hysteresis applies only when leaving a band. Direct jumps still select the correct band.
+static int smartRuleForTemperature(float t, int previous, float cool, float hot, float veryHot, float h) {
+  if (!isfinite(t)) return -1;
+  if (t >= veryHot) return 3;
+  if (previous == 3 && t >= veryHot - h) return 3;
+  if (t >= hot) return 2;
+  if (previous >= 2 && t >= hot - h) return 2;
+  if (t < cool) return 0;
+  if (previous == 0 && t < cool + h) return 0;
+  return 1;
+}
+
+static int smartCurrentRule() {
+  smartRuleState = smartRuleForTemperature(smartWateringReferenceTempC(), smartRuleState,
+                                          smartCoolTempC, smartHotTempC, smartVeryHotTempC, smartHysteresisC);
+  return smartRuleState;
+}
+
+static int smartRuleAdjustment(int rule, int cool, int hot, int veryHot) {
+  if (rule == 0) return cool;
+  if (rule == 2) return hot;
+  if (rule == 3) return veryHot;
+  return 0;
+}
+
+static float smartFactorForZone(int z) {
   if (!smartWateringEnabled) return 1.0f;
 
   const float actualRain24h = last24hActualRain();
@@ -1740,29 +1780,40 @@ static float smartWateringFactor() {
       forecastRain24h > smartForecastRainSkipMm) return 0.0f;
   if (isSoilWetForSmartSkip()) return 0.0f;
 
-  float factor = 1.0f;
-  const float tempC = smartWateringReferenceTempC();
-  if (isfinite(tempC)) {
-    if (tempC < smartCoolTempC) factor *= (100.0f + smartCoolAdjustPct) / 100.0f;
-    else if (tempC >= smartVeryHotTempC) factor *= (100.0f + smartVeryHotAdjustPct) / 100.0f;
-    else if (tempC >= smartHotTempC) factor *= (100.0f + smartHotAdjustPct) / 100.0f;
-  }
+  // Opt-out bypasses runtime adjustments, but keeps rain and wet-soil skip protection.
+  if (z >= 0 && z < MAX_ZONES && smartZoneMode[z] == 1) return 1.0f;
+  const int rule = smartCurrentRule();
+  const bool custom = z >= 0 && z < MAX_ZONES && smartZoneMode[z] == 2;
+  const int pct = smartRuleAdjustment(rule, custom ? smartZoneCoolPct[z] : smartCoolAdjustPct,
+                                     custom ? smartZoneHotPct[z] : smartHotAdjustPct,
+                                     custom ? smartZoneVeryHotPct[z] : smartVeryHotAdjustPct);
+  float factor = (100.0f + pct) / 100.0f * smartSeasonalPct / 100.0f;
 
   if (actualRain24h > 0.0f && actualRain24h <= smartActualRainSkipMm) {
     factor *= (100.0f + smartLightRainAdjustPct) / 100.0f;
   }
-  return (factor > 0.0f) ? factor : 0.0f;
+  return constrain(factor, 0.0f, 1.0f + smartMaximumIncreasePct / 100.0f);
+}
+
+static float smartWateringFactor() {
+  return smartFactorForZone(-1);
+}
+
+static unsigned long smartLimitRuntime(unsigned long base, float factor, int minimumMin, int maximumIncreasePct) {
+  if (base == 0 || factor <= 0.0f) return 0;
+  const unsigned long cap = (unsigned long)lroundf(base * (1.0f + maximumIncreasePct / 100.0f));
+  // A minimum prevents shortening; it never lengthens a schedule already shorter than the minimum.
+  const unsigned long floorSec = min(base, (unsigned long)minimumMin * 60UL);
+  const unsigned long adjusted = (unsigned long)lroundf(base * factor);
+  return max(1UL, min(cap, max(floorSec, adjusted)));
 }
 
 static unsigned long smartWateringDurationForSlot(int z, int slot) {
   unsigned long base = durationForSlot(z, slot);
   if (!smartWateringEnabled || base == 0) return base;
 
-  const float factor = smartWateringFactor();
-  if (factor <= 0.0f) return 0;
-
-  unsigned long adjusted = (unsigned long)lroundf((float)base * factor);
-  return (adjusted > 0) ? adjusted : 1;
+  const float factor = smartFactorForZone(z);
+  return smartLimitRuntime(base, factor, smartMinimumMin, smartMaximumIncreasePct);
 }
 
 inline bool isValidAdcPin(int pin) {
@@ -7019,11 +7070,11 @@ void handleRoot() {
     if (!smartWateringEnabled) html += F(" is-disabled");
     html += F("' id='smartNote'><strong>Smart Watering Status:</strong> <span id='smartStatusText'>");
     html += smartWateringEnabled ? F("Enabled") : F("Disabled");
-    html += F("</span><br><strong>Current Runtime Factor:</strong> <span id='smartFactorText'>");
+    html += F("</span><br><strong>Global Runtime Factor:</strong> <span id='smartFactorText'>");
     html += String(smartPctNow);
     html += F("%</span><span id='smartSkipText'>");
     if (smartWateringEnabled && smartFactorNow <= 0.0f) {
-      html += F(" - starts will be skipped by the current smart rules");
+      html += F(" - global rules skip starts; zone overrides may differ");
     }
     html += F("</span><br><strong>Ground Moisture:</strong> <span id='smartMoistureText'>");
     if (!moistureProbeEnabled) {
@@ -7069,7 +7120,7 @@ void handleRoot() {
 
     html += F("<div class='rowx'><label>Wind Delay</label><div class='field'><label class='toggle-inline'><input type='checkbox' name='zoneWindDelay");
     html += String(z); html += F("' "); html += (zoneWindDelayEnabled[z] ? "checked" : "");
-    html += F("> Enable</label><small>Uses the wind switch and threshold in Setup.</small></div></div>");
+    html += F("> Enable</label><small>Pauses watering until windspeed is below threshold set in <strong>Setup</strong>.</small></div></div>");
     // Name
     html += F("<div class='rowx'><label>Name</label><div class='field'>");
     html += F("<input class='in' type='text' name='zoneName"); html += String(z);
@@ -7393,7 +7444,7 @@ void handleRoot() {
   html += F("(function(){ const note=document.getElementById('smartNote'); const status=document.getElementById('smartStatusText'); const factor=document.getElementById('smartFactorText'); const skip=document.getElementById('smartSkipText'); const moisture=document.getElementById('smartMoistureText');");
   html += F("const enabled=!!st.smartWatering; const pct=(typeof st.smartFactor==='number')?Math.round(st.smartFactor*100):100;");
   html += F("if(note) note.classList.toggle('is-disabled',!enabled); if(status) status.textContent=enabled?'Enabled':'Disabled'; if(factor) factor.textContent=(enabled?pct:100)+'%';");
-  html += F("if(skip) skip.textContent=(enabled&&pct<=0)?' - starts will be skipped by the current smart rules':'';");
+  html += F("if(skip) skip.textContent=(enabled&&pct<=0)?' - global rules skip starts; zone overrides may differ':'';");
   html += F("if(moisture){ if(!st.moistureEnabled) moisture.textContent='Disabled'; else if(typeof st.moisturePct!=='number'||st.moisturePct<0) moisture.textContent='No valid reading'; else moisture.textContent=Math.round(st.moisturePct)+(st.moistureSource==='meteo'?'% water volume (Open-Meteo 0-1 cm)':'% wet')+(st.moistureSkip?' - skip active':''); }");
   html += F("})();");
 
@@ -7848,15 +7899,91 @@ void handleSetupPage() {
   html += F("<div class='row switchline'><label>Smart Watering</label><input type='checkbox' name='smartWatering' ");
   html += (smartWateringEnabled ? "checked" : "");
   html += F("><small>Adjust scheduled and manual runtimes using these rules</small></div>");
-  html += F("<div class='row'><label>Cool Below (<span data-temp-unit>"); html += temperatureUnitChar(); html += F("</span>)</label><input class='in-sm' data-smart-temp type='number' step='0.1' name='smartCoolTemp' value='");
-  html += String(temperatureForDisplay(smartCoolTempC), 1); html += F("'><small>Runtime Decrease (%)</small><input class='in-sm' type='number' min='-100' max='300' name='smartCoolPct' value='");
-  html += String(smartCoolAdjustPct); html += F("'></div>");
-  html += F("<div class='row'><label>Hot At/Above (<span data-temp-unit>"); html += temperatureUnitChar(); html += F("</span>)</label><input class='in-sm' data-smart-temp type='number' step='0.1' name='smartHotTemp' value='");
-  html += String(temperatureForDisplay(smartHotTempC), 1); html += F("'><small>Runtime Increase (%)</small><input class='in-sm' type='number' min='-100' max='300' name='smartHotPct' value='");
-  html += String(smartHotAdjustPct); html += F("'></div>");
-  html += F("<div class='row'><label>Very Hot At/Above (<span data-temp-unit>"); html += temperatureUnitChar(); html += F("</span>)</label><input class='in-sm' data-smart-temp type='number' step='0.1' name='smartVeryHotTemp' value='");
-  html += String(temperatureForDisplay(smartVeryHotTempC), 1); html += F("'><small>Runtime Increase (%)</small><input class='in-sm' type='number' min='-100' max='300' name='smartVeryHotPct' value='");
-  html += String(smartVeryHotAdjustPct); html += F("'></div>");
+  html += F("<div class='row'><label for='smartTempBasis'>Temperature Basis</label><select id='smartTempBasis' name='smartTempBasis'>");
+  const char* basisLabels[]={"Current temperature (forecast max fallback)","Forecast maximum today","Forecast average (daily min/max midpoint)"};
+  for (int i=0;i<3;++i) {
+    html += F("<option value='"); html += String(i); html += F("'");
+    if (smartTempBasis==i) html += F(" selected");
+    html += F(">"); html += basisLabels[i]; html += F("</option>");
+  }
+  html += F("</select><small>Forecast maximum is recommended for early-morning watering. If the selected forecast is unavailable, no temperature adjustment is applied.</small></div>");
+  html += F("<style>#smart-card .panel-split>div{min-width:0}.smart-scroll{overflow-x:auto}.smart-table{width:100%;border-collapse:collapse}.smart-table th,.smart-table td{padding:8px 6px;text-align:left;border-bottom:1px solid var(--border,#ddd)}.smart-table input{width:82px;min-width:65px}.smart-table select{min-width:120px}.smart-preview{padding:12px;border:1px solid var(--border,#ddd);border-radius:10px;margin-top:12px}.smart-preview p{margin:6px 0}</style>");
+  html += F("<div class='smart-scroll'><table class='smart-table'><thead><tr><th>Condition</th><th>Temperature (<span data-temp-unit>");
+  html += temperatureUnitChar();
+  html += F("</span>)</th><th>Runtime Adjustment (%)</th></tr></thead><tbody>");
+  const char* ruleNames[]={"Cool","Hot","Very Hot"};
+  const char* tempNames[]={"smartCoolTemp","smartHotTemp","smartVeryHotTemp"};
+  const char* pctNames[]={"smartCoolPct","smartHotPct","smartVeryHotPct"};
+  const float ruleTemps[]={smartCoolTempC,smartHotTempC,smartVeryHotTempC};
+  const int rulePcts[]={smartCoolAdjustPct,smartHotAdjustPct,smartVeryHotAdjustPct};
+  for (int i=0;i<3;++i) {
+    if (i==1) html += F("<tr><th>Normal</th><td id='smartNormalRange'></td><td>0%</td></tr>");
+    html += F("<tr><th>"); html += ruleNames[i]; html += F("</th><td>");
+    html += i==0 ? F("Below ") : F("At/above ");
+    html += F("<input required data-smart-temp type='number' step='0.1' name='"); html += tempNames[i];
+    html += F("' aria-label='"); html += ruleNames[i]; html += F(" temperature' value='");
+    html += String(temperatureForDisplay(ruleTemps[i]),1);
+    html += F("'></td><td><input required type='number' min='-100' max='300' name='"); html += pctNames[i];
+    html += F("' aria-label='"); html += ruleNames[i]; html += F(" runtime adjustment percent' value='");
+    html += String(rulePcts[i]); html += F("'></td></tr>");
+  }
+  html += F("</tbody></table></div><small>Negative values shorten runtime; positive values extend it. Very Hot replaces Hot: +50% means 1.5 times the scheduled runtime. Temperature rules do not stack.</small>");
+  auto smartNumber = [&](const char* name,const char* label,int value,int low,int high) {
+    html += F("<div class='row'><label for='"); html += name; html += F("'>"); html += label;
+    html += F("</label><input required class='in-sm' type='number' id='"); html += name;
+    html += F("' name='"); html += name; html += F("' min='"); html += String(low);
+    html += F("' max='"); html += String(high); html += F("' value='"); html += String(value); html += F("'></div>");
+  };
+  smartNumber("smartMinimumMin","Minimum runtime (min)",smartMinimumMin,0,1440);
+  smartNumber("smartMaximumIncreasePct","Maximum increase (%)",smartMaximumIncreasePct,0,1500);
+  html += F("<small>The minimum prevents shortening below this duration; schedules already shorter stay at their scheduled length. Skips and -100% still give zero. Maximum increase caps the combined adjustment: 100% allows up to twice the schedule.</small>");
+  html += F("<div class='row'><label for='smartHysteresis'>Hysteresis (<span data-temp-unit>"); html += temperatureUnitChar();
+  html += F("</span>)</label><input required class='in-sm' id='smartHysteresis' name='smartHysteresis' type='number' min='0' step='0.1' max='");
+  html += tempUseFahrenheit ? F("18") : F("10"); html += F("' value='");
+  html += String(smartHysteresisC*(tempUseFahrenheit ? 1.8f : 1.0f),1);
+  html += F("'><small>A 1 C gap keeps Hot active until below Hot minus 1 C; Cool ends at Cool plus 1 C. Set 0 to disable. State resets after saving or restarting.</small></div>");
+  smartNumber("smartSeasonalPct","Seasonal runtime (%)",smartSeasonalPct,0,200);
+  html += F("<small>Optional seasonal multiplier: 100% unchanged, 80% shorter, 120% longer. Applied after temperature and before the final limits.</small>");
+  html += F("<details><summary>Per-zone runtime adjustments</summary><small>No adjustment keeps the scheduled duration, while rain and wet-soil skips remain active. Custom percentages replace the global temperature percentages.</small><div class='smart-scroll'><table class='smart-table'><thead><tr><th>Zone</th><th>Mode</th><th>Cool %</th><th>Hot %</th><th>Very Hot %</th></tr></thead><tbody>");
+  for (int z=0;z<zonesCount;++z) {
+    html += F("<tr><th>Zone "); html += String(z+1); html += F("</th><td><select aria-label='Zone "); html += String(z+1);
+    html += F(" adjustment mode' name='smartZoneMode"); html += String(z); html += F("'>");
+    const char* modes[]={"Use global","No adjustment","Custom"};
+    for (int m=0;m<3;++m) {
+      html += F("<option value='"); html += String(m); html += F("'");
+      if (smartZoneMode[z]==m) html += F(" selected");
+      html += F(">"); html += modes[m]; html += F("</option>");
+    }
+    html += F("</select></td>");
+    const int values[]={smartZoneCoolPct[z],smartZoneHotPct[z],smartZoneVeryHotPct[z]};
+    const char* names[]={"smartZoneCool","smartZoneHot","smartZoneVeryHot"};
+    for (int r=0;r<3;++r) {
+      html += F("<td><input required type='number' min='-100' max='300' name='"); html += names[r]; html += String(z);
+      html += F("' aria-label='Zone "); html += String(z+1); html += F(" "); html += ruleNames[r];
+      html += F(" adjustment percent' value='"); html += String(values[r]); html += F("'></td>");
+    }
+    html += F("</tr>");
+  }
+  html += F("</tbody></table></div></details><div class='smart-preview'><strong>Live runtime preview</strong><p id='smartWeatherNow'></p><p id='smartRuleNow' role='status' aria-live='polite'></p><div id='smartZonePreview'></div><small>Uses weather and saved schedules at page load. Changes preview immediately; Save applies them. Other start delays still apply. Reload to refresh weather.</small></div>");
+  JsonDocument smartPreview;
+  smartPreview["current"]=curTempC;
+  smartPreview["maximum"]=todayMax_C;
+  smartPreview["minimum"]=todayMin_C;
+  smartPreview["actualRain"]=last24hActualRain();
+  smartPreview["forecastRain"]=isfinite(rainNext24h_mm) ? rainNext24h_mm : 0.0f;
+  smartPreview["moisture"]=moisturePercent();
+  smartPreview["moistureRaw"]=setupMoistureRaw;
+  smartPreview["moistureSource"]=moistureUseMeteo ? "meteo" : "probe";
+  smartPreview["rule"]=smartCurrentRule();
+  JsonArray previewZones=smartPreview["zones"].to<JsonArray>();
+  for (int z=0;z<zonesCount;++z) {
+    JsonObject zone=previewZones.add<JsonObject>();
+    zone["primary"]=durationForSlot(z,1);
+    zone["secondary"]=enableStartTime2[z] ? durationForSlot(z,2) : 0;
+  }
+  html += F("<script type='application/json' id='smartPreviewData'>");
+  serializeJson(smartPreview,html);
+  html += F("</script>");
   html += F("<div class='row'><label>Actual Rain Skip Above (mm)</label><input class='in-sm' type='number' step='0.1' min='0' max='200' name='smartActualRainMm' value='");
   html += String(smartActualRainSkipMm, 1); html += F("'><small>Light-rain adjustment up to this amount (%)</small><input class='in-sm' type='number' min='-100' max='300' name='smartLightRainPct' value='");
   html += String(smartLightRainAdjustPct); html += F("'></div>");
@@ -7946,7 +8073,7 @@ void handleSetupPage() {
   html += F("<option value='meteo'"); html += (climateSource == CLIMATE_OPEN_METEO ? " selected" : ""); html += F(">Open-Meteo</option>");
   html += F("<option value='aht20'"); html += (climateSource == CLIMATE_AHT20_I2C ? " selected" : ""); html += F(">AHT20/AHT21 on I2C</option>");
   html += F("<option value='dht22'"); html += (climateSource == CLIMATE_DHT22_GPIO ? " selected" : ""); html += F(">DHT22/AM2302 on GPIO</option>");
-  html += F("</select><small>Local sensors replace dashboard and Smart Watering temperature/humidity; rain and wind still use Open-Meteo.</small></div>");
+  html += F("</select><small>Local sensors supply current temperature/humidity. Smart Watering uses the selected Temperature Basis; forecast sources still use Open-Meteo.</small></div>");
   html += F("<div class='row'><label>Temperature Unit</label><select class='in-sm' name='tempUnit' id='tempUnitSelect'>");
   html += F("<option value='C'"); html += (!tempUseFahrenheit ? " selected" : ""); html += F(">Celsius (C)</option>");
   html += F("<option value='F'"); html += (tempUseFahrenheit ? " selected" : ""); html += F(">Fahrenheit (F)</option></select><small>Dashboard, screen, and Smart Watering thresholds</small></div>");
@@ -8273,6 +8400,110 @@ void handleSetupPage() {
   html += F("const g=id=>document.getElementById(id);");
   html += F("let setupTempUnit='"); html += temperatureUnitChar(); html += F("';const tempUnitSel=g('tempUnitSelect');");
   html += F("tempUnitSel?.addEventListener('change',()=>{const next=tempUnitSel.value==='F'?'F':'C';if(next===setupTempUnit)return;document.querySelectorAll('[data-smart-temp]').forEach(el=>{const v=parseFloat(el.value);if(Number.isFinite(v))el.value=(next==='F'?(v*9/5+32):(v-32)*5/9).toFixed(1);});document.querySelectorAll('[data-temp-unit]').forEach(el=>el.textContent=next);setupTempUnit=next;});");
+  html += F(R"SMARTJS(
+function smartPreviewRule(t, previous, cool, hot, veryHot, h) {
+  if (!Number.isFinite(t)) return -1;
+  if (t >= veryHot) return 3;
+  if (previous === 3 && t >= veryHot-h) return 3;
+  if (t >= hot) return 2;
+  if (previous >= 2 && t >= hot-h) return 2;
+  if (t < cool) return 0;
+  if (previous === 0 && t < cool+h) return 0;
+  return 1;
+}
+function smartPreviewRuntime(base, factor, minimum, maximum) {
+  if (base === 0 || factor <= 0) return 0;
+  const cap=Math.round(base*(1+maximum/100));
+  return Math.max(1,Math.min(cap,Math.max(Math.min(base,minimum*60),Math.round(base*factor))));
+}
+function smartPreviewFactor(enabled, skip, mode, pct, seasonal, lightRain, lightPct, maximum) {
+  if (!enabled) return 1;
+  if (skip) return 0;
+  if (mode===1) return 1;
+  return Math.max(0,Math.min(1+maximum/100,(1+pct/100)*seasonal/100*(lightRain ? 1+lightPct/100 : 1)));
+}
+(function(){
+  const form=document.getElementById('setupForm');
+  const data=JSON.parse(document.getElementById('smartPreviewData').textContent);
+  const field=name=>form.elements.namedItem(name);
+  const number=name=>{const el=field(name);return el && el.value.trim()!=='' ? Number(el.value) : NaN;};
+  const unit=()=>field('tempUnit').value;
+  const celsius=v=>unit()==='F' ? (v-32)*5/9 : v;
+  const shown=v=>Number.isFinite(v) ? (unit()==='F' ? v*9/5+32 : v).toFixed(1)+' '+unit() : 'unavailable';
+  const pctLabel=v=>(v>0?'+':'')+v+'%';
+  const time=seconds=>seconds===0?'Skipped':(seconds/60).toFixed(2).replace(/\.?0+$/,'')+' min';
+  const thresholds=['smartCoolTemp','smartHotTemp','smartVeryHotTemp'];
+  let edited=false;
+  let previousUnit=unit();
+  field('tempUnit').addEventListener('change',()=>{
+    const next=unit();
+    if(next!==previousUnit){
+      const input=field('smartHysteresis');
+      input.value=(Number(input.value)*(next==='F'?1.8:1/1.8)).toFixed(1);
+      previousUnit=next;
+    }
+    field('smartHysteresis').max=next==='F'?'18':'10';
+  });
+  function update(event){
+    if(event) edited=true;
+    const cool=celsius(number(thresholds[0])),hot=celsius(number(thresholds[1])),veryHot=celsius(number(thresholds[2]));
+    for(const name of thresholds){field(name).min=unit()==='F'?'-22':'-30';field(name).max=unit()==='F'?'140':'60';}
+    const validOrder=cool<hot && hot<veryHot;
+    field('smartHotTemp').setCustomValidity(validOrder?'':'Use Cool < Hot < Very Hot.');
+    document.getElementById('smartNormalRange').textContent=shown(cool)+' to below '+shown(hot);
+    const status=document.getElementById('smartRuleNow');
+    const output=document.getElementById('smartZonePreview');
+    const controls=[...form.querySelectorAll('[name^="smart"]')];
+    controls.forEach(el=>{if(el.type==='number') el.required=true;});
+    if(!validOrder || controls.some(el=>el.type==='number' && (!Number.isFinite(number(el.name)) || !el.validity.valid))){
+      status.textContent='Enter valid values within the displayed limits; Cool must be below Hot, and Hot below Very Hot.';
+      output.replaceChildren();return;
+    }
+    const basis=number('smartTempBasis');
+    let temperature=basis===1 ? data.maximum : basis===2 ? (Number.isFinite(data.minimum)&&Number.isFinite(data.maximum)?(data.minimum+data.maximum)/2:null) : (Number.isFinite(data.current)?data.current:data.maximum);
+    if(!Number.isFinite(temperature)) temperature=NaN;
+    const h=number('smartHysteresis')*(unit()==='F'?5/9:1);
+    const rule=smartPreviewRule(temperature,edited?-1:data.rule,cool,hot,veryHot,h);
+    const adjustment=(prefix='smart',suffix='')=>rule===0?number(prefix+'Cool'+suffix):rule===2?number(prefix+'Hot'+suffix):rule===3?number(prefix+'VeryHot'+suffix):0;
+    const globalPct=adjustment('smart','Pct');
+    const enabled=field('smartWatering').checked;
+    let moisture=data.moisture;
+    const sameSource=field('moistureSource').value===data.moistureSource;
+    if(sameSource && data.moistureSource==='probe' && data.moistureRaw>=0){
+      const dry=number('moistureDryRaw'),wet=number('moistureWetRaw');
+      moisture=dry===wet?-1:Math.max(0,Math.min(100,Math.trunc((data.moistureRaw-dry)*100/(wet-dry))));
+    }
+    const wet=field('moistureProbeEnabled').checked && sameSource && moisture>=0 && moisture>=number('moistureSkipPct');
+    const actualSkip=data.actualRain>number('smartActualRainMm');
+    const forecastSkip=data.forecastRain>number('smartForecastRainMm');
+    const skip=wet||actualSkip||forecastSkip;
+    const lightRain=data.actualRain>0 && !actualSkip;
+    const reason=wet?'wet soil':actualSkip?'actual rainfall':forecastSkip?'forecast rainfall':'';
+    document.getElementById('smartWeatherNow').textContent="Today's forecast maximum: "+shown(data.maximum)+' | Temperature used: '+shown(temperature)+(basis===0&&!Number.isFinite(data.current)&&Number.isFinite(data.maximum)?' (forecast fallback)':'');
+    const label=rule<0?'TEMPERATURE UNAVAILABLE':['COOL','NORMAL','HOT','VERY HOT'][rule];
+    status.textContent=!enabled?'Smart Watering disabled - scheduled runtimes unchanged.':skip?'Rule applied: SKIP - '+reason:'Rule applied: '+label+' ('+pctLabel(globalPct)+')'+(edited?' - unsaved preview':'');
+    output.replaceChildren();
+    data.zones.forEach((zone,z)=>{
+      const mode=number('smartZoneMode'+z);
+      const pct=mode===2?adjustment('smartZone',String(z)):globalPct;
+      const factor=smartPreviewFactor(enabled,skip,mode,pct,number('smartSeasonalPct'),lightRain,number('smartLightRainPct'),number('smartMaximumIncreasePct'));
+      for(const [slot,base] of [['1',zone.primary],['2',zone.secondary]]){
+        if(slot==='2' && !base) continue;
+        const adjusted=enabled?smartPreviewRuntime(base,factor,number('smartMinimumMin'),number('smartMaximumIncreasePct')):base;
+        const line=document.createElement('p');
+        line.textContent='Zone '+(z+1)+(zone.secondary?' / Start '+slot:'')+': '+(base/60).toFixed(2).replace(/\.?0+$/,'')+' min \u2192 '+(base===0?'0 min (not scheduled)':time(adjusted));
+        output.append(line);
+      }
+    });
+    if(field('moistureProbeEnabled').checked && (!sameSource || moisture<0)){
+      const note=document.createElement('p');note.textContent='Moisture reading unavailable for these settings. Save and reload to refresh; preview cannot apply a wet-soil skip yet.';output.append(note);
+    }
+  }
+  form.addEventListener('input',update);
+  form.addEventListener('change',update);
+  update();
+})();
+)SMARTJS");
   html += F("function addRipple(e){const t=e.currentTarget; if(t.disabled) return; const rect=t.getBoundingClientRect();");
   html += F("const size=Math.max(rect.width,rect.height); const x=(e.clientX|| (rect.left+rect.width/2)) - rect.left - size/2;");
   html += F("const y=(e.clientY|| (rect.top+rect.height/2)) - rect.top - size/2;");
@@ -9023,7 +9254,7 @@ void loadConfig() {
   tankGpioActiveLow  = gpioActiveLow;
 
   // Read the rest of the file so older configs can safely skip the new per-pin polarity block.
-  String tail[64];
+  String tail[64 + 5 + 4 * MAX_ZONES]; // legacy tail plus v2.9 global and per-zone settings
   int tailCount = 0;
   while (f.available() && tailCount < (int)(sizeof(tail) / sizeof(tail[0]))) {
     tail[tailCount++] = _safeReadLine(f);
@@ -9156,6 +9387,25 @@ void loadConfig() {
     if (s.length() >= 8 && s.length() <= 64) otaPassword = s;
   }
   if (nextTail(s) && s.length()) moistureUseMeteo = (s == "meteo");
+  // Optional v2.9 tail. Older configurations retain their previous runtime behaviour.
+  smartTempBasis=0; smartMinimumMin=0; smartMaximumIncreasePct=1500; smartHysteresisC=0; smartSeasonalPct=100;
+  if (nextTail(s) && s.length()) { int v=s.toInt(); if (v >= 0 && v <= 2) smartTempBasis=v; }
+  if (nextTail(s) && s.length()) { int v=s.toInt(); if (v >= 0 && v <= 1440) smartMinimumMin=v; }
+  if (nextTail(s) && s.length()) { int v=s.toInt(); if (v >= 0 && v <= 1500) smartMaximumIncreasePct=v; }
+  if (nextTail(s) && s.length()) { float v=s.toFloat(); if (v >= 0 && v <= 10) smartHysteresisC=v; }
+  if (nextTail(s) && s.length()) { int v=s.toInt(); if (v >= 0 && v <= 200) smartSeasonalPct=v; }
+  for (int z=0; z<MAX_ZONES; ++z) {
+    smartZoneMode[z]=0;
+    if (nextTail(s) && s.length()) { int v=s.toInt(); if (v >= 0 && v <= 2) smartZoneMode[z]=v; }
+    smartZoneCoolPct[z]=smartCoolAdjustPct;
+    if (nextTail(s) && s.length()) { int v=s.toInt(); if (v >= -100 && v <= 300) smartZoneCoolPct[z]=v; }
+    smartZoneHotPct[z]=smartHotAdjustPct;
+    if (nextTail(s) && s.length()) { int v=s.toInt(); if (v >= -100 && v <= 300) smartZoneHotPct[z]=v; }
+    smartZoneVeryHotPct[z]=smartVeryHotAdjustPct;
+    if (nextTail(s) && s.length()) { int v=s.toInt(); if (v >= -100 && v <= 300) smartZoneVeryHotPct[z]=v; }
+  }
+  smartRuleState=-1;
+
 
   if (!(smartCoolTempC < smartHotTempC && smartHotTempC < smartVeryHotTempC)) {
     smartCoolTempC = 18.0f;
@@ -9307,6 +9557,18 @@ void saveConfig() {
   f.println(dhtSensorPin);
   f.println(otaPassword);
   f.println(moistureUseMeteo ? "meteo" : "probe");
+  f.println(smartTempBasis);
+  f.println(smartMinimumMin);
+  f.println(smartMaximumIncreasePct);
+  f.println(smartHysteresisC);
+  f.println(smartSeasonalPct);
+  for (int z=0; z<MAX_ZONES; ++z) {
+    f.println(smartZoneMode[z]);
+    f.println(smartZoneCoolPct[z]);
+    f.println(smartZoneHotPct[z]);
+    f.println(smartZoneVeryHotPct[z]);
+  }
+
 
   f.close();
 }
@@ -9370,6 +9632,46 @@ void saveSchedule() {
 
 void handleConfigure() {
   HttpScope _scope;
+  // Validate before mutating any settings, including requests sent without browser validation.
+  auto validSmartNumber = [&](const String& name, float low, float high, bool integer) -> bool {
+    if (!server.hasArg(name)) return true;
+    String raw=server.arg(name); raw.trim();
+    char *end=nullptr;
+    float value=strtof(raw.c_str(), &end);
+    return raw.length() && end && *end == '\0' && isfinite(value) && value >= low && value <= high && (!integer || floorf(value)==value);
+  };
+  bool smartValid=true;
+  const bool smartF=server.hasArg("tempUnit") ? server.arg("tempUnit")=="F" : tempUseFahrenheit;
+  const char* pctFields[]={"smartCoolPct","smartHotPct","smartVeryHotPct","smartLightRainPct"};
+  for (const char* name : pctFields) smartValid &= validSmartNumber(name,-100,300,true);
+  smartValid &= validSmartNumber("smartTempBasis",0,2,true);
+  smartValid &= validSmartNumber("smartMinimumMin",0,1440,true);
+  smartValid &= validSmartNumber("smartMaximumIncreasePct",0,1500,true);
+  smartValid &= validSmartNumber("smartSeasonalPct",0,200,true);
+  smartValid &= validSmartNumber("smartHysteresis",0,smartF ? 18 : 10,false);
+  smartValid &= validSmartNumber("smartActualRainMm",0,200,false);
+  smartValid &= validSmartNumber("smartForecastRainMm",0,200,false);
+  const char* tempFields[]={"smartCoolTemp","smartHotTemp","smartVeryHotTemp"};
+  float thresholds[]={smartCoolTempC,smartHotTempC,smartVeryHotTempC};
+  for (int i=0;i<3;++i) {
+    smartValid &= validSmartNumber(tempFields[i],smartF ? -22 : -30,smartF ? 140 : 60,false);
+    if (server.hasArg(tempFields[i])) {
+      float v=server.arg(tempFields[i]).toFloat();
+      thresholds[i]=smartF ? (v-32)*5/9 : v;
+    }
+  }
+  smartValid &= thresholds[0]<thresholds[1] && thresholds[1]<thresholds[2];
+  for (int z=0;z<MAX_ZONES;++z) {
+    smartValid &= validSmartNumber("smartZoneMode"+String(z),0,2,true);
+    smartValid &= validSmartNumber("smartZoneCool"+String(z),-100,300,true);
+    smartValid &= validSmartNumber("smartZoneHot"+String(z),-100,300,true);
+    smartValid &= validSmartNumber("smartZoneVeryHot"+String(z),-100,300,true);
+  }
+  if (!smartValid) {
+    server.send(400,"text/plain","Smart Watering settings invalid. Use numbers within the displayed limits and Cool < Hot < Very Hot. No settings saved.");
+    return;
+  }
+
   String displayCfgErr;
   String requestedOtaPassword;
   bool changeOtaPassword = false;
@@ -9477,6 +9779,20 @@ void handleConfigure() {
   // Run mode (sequential vs concurrent)
   runZonesConcurrent = server.hasArg("runConcurrent");
   smartWateringEnabled = server.hasArg("smartWatering");
+  if (server.hasArg("smartTempBasis")) smartTempBasis=server.arg("smartTempBasis").toInt();
+  if (server.hasArg("smartMinimumMin")) smartMinimumMin=server.arg("smartMinimumMin").toInt();
+  if (server.hasArg("smartMaximumIncreasePct")) smartMaximumIncreasePct=server.arg("smartMaximumIncreasePct").toInt();
+  if (server.hasArg("smartHysteresis")) smartHysteresisC=server.arg("smartHysteresis").toFloat();
+  if (server.hasArg("smartSeasonalPct")) smartSeasonalPct=server.arg("smartSeasonalPct").toInt();
+  if (server.hasArg("smartHysteresis") && (server.hasArg("tempUnit") ? server.arg("tempUnit")=="F" : tempUseFahrenheit)) smartHysteresisC *= 5.0f/9.0f;
+  for (int z=0; z<MAX_ZONES; ++z) {
+    if (server.hasArg("smartZoneMode"+String(z))) smartZoneMode[z]=server.arg("smartZoneMode"+String(z)).toInt();
+    if (server.hasArg("smartZoneCool"+String(z))) smartZoneCoolPct[z]=server.arg("smartZoneCool"+String(z)).toInt();
+    if (server.hasArg("smartZoneHot"+String(z))) smartZoneHotPct[z]=server.arg("smartZoneHot"+String(z)).toInt();
+    if (server.hasArg("smartZoneVeryHot"+String(z))) smartZoneVeryHotPct[z]=server.arg("smartZoneVeryHot"+String(z)).toInt();
+  }
+  smartRuleState=-1;
+
 
   const bool submittedFahrenheit = server.hasArg("tempUnit")
                                     ? (server.arg("tempUnit") == "F")
