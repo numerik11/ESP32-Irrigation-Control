@@ -11,7 +11,9 @@ A flexible, locally controlled irrigation system for **1–16 solenoid valves**.
 
 Schedules run on the controller, so watering continues even when the internet is unavailable.
 
-## Firmware 2.9
+## Firmware 2.9.1
+
+Fixes the missing Smart Watering controls, exposed preview JSON, and broken Setup layout in 2.9 by streaming the HTML before JSON serialization replaces the buffer.
 
 Smart Watering now has an editable rule table and an immediate runtime preview for every zone and both start times. Choose current temperature, today's forecast maximum, or the midpoint of the forecast daily minimum and maximum. Very Hot replaces Hot; percentages do not stack.
 

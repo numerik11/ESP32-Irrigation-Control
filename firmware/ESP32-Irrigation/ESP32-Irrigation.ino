@@ -54,7 +54,7 @@ extern "C" {
 // ---------- Hardware ----------
 static const char kFirmwareSignature[] __attribute__((used)) =
   "Original author: Beau Kaczmarek - https://github.com/numerik11/ESP32-Irrigation-Controller";
-static const char kFirmwareVersion[] = "2.9";
+static const char kFirmwareVersion[] = "2.9.1";
 static const char kFirmwareBuildDate[] = __DATE__ " " __TIME__;
 static const char kUpdateReportUrl[] =
   "https://irrigation-update-counter.beaukacz86.workers.dev/v1/report";
@@ -7982,6 +7982,8 @@ void handleSetupPage() {
     zone["secondary"]=enableStartTime2[z] ? durationForSlot(z,2) : 0;
   }
   html += F("<script type='application/json' id='smartPreviewData'>");
+  // ArduinoJson 7 replaces its String destination: send the HTML before reusing its buffer.
+  flush();
   serializeJson(smartPreview,html);
   html += F("</script>");
   html += F("<div class='row'><label>Actual Rain Skip Above (mm)</label><input class='in-sm' type='number' step='0.1' min='0' max='200' name='smartActualRainMm' value='");

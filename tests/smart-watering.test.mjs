@@ -10,6 +10,26 @@ const preview={};
 vm.runInNewContext(pureJavascript,preview);
 const helpers=compileFirmwareFunctions(source,['smartRuleForTemperature','smartRuleAdjustment','smartLimitRuntime']);
 
+test('preview JSON serialization preserves the streamed setup controls and script wrapper',()=>{
+  const setup=extractFunction(source,'handleSetupPage');
+  const start=setup.indexOf('  html += F("<script type=\'application/json\'');
+  const end=setup.indexOf('  html += F("</script>");',start)+'  html += F("</script>");'.length;
+  const fragment=setup.slice(start,end).replaceAll('html +=','html.value +=');
+  const controls='<section id="smart-card"><table><tr><td>Smart Watering</td></tr></table>';
+  const html={value:controls};
+  const chunks=[];
+  const data={maximum:34.2,zones:[{primary:1800,secondary:0}]};
+  new Function('html','F','flush','serializeJson','smartPreview',fragment)(
+    html,value=>value,()=>{chunks.push(html.value);html.value='';},
+    (value,destination)=>{destination.value=JSON.stringify(value);},data,
+  );
+  const page=chunks.join('')+html.value;
+  assert.ok(page.startsWith(controls),'JSON writer must not erase the preceding form');
+  const json=/<script type='application\/json' id='smartPreviewData'>(.*?)<\/script>/.exec(page);
+  assert.ok(json,'JSON must stay inside its script element');
+  assert.deepEqual(JSON.parse(json[1]),data);
+});
+
 test('temperature boundaries, exclusive Very Hot, and hysteresis transitions',()=>{
   const rule=(t,previous=-1,h=1)=>helpers.smartRuleForTemperature(t,previous,15,30,37,h);
   assert.equal(rule(14.9),0);
