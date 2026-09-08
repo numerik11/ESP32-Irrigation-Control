@@ -54,7 +54,7 @@ extern "C" {
 // ---------- Hardware ----------
 static const char kFirmwareSignature[] __attribute__((used)) =
   "Original author: Beau Kaczmarek - https://github.com/numerik11/ESP32-Irrigation-Controller";
-static const char kFirmwareVersion[] = "2.9.2";
+static const char kFirmwareVersion[] = "2.9.3";
 static const char kFirmwareBuildDate[] = __DATE__ " " __TIME__;
 static const char kUpdateReportUrl[] =
   "https://irrigation-update-counter.beaukacz86.workers.dev/v1/report";
@@ -7927,28 +7927,8 @@ void handleSetupPage() {
     html += F("' aria-label='"); html += ruleNames[i]; html += F(" runtime adjustment percent' value='");
     html += String(rulePcts[i]); html += F("'></td></tr>");
   }
-  html += F("</tbody></table></div><small>Negative values shorten runtime; positive values extend it. Very Hot replaces Hot: +50% means 1.5 times the scheduled runtime. Temperature rules do not stack.</small>");
-  html += F("<details><summary>Per-zone runtime adjustments</summary><small>No adjustment keeps the scheduled duration, while rain and wet-soil skips remain active. Custom percentages replace the global temperature percentages.</small><div class='smart-scroll'><table class='smart-table'><thead><tr><th>Zone</th><th>Mode</th><th>Cool %</th><th>Hot %</th><th>Very Hot %</th></tr></thead><tbody>");
-  for (int z=0;z<zonesCount;++z) {
-    html += F("<tr><th>Zone "); html += String(z+1); html += F("</th><td><select aria-label='Zone "); html += String(z+1);
-    html += F(" adjustment mode' name='smartZoneMode"); html += String(z); html += F("'>");
-    const char* modes[]={"Use global","No adjustment","Custom"};
-    for (int m=0;m<3;++m) {
-      html += F("<option value='"); html += String(m); html += F("'");
-      if (smartZoneMode[z]==m) html += F(" selected");
-      html += F(">"); html += modes[m]; html += F("</option>");
-    }
-    html += F("</select></td>");
-    const int values[]={smartZoneCoolPct[z],smartZoneHotPct[z],smartZoneVeryHotPct[z]};
-    const char* names[]={"smartZoneCool","smartZoneHot","smartZoneVeryHot"};
-    for (int r=0;r<3;++r) {
-      html += F("<td><input required type='number' min='-100' max='300' name='"); html += names[r]; html += String(z);
-      html += F("' aria-label='Zone "); html += String(z+1); html += F(" "); html += ruleNames[r];
-      html += F(" adjustment percent' value='"); html += String(values[r]); html += F("'></td>");
-    }
-    html += F("</tr>");
-  }
-  html += F("</tbody></table></div></details><div class='smart-preview'><strong>Live runtime preview</strong><p id='smartWeatherNow'></p><p id='smartRuleNow' role='status' aria-live='polite'></p><div id='smartZonePreview'></div><small>Uses weather and saved schedules at page load. Changes preview immediately; Save applies them. Other start delays still apply. Reload to refresh weather.</small></div>");
+  html += F("</tbody></table></div><small>Negative values shorten runtime; positive values extend it. Very Hot replaces Hot: +50% means 1.5 times the scheduled runtime.</small>");
+  html += F("<div class='smart-preview'><strong>Live runtime preview</strong><p id='smartRuleNow' role='status' aria-live='polite'></p><div id='smartZonePreview'></div><small>Scheduled &rarr; adjusted runtime. Save to apply; reload for fresh weather.</small></div>");
   JsonDocument smartPreview;
   smartPreview["current"]=curTempC;
   smartPreview["maximum"]=todayMax_C;
@@ -7962,6 +7942,10 @@ void handleSetupPage() {
   JsonArray previewZones=smartPreview["zones"].to<JsonArray>();
   for (int z=0;z<zonesCount;++z) {
     JsonObject zone=previewZones.add<JsonObject>();
+    zone["mode"]=smartZoneMode[z];
+    zone["coolPct"]=smartZoneCoolPct[z];
+    zone["hotPct"]=smartZoneHotPct[z];
+    zone["veryHotPct"]=smartZoneVeryHotPct[z];
     zone["primary"]=durationForSlot(z,1);
     zone["secondary"]=enableStartTime2[z] ? durationForSlot(z,2) : 0;
   }
@@ -8444,8 +8428,7 @@ function smartPreviewFactor(enabled, skip, mode, pct, seasonal, lightRain, light
     if(!Number.isFinite(temperature)) temperature=NaN;
     const h=data.hysteresisC;
     const rule=smartPreviewRule(temperature,edited?-1:data.rule,cool,hot,veryHot,h);
-    const adjustment=(prefix='smart',suffix='')=>rule===0?number(prefix+'Cool'+suffix):rule===2?number(prefix+'Hot'+suffix):rule===3?number(prefix+'VeryHot'+suffix):0;
-    const globalPct=adjustment('smart','Pct');
+    const globalPct=rule===0?number('smartCoolPct'):rule===2?number('smartHotPct'):rule===3?number('smartVeryHotPct'):0;
     const enabled=field('smartWatering').checked;
     let moisture=data.moisture;
     const sameSource=field('moistureSource').value===data.moistureSource;
@@ -8459,24 +8442,30 @@ function smartPreviewFactor(enabled, skip, mode, pct, seasonal, lightRain, light
     const skip=wet||actualSkip||forecastSkip;
     const lightRain=data.actualRain>0 && !actualSkip;
     const reason=wet?'wet soil':actualSkip?'actual rainfall':forecastSkip?'forecast rainfall':'';
-    document.getElementById('smartWeatherNow').textContent="Today's forecast maximum: "+shown(data.maximum)+' | Temperature used: '+shown(temperature)+(basis===0&&!Number.isFinite(data.current)&&Number.isFinite(data.maximum)?' (forecast fallback)':'');
-    const label=rule<0?'TEMPERATURE UNAVAILABLE':['COOL','NORMAL','HOT','VERY HOT'][rule];
-    status.textContent=!enabled?'Smart Watering disabled - scheduled runtimes unchanged.':skip?'Rule applied: SKIP - '+reason:'Rule applied: '+label+' ('+pctLabel(globalPct)+')'+(edited?' - unsaved preview':'');
+    const label=rule<0?'Temperature unavailable':['Cool','Normal','Hot','Very hot'][rule];
+    status.textContent=!enabled?'Smart Watering off':skip?'Skipped: '+reason:label+(rule<0?'':' ('+pctLabel(globalPct)+') - '+shown(temperature)+(basis===0&&!Number.isFinite(data.current)?' forecast':''));
     output.replaceChildren();
     data.zones.forEach((zone,z)=>{
-      const mode=number('smartZoneMode'+z);
-      const pct=mode===2?adjustment('smartZone',String(z)):globalPct;
+      const mode=zone.mode;
+      const pct=mode===2?(rule===0?zone.coolPct:rule===2?zone.hotPct:rule===3?zone.veryHotPct:0):globalPct;
       const factor=smartPreviewFactor(enabled,skip,mode,pct,data.seasonalPct,lightRain,number('smartLightRainPct'),data.maximumIncreasePct);
+      const runtimes=[];
       for(const [slot,base] of [['1',zone.primary],['2',zone.secondary]]){
-        if(slot==='2' && !base) continue;
+        if(!base) continue;
         const adjusted=enabled?smartPreviewRuntime(base,factor,data.minimumMin,data.maximumIncreasePct):base;
+        runtimes.push((zone.secondary?'Start '+slot+': ':'')+(base/60).toFixed(2).replace(/\.?0+$/,'')+' \u2192 '+time(adjusted));
+      }
+      if(runtimes.length){
         const line=document.createElement('p');
-        line.textContent='Zone '+(z+1)+(zone.secondary?' / Start '+slot:'')+': '+(base/60).toFixed(2).replace(/\.?0+$/,'')+' min \u2192 '+(base===0?'0 min (not scheduled)':time(adjusted));
+        line.textContent='Runtime: '+runtimes.join(' | ');
         output.append(line);
       }
     });
+    if(!output.children.length){
+      const note=document.createElement('p');note.textContent='No watering scheduled.';output.append(note);
+    }
     if(field('moistureProbeEnabled').checked && (!sameSource || moisture<0)){
-      const note=document.createElement('p');note.textContent='Moisture reading unavailable for these settings. Save and reload to refresh; preview cannot apply a wet-soil skip yet.';output.append(note);
+      const note=document.createElement('p');note.textContent='Soil reading unavailable; wet-soil skip cannot be previewed.';output.append(note);
     }
   }
   form.addEventListener('input',update);

@@ -133,23 +133,26 @@ test('preview runs in Setup and responds immediately to edited percentages and s
   assert.ok(!extractFunction(source,'handleRoot').includes('R"SMARTJS('));
   const values={tempUnit:'C',smartTempBasis:'1',smartCoolTemp:'15',smartHotTemp:'30',smartVeryHotTemp:'37',
     smartCoolPct:'-50',smartHotPct:'25',smartVeryHotPct:'50',smartActualRainMm:'5',smartForecastRainMm:'5',smartLightRainPct:'-30',
-    moistureSource:'meteo',moistureSkipPct:'50',smartZoneMode0:'0',smartZoneMode1:'0'};
+    moistureSource:'meteo',moistureSkipPct:'50'};
   const fields=Object.fromEntries(Object.entries(values).map(([name,value])=>[name,{name,value,type:'number',validity:{valid:true},
     setCustomValidity(message){this.validity.valid=!message;},addEventListener(){}}]));
   fields.smartWatering={checked:true};fields.moistureProbeEnabled={checked:true};
   const events={};
   const nodes={setupForm:{elements:{namedItem:name=>fields[name]},querySelectorAll:()=>Object.entries(fields).filter(([name])=>name.startsWith('smart')).map(([,el])=>el),addEventListener:(name,fn)=>events[name]=fn},
     smartPreviewData:{textContent:JSON.stringify({hysteresisC:1,seasonalPct:100,maximumIncreasePct:100,minimumMin:5,current:12,maximum:34.2,minimum:20,actualRain:0,forecastRain:0,moisture:20,
-      moistureRaw:-1,moistureSource:'meteo',rule:2,zones:[{primary:1800,secondary:0},{primary:7200,secondary:0}]})},
-    smartNormalRange:{},smartRuleNow:{},smartWeatherNow:{},smartZonePreview:{children:[],replaceChildren(){this.children=[];},append(node){this.children.push(node);}}};
+      moistureRaw:-1,moistureSource:'meteo',rule:2,zones:[{mode:0,primary:1800,secondary:0},{mode:0,primary:7200,secondary:0},{mode:2,hotPct:50,primary:600,secondary:1200},{mode:1,primary:600,secondary:0},{mode:0,primary:0,secondary:0}]})},
+    smartNormalRange:{},smartRuleNow:{},smartZonePreview:{children:[],replaceChildren(){this.children=[];},append(node){this.children.push(node);}}};
   vm.runInNewContext(javascript,{document:{getElementById:id=>nodes[id],createElement:()=>({})}});
-  assert.match(nodes.smartRuleNow.textContent,/HOT \(\+25%\)/);
+  assert.match(nodes.smartRuleNow.textContent,/Hot \(\+25%\)/);
   assert.match(nodes.smartZonePreview.children[0].textContent,/37.5 min$/);
+  assert.equal(nodes.smartZonePreview.children.length,4,'omit unscheduled zones');
+  assert.equal(nodes.smartZonePreview.children[2].textContent,'Runtime: Start 1: 10 \u2192 15 min | Start 2: 20 \u2192 30 min');
+  assert.equal(nodes.smartZonePreview.children[3].textContent,'Runtime: 10 \u2192 10 min','preserve saved zone opt-out');
   fields.smartHotPct.value='30';events.input({});
   assert.match(nodes.smartZonePreview.children[0].textContent,/39 min$/);
   assert.match(nodes.smartZonePreview.children[1].textContent,/156 min$/);
   fields.moistureSkipPct.value='10';events.input({});
-  assert.match(nodes.smartRuleNow.textContent,/SKIP/);
+  assert.match(nodes.smartRuleNow.textContent,/Skipped/);
   assert.match(nodes.smartZonePreview.children[0].textContent,/Skipped$/);
   fields.smartWatering.checked=false;events.change({});
   assert.match(nodes.smartZonePreview.children[0].textContent,/30 min$/);

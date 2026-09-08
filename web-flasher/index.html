@@ -161,7 +161,7 @@
 <body>
   <main>
     <h1>ESP32 Irrigation Firmware Update</h1>
-    <p>Version 2.9.2 simplifies Smart Watering setup by removing the minimum runtime, maximum increase, hysteresis, and seasonal runtime controls. Live runtime previews continue to use saved settings.</p>
+    <p>Version 2.9.3 removes the per-zone runtime adjustment controls and simplifies the live preview with Runtime labels and shorter help text. Previews continue to use saved settings.</p>
 
     <label for="board">Board</label>
     <select id="board">
@@ -186,7 +186,7 @@
       <esp-web-install-button id="installer"></esp-web-install-button>
     </div>
 
-    <p><a id="firmwareDownload" href="esp32-dev/firmware.bin?v=2.9.2" download>Download application .bin for Browser OTA</a></p>
+    <p><a id="firmwareDownload" href="esp32-dev/firmware.bin?v=2.9.3" download>Download application .bin for Browser OTA</a></p>
     <label for="firmwareLink">GitHub URL for Browser OTA</label>
     <input id="firmwareLink" type="url" readonly style="width:100%;padding:10px" aria-label="GitHub firmware URL for selected board">
     <p>Copy this URL into the controller's Browser OTA page, or download the .bin and upload it there.</p>
@@ -194,7 +194,7 @@
   </main>
 
   <script>
-    const updaterVersion = "2.9.2";
+    const updaterVersion = "2.9.3";
     const counterUrl = "https://irrigation-update-counter.beaukacz86.workers.dev";
     const board = document.getElementById("board");
     const installer = document.getElementById("installer");
