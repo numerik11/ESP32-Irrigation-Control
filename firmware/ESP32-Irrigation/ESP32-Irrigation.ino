@@ -7928,22 +7928,6 @@ void handleSetupPage() {
     html += String(rulePcts[i]); html += F("'></td></tr>");
   }
   html += F("</tbody></table></div><small>Negative values shorten runtime; positive values extend it. Very Hot replaces Hot: +50% means 1.5 times the scheduled runtime. Temperature rules do not stack.</small>");
-  auto smartNumber = [&](const char* name,const char* label,int value,int low,int high) {
-    html += F("<div class='row'><label for='"); html += name; html += F("'>"); html += label;
-    html += F("</label><input required class='in-sm' type='number' id='"); html += name;
-    html += F("' name='"); html += name; html += F("' min='"); html += String(low);
-    html += F("' max='"); html += String(high); html += F("' value='"); html += String(value); html += F("'></div>");
-  };
-  smartNumber("smartMinimumMin","Minimum runtime (min)",smartMinimumMin,0,1440);
-  smartNumber("smartMaximumIncreasePct","Maximum increase (%)",smartMaximumIncreasePct,0,1500);
-  html += F("<small>The minimum prevents shortening below this duration; schedules already shorter stay at their scheduled length. Skips and -100% still give zero. Maximum increase caps the combined adjustment: 100% allows up to twice the schedule.</small>");
-  html += F("<div class='row'><label for='smartHysteresis'>Hysteresis (<span data-temp-unit>"); html += temperatureUnitChar();
-  html += F("</span>)</label><input required class='in-sm' id='smartHysteresis' name='smartHysteresis' type='number' min='0' step='0.1' max='");
-  html += tempUseFahrenheit ? F("18") : F("10"); html += F("' value='");
-  html += String(smartHysteresisC*(tempUseFahrenheit ? 1.8f : 1.0f),1);
-  html += F("'><small>A 1 C gap keeps Hot active until below Hot minus 1 C; Cool ends at Cool plus 1 C. Set 0 to disable. State resets after saving or restarting.</small></div>");
-  smartNumber("smartSeasonalPct","Seasonal runtime (%)",smartSeasonalPct,0,200);
-  html += F("<small>Optional seasonal multiplier: 100% unchanged, 80% shorter, 120% longer. Applied after temperature and before the final limits.</small>");
   html += F("<details><summary>Per-zone runtime adjustments</summary><small>No adjustment keeps the scheduled duration, while rain and wet-soil skips remain active. Custom percentages replace the global temperature percentages.</small><div class='smart-scroll'><table class='smart-table'><thead><tr><th>Zone</th><th>Mode</th><th>Cool %</th><th>Hot %</th><th>Very Hot %</th></tr></thead><tbody>");
   for (int z=0;z<zonesCount;++z) {
     html += F("<tr><th>Zone "); html += String(z+1); html += F("</th><td><select aria-label='Zone "); html += String(z+1);
@@ -7981,6 +7965,10 @@ void handleSetupPage() {
     zone["primary"]=durationForSlot(z,1);
     zone["secondary"]=enableStartTime2[z] ? durationForSlot(z,2) : 0;
   }
+  smartPreview["hysteresisC"]=smartHysteresisC;
+  smartPreview["seasonalPct"]=smartSeasonalPct;
+  smartPreview["maximumIncreasePct"]=smartMaximumIncreasePct;
+  smartPreview["minimumMin"]=smartMinimumMin;
   html += F("<script type='application/json' id='smartPreviewData'>");
   // ArduinoJson 7 replaces its String destination: send the HTML before reusing its buffer.
   flush();
@@ -8436,16 +8424,6 @@ function smartPreviewFactor(enabled, skip, mode, pct, seasonal, lightRain, light
   const time=seconds=>seconds===0?'Skipped':(seconds/60).toFixed(2).replace(/\.?0+$/,'')+' min';
   const thresholds=['smartCoolTemp','smartHotTemp','smartVeryHotTemp'];
   let edited=false;
-  let previousUnit=unit();
-  field('tempUnit').addEventListener('change',()=>{
-    const next=unit();
-    if(next!==previousUnit){
-      const input=field('smartHysteresis');
-      input.value=(Number(input.value)*(next==='F'?1.8:1/1.8)).toFixed(1);
-      previousUnit=next;
-    }
-    field('smartHysteresis').max=next==='F'?'18':'10';
-  });
   function update(event){
     if(event) edited=true;
     const cool=celsius(number(thresholds[0])),hot=celsius(number(thresholds[1])),veryHot=celsius(number(thresholds[2]));
@@ -8464,7 +8442,7 @@ function smartPreviewFactor(enabled, skip, mode, pct, seasonal, lightRain, light
     const basis=number('smartTempBasis');
     let temperature=basis===1 ? data.maximum : basis===2 ? (Number.isFinite(data.minimum)&&Number.isFinite(data.maximum)?(data.minimum+data.maximum)/2:null) : (Number.isFinite(data.current)?data.current:data.maximum);
     if(!Number.isFinite(temperature)) temperature=NaN;
-    const h=number('smartHysteresis')*(unit()==='F'?5/9:1);
+    const h=data.hysteresisC;
     const rule=smartPreviewRule(temperature,edited?-1:data.rule,cool,hot,veryHot,h);
     const adjustment=(prefix='smart',suffix='')=>rule===0?number(prefix+'Cool'+suffix):rule===2?number(prefix+'Hot'+suffix):rule===3?number(prefix+'VeryHot'+suffix):0;
     const globalPct=adjustment('smart','Pct');
@@ -8488,10 +8466,10 @@ function smartPreviewFactor(enabled, skip, mode, pct, seasonal, lightRain, light
     data.zones.forEach((zone,z)=>{
       const mode=number('smartZoneMode'+z);
       const pct=mode===2?adjustment('smartZone',String(z)):globalPct;
-      const factor=smartPreviewFactor(enabled,skip,mode,pct,number('smartSeasonalPct'),lightRain,number('smartLightRainPct'),number('smartMaximumIncreasePct'));
+      const factor=smartPreviewFactor(enabled,skip,mode,pct,data.seasonalPct,lightRain,number('smartLightRainPct'),data.maximumIncreasePct);
       for(const [slot,base] of [['1',zone.primary],['2',zone.secondary]]){
         if(slot==='2' && !base) continue;
-        const adjusted=enabled?smartPreviewRuntime(base,factor,number('smartMinimumMin'),number('smartMaximumIncreasePct')):base;
+        const adjusted=enabled?smartPreviewRuntime(base,factor,data.minimumMin,data.maximumIncreasePct):base;
         const line=document.createElement('p');
         line.textContent='Zone '+(z+1)+(zone.secondary?' / Start '+slot:'')+': '+(base/60).toFixed(2).replace(/\.?0+$/,'')+' min \u2192 '+(base===0?'0 min (not scheduled)':time(adjusted));
         output.append(line);
