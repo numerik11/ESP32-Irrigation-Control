@@ -5,30 +5,7 @@ import {readFirmware, compileFirmwareFunctions, extractFunction} from './helpers
 
 const source=await readFirmware(new URL('../firmware/ESP32-Irrigation/ESP32-Irrigation.ino',import.meta.url));
 const javascript=/R"SMARTJS\(([\s\S]*?)\)SMARTJS"/.exec(source)[1];
-const pureJavascript=javascript.slice(0,javascript.indexOf('(function(){'));
-const preview={};
-vm.runInNewContext(pureJavascript,preview);
 const helpers=compileFirmwareFunctions(source,['smartRuleForTemperature','smartRuleAdjustment','smartLimitRuntime']);
-
-test('preview JSON serialization preserves the streamed setup controls and script wrapper',()=>{
-  const setup=extractFunction(source,'handleSetupPage');
-  const start=setup.indexOf('  html += F("<script type=\'application/json\'');
-  const end=setup.indexOf('  html += F("</script>");',start)+'  html += F("</script>");'.length;
-  const fragment=setup.slice(start,end).replaceAll('html +=','html.value +=');
-  const controls='<section id="smart-card"><table><tr><td>Smart Watering</td></tr></table>';
-  const html={value:controls};
-  const chunks=[];
-  const data={maximum:34.2,zones:[{primary:1800,secondary:0}]};
-  new Function('html','F','flush','serializeJson','smartPreview',fragment)(
-    html,value=>value,()=>{chunks.push(html.value);html.value='';},
-    (value,destination)=>{destination.value=JSON.stringify(value);},data,
-  );
-  const page=chunks.join('')+html.value;
-  assert.ok(page.startsWith(controls),'JSON writer must not erase the preceding form');
-  const json=/<script type='application\/json' id='smartPreviewData'>(.*?)<\/script>/.exec(page);
-  assert.ok(json,'JSON must stay inside its script element');
-  assert.deepEqual(JSON.parse(json[1]),data);
-});
 
 test('temperature boundaries, exclusive Very Hot, and hysteresis transitions',()=>{
   const rule=(t,previous=-1,h=1)=>helpers.smartRuleForTemperature(t,previous,15,30,37,h);
@@ -48,12 +25,9 @@ test('temperature boundaries, exclusive Very Hot, and hysteresis transitions',()
   assert.equal(rule(29.9,2,0),1,'zero disables hysteresis');
   assert.equal(rule(NaN,3),-1);
   assert.equal(helpers.smartRuleAdjustment(rule(37),-50,25,50),50,'Very Hot replaces Hot');
-  for(const previous of [-1,0,1,2,3]) for(const h of [0,1,3]) for(const t of [NaN,10,14.9,15,16,28.9,29,30,36,37,40]){
-    assert.equal(preview.smartPreviewRule(t,previous,15,30,37,h),rule(t,previous,h));
-  }
 });
 
-test('runtime floor, cap, skips, disabled schedules, and preview parity',()=>{
+test('runtime floor, cap, skips, and disabled schedules',()=>{
   const duration=helpers.smartLimitRuntime;
   assert.equal(duration(1800,1.3,5,100),2340,'30 minutes becomes 39');
   assert.equal(duration(7200,1.3,5,100),9360,'120 minutes becomes 156');
@@ -63,9 +37,6 @@ test('runtime floor, cap, skips, disabled schedules, and preview parity',()=>{
   assert.equal(duration(3600,4,5,100),7200,'combined increase is capped');
   assert.equal(duration(300,0,5,100),0,'minimum never revives a skip');
   assert.equal(duration(0,1.5,5,100),0,'disabled schedule stays zero');
-  for(const base of [0,1,120,300,1800,7200]) for(const factor of [0,0.01,0.5,1,1.3,1.5,4]) for(const minimum of [0,5]){
-    assert.equal(preview.smartPreviewRuntime(base,factor,minimum,100),duration(base,factor,minimum,100));
-  }
 });
 
 function firmware(overrides={}){
@@ -122,41 +93,26 @@ test('zone opt-out and custom rules, seasonal scaling, and skip priority',()=>{
     assert.equal(firmware({rainNext24h_mm:6}).smartWateringDurationForSlot(z,1),0);
     assert.equal(firmware({smartWateringEnabled:false}).smartWateringDurationForSlot(z,1),1800);
   }
-  for(const mode of [0,1,2]) for(const wet of [false,true]) for(const seasonal of [0,80,100,200]){
-    const fw=firmware({smartSeasonalPct:seasonal,isSoilWetForSmartSkip:()=>wet});
-    assert.equal(preview.smartPreviewFactor(true,wet,mode,mode===2?30:25,seasonal,false,-30,100),fw.smartFactorForZone(mode));
-  }
 });
 
-test('preview runs in Setup and responds immediately to edited percentages and skip inputs',()=>{
-  assert.ok(extractFunction(source,'handleSetupPage').includes('R"SMARTJS('));
-  assert.ok(!extractFunction(source,'handleRoot').includes('R"SMARTJS('));
-  const values={tempUnit:'C',smartTempBasis:'1',smartCoolTemp:'15',smartHotTemp:'30',smartVeryHotTemp:'37',
-    smartCoolPct:'-50',smartHotPct:'25',smartVeryHotPct:'50',smartActualRainMm:'5',smartForecastRainMm:'5',smartLightRainPct:'-30',
-    moistureSource:'meteo',moistureSkipPct:'50'};
-  const fields=Object.fromEntries(Object.entries(values).map(([name,value])=>[name,{name,value,type:'number',validity:{valid:true},
-    setCustomValidity(message){this.validity.valid=!message;},addEventListener(){}}]));
-  fields.smartWatering={checked:true};fields.moistureProbeEnabled={checked:true};
+test('setup temperature ranges and validation update without a runtime preview',()=>{
+  const setup=extractFunction(source,'handleSetupPage');
+  assert.ok(!setup.includes('Live runtime preview'));
+  assert.ok(!setup.includes('smartPreviewData'));
+  const fields=Object.fromEntries(Object.entries({tempUnit:'C',smartCoolTemp:'15',smartHotTemp:'30',smartVeryHotTemp:'37'}).map(([name,value])=>[name,{value,setCustomValidity(message){this.error=message;}}]));
   const events={};
-  const nodes={setupForm:{elements:{namedItem:name=>fields[name]},querySelectorAll:()=>Object.entries(fields).filter(([name])=>name.startsWith('smart')).map(([,el])=>el),addEventListener:(name,fn)=>events[name]=fn},
-    smartPreviewData:{textContent:JSON.stringify({hysteresisC:1,seasonalPct:100,maximumIncreasePct:100,minimumMin:5,current:12,maximum:34.2,minimum:20,actualRain:0,forecastRain:0,moisture:20,
-      moistureRaw:-1,moistureSource:'meteo',rule:2,zones:[{mode:0,primary:1800,secondary:0},{mode:0,primary:7200,secondary:0},{mode:2,hotPct:50,primary:600,secondary:1200},{mode:1,primary:600,secondary:0},{mode:0,primary:0,secondary:0}]})},
-    smartNormalRange:{},smartRuleNow:{},smartZonePreview:{children:[],replaceChildren(){this.children=[];},append(node){this.children.push(node);}}};
-  vm.runInNewContext(javascript,{document:{getElementById:id=>nodes[id],createElement:()=>({})}});
-  assert.match(nodes.smartRuleNow.textContent,/Hot \(\+25%\)/);
-  assert.match(nodes.smartZonePreview.children[0].textContent,/37.5 min$/);
-  assert.equal(nodes.smartZonePreview.children.length,4,'omit unscheduled zones');
-  assert.equal(nodes.smartZonePreview.children[2].textContent,'Runtime: Start 1: 10 \u2192 15 min | Start 2: 20 \u2192 30 min');
-  assert.equal(nodes.smartZonePreview.children[3].textContent,'Runtime: 10 \u2192 10 min','preserve saved zone opt-out');
-  fields.smartHotPct.value='30';events.input({});
-  assert.match(nodes.smartZonePreview.children[0].textContent,/39 min$/);
-  assert.match(nodes.smartZonePreview.children[1].textContent,/156 min$/);
-  fields.moistureSkipPct.value='10';events.input({});
-  assert.match(nodes.smartRuleNow.textContent,/Skipped/);
-  assert.match(nodes.smartZonePreview.children[0].textContent,/Skipped$/);
-  fields.smartWatering.checked=false;events.change({});
-  assert.match(nodes.smartZonePreview.children[0].textContent,/30 min$/);
-  fields.smartHotTemp.value='10';events.input({});
-  assert.equal(nodes.smartZonePreview.children.length,0);
-  assert.equal(fields.smartHotTemp.validity.valid,false);
+  const range={};
+  const form={elements:{namedItem:name=>fields[name]},addEventListener:(name,fn)=>events[name]=fn};
+  vm.runInNewContext(javascript,{document:{getElementById:id=>id==='setupForm'?form:range}});
+  assert.equal(range.textContent,'15.0 C to below 30.0 C');
+  assert.equal(fields.smartHotTemp.error,'');
+  fields.smartHotTemp.value='10';events.input();
+  assert.ok(fields.smartHotTemp.error);
+  fields.tempUnit.value='F';fields.smartCoolTemp.value='59';fields.smartHotTemp.value='86';fields.smartVeryHotTemp.value='98.6';events.change();
+  assert.equal(range.textContent,'59.0 F to below 86.0 F');
+  assert.equal(fields.smartHotTemp.max,'140');
+  assert.equal(fields.smartHotTemp.error,'');
+  fields.smartCoolTemp.value='';events.input();
+  assert.equal(range.textContent,'');
+  assert.ok(fields.smartHotTemp.error);
 });

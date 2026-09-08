@@ -7907,7 +7907,7 @@ void handleSetupPage() {
     html += F(">"); html += basisLabels[i]; html += F("</option>");
   }
   html += F("</select><small>Forecast maximum is recommended for early-morning watering. If the selected forecast is unavailable, no temperature adjustment is applied.</small></div>");
-  html += F("<style>#smart-card .panel-split>div{min-width:0}.smart-scroll{overflow-x:auto}.smart-table{width:100%;border-collapse:collapse}.smart-table th,.smart-table td{padding:8px 6px;text-align:left;border-bottom:1px solid var(--border,#ddd)}.smart-table input{width:82px;min-width:65px}.smart-table select{min-width:120px}.smart-preview{padding:12px;border:1px solid var(--border,#ddd);border-radius:10px;margin-top:12px}.smart-preview p{margin:6px 0}</style>");
+  html += F("<style>#smart-card .panel-split>div{min-width:0}.smart-scroll{overflow-x:auto}.smart-table{width:100%;border-collapse:collapse}.smart-table th,.smart-table td{padding:8px 6px;text-align:left;border-bottom:1px solid var(--border,#ddd)}.smart-table input{width:82px;min-width:65px}</style>");
   html += F("<div class='smart-scroll'><table class='smart-table'><thead><tr><th>Condition</th><th>Temperature (<span data-temp-unit>");
   html += temperatureUnitChar();
   html += F("</span>)</th><th>Runtime Adjustment (%)</th></tr></thead><tbody>");
@@ -7927,37 +7927,7 @@ void handleSetupPage() {
     html += F("' aria-label='"); html += ruleNames[i]; html += F(" runtime adjustment percent' value='");
     html += String(rulePcts[i]); html += F("'></td></tr>");
   }
-  html += F("</tbody></table></div><small>Negative values shorten runtime; positive values extend it. Very Hot replaces Hot: +50% means 1.5 times the scheduled runtime.</small>");
-  html += F("<div class='smart-preview'><strong>Live runtime preview</strong><p id='smartRuleNow' role='status' aria-live='polite'></p><div id='smartZonePreview'></div><small>Scheduled &rarr; adjusted runtime. Save to apply; reload for fresh weather.</small></div>");
-  JsonDocument smartPreview;
-  smartPreview["current"]=curTempC;
-  smartPreview["maximum"]=todayMax_C;
-  smartPreview["minimum"]=todayMin_C;
-  smartPreview["actualRain"]=last24hActualRain();
-  smartPreview["forecastRain"]=isfinite(rainNext24h_mm) ? rainNext24h_mm : 0.0f;
-  smartPreview["moisture"]=moisturePercent();
-  smartPreview["moistureRaw"]=setupMoistureRaw;
-  smartPreview["moistureSource"]=moistureUseMeteo ? "meteo" : "probe";
-  smartPreview["rule"]=smartCurrentRule();
-  JsonArray previewZones=smartPreview["zones"].to<JsonArray>();
-  for (int z=0;z<zonesCount;++z) {
-    JsonObject zone=previewZones.add<JsonObject>();
-    zone["mode"]=smartZoneMode[z];
-    zone["coolPct"]=smartZoneCoolPct[z];
-    zone["hotPct"]=smartZoneHotPct[z];
-    zone["veryHotPct"]=smartZoneVeryHotPct[z];
-    zone["primary"]=durationForSlot(z,1);
-    zone["secondary"]=enableStartTime2[z] ? durationForSlot(z,2) : 0;
-  }
-  smartPreview["hysteresisC"]=smartHysteresisC;
-  smartPreview["seasonalPct"]=smartSeasonalPct;
-  smartPreview["maximumIncreasePct"]=smartMaximumIncreasePct;
-  smartPreview["minimumMin"]=smartMinimumMin;
-  html += F("<script type='application/json' id='smartPreviewData'>");
-  // ArduinoJson 7 replaces its String destination: send the HTML before reusing its buffer.
-  flush();
-  serializeJson(smartPreview,html);
-  html += F("</script>");
+  html += F("</tbody></table></div>");
   html += F("<div class='row'><label>Actual Rain Skip Above (mm)</label><input class='in-sm' type='number' step='0.1' min='0' max='200' name='smartActualRainMm' value='");
   html += String(smartActualRainSkipMm, 1); html += F("'><small>Light-rain adjustment up to this amount (%)</small><input class='in-sm' type='number' min='-100' max='300' name='smartLightRainPct' value='");
   html += String(smartLightRainAdjustPct); html += F("'></div>");
@@ -8375,98 +8345,22 @@ void handleSetupPage() {
   html += F("let setupTempUnit='"); html += temperatureUnitChar(); html += F("';const tempUnitSel=g('tempUnitSelect');");
   html += F("tempUnitSel?.addEventListener('change',()=>{const next=tempUnitSel.value==='F'?'F':'C';if(next===setupTempUnit)return;document.querySelectorAll('[data-smart-temp]').forEach(el=>{const v=parseFloat(el.value);if(Number.isFinite(v))el.value=(next==='F'?(v*9/5+32):(v-32)*5/9).toFixed(1);});document.querySelectorAll('[data-temp-unit]').forEach(el=>el.textContent=next);setupTempUnit=next;});");
   html += F(R"SMARTJS(
-function smartPreviewRule(t, previous, cool, hot, veryHot, h) {
-  if (!Number.isFinite(t)) return -1;
-  if (t >= veryHot) return 3;
-  if (previous === 3 && t >= veryHot-h) return 3;
-  if (t >= hot) return 2;
-  if (previous >= 2 && t >= hot-h) return 2;
-  if (t < cool) return 0;
-  if (previous === 0 && t < cool+h) return 0;
-  return 1;
-}
-function smartPreviewRuntime(base, factor, minimum, maximum) {
-  if (base === 0 || factor <= 0) return 0;
-  const cap=Math.round(base*(1+maximum/100));
-  return Math.max(1,Math.min(cap,Math.max(Math.min(base,minimum*60),Math.round(base*factor))));
-}
-function smartPreviewFactor(enabled, skip, mode, pct, seasonal, lightRain, lightPct, maximum) {
-  if (!enabled) return 1;
-  if (skip) return 0;
-  if (mode===1) return 1;
-  return Math.max(0,Math.min(1+maximum/100,(1+pct/100)*seasonal/100*(lightRain ? 1+lightPct/100 : 1)));
-}
 (function(){
   const form=document.getElementById('setupForm');
-  const data=JSON.parse(document.getElementById('smartPreviewData').textContent);
   const field=name=>form.elements.namedItem(name);
-  const number=name=>{const el=field(name);return el && el.value.trim()!=='' ? Number(el.value) : NaN;};
-  const unit=()=>field('tempUnit').value;
-  const celsius=v=>unit()==='F' ? (v-32)*5/9 : v;
-  const shown=v=>Number.isFinite(v) ? (unit()==='F' ? v*9/5+32 : v).toFixed(1)+' '+unit() : 'unavailable';
-  const pctLabel=v=>(v>0?'+':'')+v+'%';
-  const time=seconds=>seconds===0?'Skipped':(seconds/60).toFixed(2).replace(/\.?0+$/,'')+' min';
   const thresholds=['smartCoolTemp','smartHotTemp','smartVeryHotTemp'];
-  let edited=false;
-  function update(event){
-    if(event) edited=true;
-    const cool=celsius(number(thresholds[0])),hot=celsius(number(thresholds[1])),veryHot=celsius(number(thresholds[2]));
-    for(const name of thresholds){field(name).min=unit()==='F'?'-22':'-30';field(name).max=unit()==='F'?'140':'60';}
-    const validOrder=cool<hot && hot<veryHot;
-    field('smartHotTemp').setCustomValidity(validOrder?'':'Use Cool < Hot < Very Hot.');
-    document.getElementById('smartNormalRange').textContent=shown(cool)+' to below '+shown(hot);
-    const status=document.getElementById('smartRuleNow');
-    const output=document.getElementById('smartZonePreview');
-    const controls=[...form.querySelectorAll('[name^="smart"]')];
-    controls.forEach(el=>{if(el.type==='number') el.required=true;});
-    if(!validOrder || controls.some(el=>el.type==='number' && (!Number.isFinite(number(el.name)) || !el.validity.valid))){
-      status.textContent='Enter valid values within the displayed limits; Cool must be below Hot, and Hot below Very Hot.';
-      output.replaceChildren();return;
-    }
-    const basis=number('smartTempBasis');
-    let temperature=basis===1 ? data.maximum : basis===2 ? (Number.isFinite(data.minimum)&&Number.isFinite(data.maximum)?(data.minimum+data.maximum)/2:null) : (Number.isFinite(data.current)?data.current:data.maximum);
-    if(!Number.isFinite(temperature)) temperature=NaN;
-    const h=data.hysteresisC;
-    const rule=smartPreviewRule(temperature,edited?-1:data.rule,cool,hot,veryHot,h);
-    const globalPct=rule===0?number('smartCoolPct'):rule===2?number('smartHotPct'):rule===3?number('smartVeryHotPct'):0;
-    const enabled=field('smartWatering').checked;
-    let moisture=data.moisture;
-    const sameSource=field('moistureSource').value===data.moistureSource;
-    if(sameSource && data.moistureSource==='probe' && data.moistureRaw>=0){
-      const dry=number('moistureDryRaw'),wet=number('moistureWetRaw');
-      moisture=dry===wet?-1:Math.max(0,Math.min(100,Math.trunc((data.moistureRaw-dry)*100/(wet-dry))));
-    }
-    const wet=field('moistureProbeEnabled').checked && sameSource && moisture>=0 && moisture>=number('moistureSkipPct');
-    const actualSkip=data.actualRain>number('smartActualRainMm');
-    const forecastSkip=data.forecastRain>number('smartForecastRainMm');
-    const skip=wet||actualSkip||forecastSkip;
-    const lightRain=data.actualRain>0 && !actualSkip;
-    const reason=wet?'wet soil':actualSkip?'actual rainfall':forecastSkip?'forecast rainfall':'';
-    const label=rule<0?'Temperature unavailable':['Cool','Normal','Hot','Very hot'][rule];
-    status.textContent=!enabled?'Smart Watering off':skip?'Skipped: '+reason:label+(rule<0?'':' ('+pctLabel(globalPct)+') - '+shown(temperature)+(basis===0&&!Number.isFinite(data.current)?' forecast':''));
-    output.replaceChildren();
-    data.zones.forEach((zone,z)=>{
-      const mode=zone.mode;
-      const pct=mode===2?(rule===0?zone.coolPct:rule===2?zone.hotPct:rule===3?zone.veryHotPct:0):globalPct;
-      const factor=smartPreviewFactor(enabled,skip,mode,pct,data.seasonalPct,lightRain,number('smartLightRainPct'),data.maximumIncreasePct);
-      const runtimes=[];
-      for(const [slot,base] of [['1',zone.primary],['2',zone.secondary]]){
-        if(!base) continue;
-        const adjusted=enabled?smartPreviewRuntime(base,factor,data.minimumMin,data.maximumIncreasePct):base;
-        runtimes.push((zone.secondary?'Start '+slot+': ':'')+(base/60).toFixed(2).replace(/\.?0+$/,'')+' \u2192 '+time(adjusted));
-      }
-      if(runtimes.length){
-        const line=document.createElement('p');
-        line.textContent='Runtime: '+runtimes.join(' | ');
-        output.append(line);
-      }
+  function update(){
+    const fahrenheit=field('tempUnit').value==='F';
+    const values=thresholds.map(name=>{
+      const input=field(name);
+      input.min=fahrenheit?'-22':'-30';
+      input.max=fahrenheit?'140':'60';
+      return input.value.trim()===''?NaN:Number(input.value);
     });
-    if(!output.children.length){
-      const note=document.createElement('p');note.textContent='No watering scheduled.';output.append(note);
-    }
-    if(field('moistureProbeEnabled').checked && (!sameSource || moisture<0)){
-      const note=document.createElement('p');note.textContent='Soil reading unavailable; wet-soil skip cannot be previewed.';output.append(note);
-    }
+    const [cool,hot,veryHot]=values;
+    field('smartHotTemp').setCustomValidity(cool<hot && hot<veryHot?'':'Use Cool < Hot < Very Hot.');
+    const shown=value=>value.toFixed(1)+' '+(fahrenheit?'F':'C');
+    document.getElementById('smartNormalRange').textContent=Number.isFinite(cool)&&Number.isFinite(hot)?shown(cool)+' to below '+shown(hot):'';
   }
   form.addEventListener('input',update);
   form.addEventListener('change',update);
