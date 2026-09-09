@@ -54,7 +54,7 @@ extern "C" {
 // ---------- Hardware ----------
 static const char kFirmwareSignature[] __attribute__((used)) =
   "Original author: Beau Kaczmarek - https://github.com/numerik11/ESP32-Irrigation-Controller";
-static const char kFirmwareVersion[] = "2.9.4";
+static const char kFirmwareVersion[] = "3.0.0";
 static const char kFirmwareBuildDate[] = __DATE__ " " __TIME__;
 static const char kUpdateReportUrl[] =
   "https://irrigation-update-counter.beaukacz86.workers.dev/v1/report";
@@ -591,6 +591,7 @@ static bool saveBootCount(uint32_t count);
 static void initUpdateReportState();
 static void tickUpdateReport();
 void handleRoot();
+void handleScheduleHtml();
 void handleSubmit();
 void handleSetupPage();
 void handleConfigure();
@@ -3170,6 +3171,7 @@ void setup() {
   // -------- Routes --------
   Serial.println("[BOOT] registering routes");
   server.on("/", HTTP_GET, handleRoot);
+  server.on("/schedule-html", HTTP_GET, handleScheduleHtml);
   server.on("/submit", HTTP_POST, handleSubmit);
 
   server.on("/setup", HTTP_GET, handleSetupPage);
@@ -8630,6 +8632,86 @@ static String htmlEscape(const String& s) {
     else out += c;
   }
   return out;
+}
+
+// Full-day schedule for embedding in local dashboards. This endpoint does not operate valves.
+static bool scheduleSlotToday(int zone, int weekday, int slot) {
+  if (zone < 0 || zone >= (int)zonesCount || zone >= (int)MAX_ZONES) return false;
+  if (weekday < 0 || weekday > 6 || !days[zone][weekday]) return false;
+  if (slot != 1 && slot != 2) return false;
+  if (slot == 2 && !enableStartTime2[zone]) return false;
+  const int hour = slot == 1 ? startHour[zone] : startHour2[zone];
+  const int minute = slot == 1 ? startMin[zone] : startMin2[zone];
+  return hour >= 0 && hour < 24 && minute >= 0 && minute < 60 && durationForSlot(zone, slot) > 0;
+}
+
+static String scheduleTimeRange(int zone, int slot, const struct tm& today) {
+  struct tm start = today;
+  start.tm_hour = slot == 1 ? startHour[zone] : startHour2[zone];
+  start.tm_min = slot == 1 ? startMin[zone] : startMin2[zone];
+  start.tm_sec = 0;
+  start.tm_isdst = -1;
+  const time_t begin = mktime(&start);
+  char clock[16];
+  strftime(clock, sizeof(clock), "%H:%M", &start);
+  String result(clock);
+  const unsigned long duration = smartWateringDurationForSlot(zone, slot);
+  if (duration == 0) return result + F(" &mdash; skipped (Smart Watering)");
+  const time_t finish = begin + duration;
+  struct tm end;
+  if (!localtime_r(&finish, &end)) return result;
+  strftime(clock, sizeof(clock), end.tm_sec ? "%H:%M:%S" : "%H:%M", &end);
+  result += F(" &ndash; ");
+  result += clock;
+  if (end.tm_year != start.tm_year || end.tm_yday != start.tm_yday) {
+    char date[16];
+    strftime(date, sizeof(date), "%Y-%m-%d", &end);
+    result += F(" ("); result += date; result += ')';
+  }
+  return result;
+}
+
+void handleScheduleHtml() {
+  HttpScope _scope;
+  const time_t now = time(nullptr);
+  struct tm today;
+  const bool clockReady = now >= 1609459200 && localtime_r(&now, &today);
+  String html;
+  html.reserve(6000);
+  html += F("<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta http-equiv='refresh' content='60'><title>Today's Schedule</title><style>");
+  html += F(":root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;padding:16px;font:15px/1.5 system-ui,sans-serif;background:#fff;color:#202b33}main{max-width:800px;margin:auto}h1{font-size:1.3rem;margin:0 0 4px}p{margin:4px 0 12px;color:#52616b}table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:10px 8px;border-bottom:1px solid #dce2e6}th{overflow-wrap:anywhere}th:first-child{width:35%}.time{display:inline-block;margin-right:12px}small{display:block;margin-top:14px;color:#52616b}@media(prefers-color-scheme:dark){body{background:#1c2228;color:#edf2f5}p,small{color:#b5c1ca}th,td{border-color:#394650}}</style></head><body><main><h1>Today's Schedule</h1>");
+  if (!clockReady) {
+    html += F("<p>Waiting for the controller clock to synchronize.</p>");
+  } else {
+    char date[40];
+    strftime(date, sizeof(date), "%A, %d %B %Y", &today);
+    html += F("<p>"); html += date; html += F("</p>");
+    html += F("<table><thead><tr><th scope='col'>Zone</th><th scope='col'>Start &ndash; End</th></tr></thead><tbody>");
+    bool any = false;
+    for (int z = 0; z < (int)zonesCount && z < (int)MAX_ZONES; ++z) {
+      const bool first = scheduleSlotToday(z, today.tm_wday, 1);
+      const bool second = scheduleSlotToday(z, today.tm_wday, 2);
+      if (!first && !second) continue;
+      any = true;
+      String name = zoneNames[z];
+      name.trim();
+      if (!name.length()) name = String("Zone ") + String(z + 1);
+      html += F("<tr><th scope='row'>"); html += htmlEscape(name); html += F("</th><td>");
+      const bool secondEarlier = second && (!first || startHour2[z] * 60 + startMin2[z] < startHour[z] * 60 + startMin[z]);
+      for (int order = 0; order < 2; ++order) {
+        const int slot = secondEarlier ? 2 - order : 1 + order;
+        if ((slot == 1 && !first) || (slot == 2 && !second)) continue;
+        html += F("<span class='time'>"); html += scheduleTimeRange(z, slot, today); html += F("</span>");
+      }
+      html += F("</td></tr>");
+    }
+    html += F("</tbody></table>");
+    if (!any) html += F("<p>No watering scheduled today.</p>");
+    html += F("<small>Controller local time. End times use current Smart Watering settings; delays may change actual watering. Includes earlier starts today. Refreshes every minute.</small>");
+  }
+  html += F("</main></body></html>");
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "text/html; charset=utf-8", html);
 }
 
 static String compactRunDetailText(const String& temp, const String& hum, const String& wind, const String& cond, String city) {

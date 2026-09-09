@@ -83,3 +83,16 @@ test("web flasher publishes one version and links both manifests", async () => {
   assert.ok(firmwareVersion, "firmware declares its version");
   assert.equal(firmwareVersion[1], manifests[0].version, "firmware and updater versions match");
 });
+
+test('online updater opens the controller OTA URL and rejects unsafe schemes', async () => {
+  const index = await readFile(path.join(webFlasherDirectory, 'index.html'), 'utf8');
+  const definition = index.slice(index.indexOf('    function controllerOtaUrl('), index.indexOf('    const controllerAddress ='));
+  const otaUrl = new Function(definition + ';return controllerOtaUrl;')();
+  assert.equal(otaUrl('espirrigation.local'), 'http://espirrigation.local/update');
+  assert.equal(otaUrl(' 192.168.1.100 '), 'http://192.168.1.100/update');
+  assert.equal(otaUrl('http://192.168.1.100:8080/setup?current=2#x'), 'http://192.168.1.100:8080/update');
+  assert.equal(otaUrl('https://irrigation.example.com'), 'https://irrigation.example.com/update');
+  assert.equal(otaUrl('[::1]'), 'http://[::1]/update');
+  for (const invalid of ['', 'javascript:alert(1)', 'file:///tmp/file', 'ftp://controller', 'http://user:pass@controller']) assert.throws(() => otaUrl(invalid));
+  assert.ok(index.includes("window.open(url, '_blank', 'noopener,noreferrer')"));
+});

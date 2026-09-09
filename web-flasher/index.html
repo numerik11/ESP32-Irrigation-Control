@@ -107,6 +107,11 @@
       color: #1f2933;
     }
 
+    #otaConnect { margin-top: 20px; }
+    #controllerAddress { box-sizing: border-box; width: 100%; padding: 10px; font: inherit; color: inherit; background: transparent; border: 1px solid #b8c2cc; border-radius: 6px; }
+    #otaConnect button { margin-top: 10px; padding: 10px 16px; border: 0; border-radius: 6px; background: #2563eb; color: white; font: inherit; cursor: pointer; }
+    #otaConnect button:focus-visible { outline: 3px solid #60a5fa; outline-offset: 3px; }
+
     .installer {
       margin-top: 20px;
     }
@@ -161,7 +166,7 @@
 <body>
   <main>
     <h1>ESP32 Irrigation Firmware Update</h1>
-    <p>Version 2.9.4 removes the live runtime preview and remaining temperature adjustment help text from Setup.</p>
+    <p>Version 3.0.0 adds an embeddable Today's Schedule page at /schedule-html, with zone names, both daily starts, and Smart Watering end times. Includes the simplified Setup page.</p>
 
     <label for="board">Board</label>
     <select id="board">
@@ -186,15 +191,21 @@
       <esp-web-install-button id="installer"></esp-web-install-button>
     </div>
 
-    <p><a id="firmwareDownload" href="esp32-dev/firmware.bin?v=2.9.4" download>Download application .bin for Browser OTA</a></p>
+    <p><a id="firmwareDownload" href="esp32-dev/firmware.bin?v=3.0.0" download>Download application .bin for Browser OTA</a></p>
     <label for="firmwareLink">GitHub URL for Browser OTA</label>
     <input id="firmwareLink" type="url" readonly style="width:100%;padding:10px" aria-label="GitHub firmware URL for selected board">
     <p>Copy this URL into the controller's Browser OTA page, or download the .bin and upload it there.</p>
+    <form id="otaConnect">
+      <label for="controllerAddress">Controller IP address or hostname</label>
+      <input id="controllerAddress" type="text" value="espirrigation.local" placeholder="192.168.1.100" required spellcheck="false" autocapitalize="none" aria-describedby="otaConnectHelp">
+      <button type="submit">Open controller OTA</button>
+      <p id="otaConnectHelp">Opens the controller's Browser OTA page in a new tab. Use an address reachable from this browser and sign in with your OTA password.</p>
+    </form>
     <p>Use Chrome or Edge. Connect the board by USB, choose the matching board, then install.</p>
   </main>
 
   <script>
-    const updaterVersion = "2.9.4";
+    const updaterVersion = "3.0.0";
     const counterUrl = "https://irrigation-update-counter.beaukacz86.workers.dev";
     const board = document.getElementById("board");
     const installer = document.getElementById("installer");
@@ -204,6 +215,33 @@
     const updateCount = document.getElementById("updateCount");
     const params = new URLSearchParams(window.location.search);
     const current = params.get("current") || "";
+
+    function controllerOtaUrl(value) {
+      const address = value.trim();
+      if (!address) throw new Error('Enter the controller IP address or hostname.');
+      const url = new URL(address.includes('://') ? address : 'http://' + address);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+        throw new Error('Use an HTTP or HTTPS controller address without a username or password.');
+      }
+      url.pathname = '/update';
+      url.search = '';
+      url.hash = '';
+      return url.href;
+    }
+
+    const controllerAddress = document.getElementById('controllerAddress');
+    controllerAddress.addEventListener('input', () => controllerAddress.setCustomValidity(''));
+    document.getElementById('otaConnect').addEventListener('submit', event => {
+      event.preventDefault();
+      try {
+        const url = controllerOtaUrl(controllerAddress.value);
+        controllerAddress.setCustomValidity('');
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } catch (error) {
+        controllerAddress.setCustomValidity('Enter a valid controller IP address or HTTP/HTTPS URL.');
+        controllerAddress.reportValidity();
+      }
+    });
 
     function normalizeVersion(value) {
       return String(value || "").trim().replace(/^v/i, "");

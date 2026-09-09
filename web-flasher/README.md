@@ -36,6 +36,12 @@ http://localhost:8080
 
 Choose the correct board, click Install, and select the ESP serial port when the browser asks.
 
+## Browser OTA
+
+Choose the matching board, then download the application .bin or copy its GitHub firmware URL. Enter the controller's IP address or hostname in the online updater and select **Open controller OTA** to open its /update page in a new tab. The default address is espirrigation.local. Sign in with the OTA password configured on the controller, then upload the file or install from the copied URL.
+
+The online updater does not start an OTA installation automatically. The browser must be able to reach the controller's address.
+
 ## Refresh Binaries
 
 After rebuilding firmware, copy the generated files from `.pio/build/<env>/` into the matching board folder:
