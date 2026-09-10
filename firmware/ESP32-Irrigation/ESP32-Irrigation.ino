@@ -54,7 +54,7 @@ extern "C" {
 // ---------- Hardware ----------
 static const char kFirmwareSignature[] __attribute__((used)) =
   "Original author: Beau Kaczmarek - https://github.com/numerik11/ESP32-Irrigation-Controller";
-static const char kFirmwareVersion[] = "3.0.0";
+static const char kFirmwareVersion[] = "3.1";
 static const char kFirmwareBuildDate[] = __DATE__ " " __TIME__;
 static const char kUpdateReportUrl[] =
   "https://irrigation-update-counter.beaukacz86.workers.dev/v1/report";
@@ -8679,14 +8679,14 @@ void handleScheduleHtml() {
   String html;
   html.reserve(6000);
   html += F("<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta http-equiv='refresh' content='60'><title>Today's Schedule</title><style>");
-  html += F(":root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;padding:16px;font:15px/1.5 system-ui,sans-serif;background:#fff;color:#202b33}main{max-width:800px;margin:auto}h1{font-size:1.3rem;margin:0 0 4px}p{margin:4px 0 12px;color:#52616b}table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:10px 8px;border-bottom:1px solid #dce2e6}th{overflow-wrap:anywhere}th:first-child{width:35%}.time{display:inline-block;margin-right:12px}small{display:block;margin-top:14px;color:#52616b}@media(prefers-color-scheme:dark){body{background:#1c2228;color:#edf2f5}p,small{color:#b5c1ca}th,td{border-color:#394650}}</style></head><body><main><h1>Today's Schedule</h1>");
+  html += F(":root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;padding:16px;font:15px/1.5 system-ui,sans-serif;background:#fff;color:#202b33}main{max-width:800px;margin:auto}h1{font-size:1.3rem;margin:0 0 4px}p{margin:4px 0 12px;color:#52616b}table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:10px 8px;border-bottom:1px solid #dce2e6}th{overflow-wrap:anywhere}th:first-child{width:35%}.time{display:inline-block;margin-right:12px}@media(prefers-color-scheme:dark){body{background:#1c2228;color:#edf2f5}p{color:#b5c1ca}th,td{border-color:#394650}}</style></head><body class='schedule-page'><main class='schedule-content'><h1 class='schedule-heading'>Today's Schedule</h1>");
   if (!clockReady) {
-    html += F("<p>Waiting for the controller clock to synchronize.</p>");
+    html += F("<p class='schedule-status'>Waiting for the controller clock to synchronize.</p>");
   } else {
     char date[40];
     strftime(date, sizeof(date), "%A, %d %B %Y", &today);
-    html += F("<p>"); html += date; html += F("</p>");
-    html += F("<table><thead><tr><th scope='col'>Zone</th><th scope='col'>Start &ndash; End</th></tr></thead><tbody>");
+    html += F("<p class='schedule-date'>"); html += date; html += F("</p>");
+    html += F("<table class='schedule-table'><thead class='schedule-columns'><tr><th scope='col'>Zone</th><th scope='col'>Start &ndash; End</th></tr></thead><tbody>");
     bool any = false;
     for (int z = 0; z < (int)zonesCount && z < (int)MAX_ZONES; ++z) {
       const bool first = scheduleSlotToday(z, today.tm_wday, 1);
@@ -8696,18 +8696,17 @@ void handleScheduleHtml() {
       String name = zoneNames[z];
       name.trim();
       if (!name.length()) name = String("Zone ") + String(z + 1);
-      html += F("<tr><th scope='row'>"); html += htmlEscape(name); html += F("</th><td>");
+      html += F("<tr class='schedule-zone'><th class='schedule-zone-name' scope='row'>"); html += htmlEscape(name); html += F("</th><td class='schedule-times'>");
       const bool secondEarlier = second && (!first || startHour2[z] * 60 + startMin2[z] < startHour[z] * 60 + startMin[z]);
       for (int order = 0; order < 2; ++order) {
         const int slot = secondEarlier ? 2 - order : 1 + order;
         if ((slot == 1 && !first) || (slot == 2 && !second)) continue;
-        html += F("<span class='time'>"); html += scheduleTimeRange(z, slot, today); html += F("</span>");
+        html += F("<span class='time schedule-time'>"); html += scheduleTimeRange(z, slot, today); html += F("</span>");
       }
       html += F("</td></tr>");
     }
     html += F("</tbody></table>");
-    if (!any) html += F("<p>No watering scheduled today.</p>");
-    html += F("<small>Controller local time. End times use current Smart Watering settings; delays may change actual watering. Includes earlier starts today. Refreshes every minute.</small>");
+    if (!any) html += F("<p class='schedule-status'>No watering scheduled today.</p>");
   }
   html += F("</main></body></html>");
   server.sendHeader("Cache-Control", "no-store");

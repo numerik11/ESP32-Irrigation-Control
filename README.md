@@ -214,6 +214,10 @@ available as a fallback when it works on the local network.
 
 Open `http://espirrigation.local/schedule-html` (or use the controller's IP address) for a compact, read-only page that can be embedded in an iframe. It lists all zones scheduled on the controller's current local day, including earlier starts, using the saved zone names and both enabled start times. Empty names fall back to the zone number.
 
+Each zone shows up to two enabled start/end ranges in chronological order, for example `11:30 - 12:00` and `17:30 - 18:00`. Enable the second start in the zone's schedule to show both runs. The compact page omits the explanatory footer.
+
+For custom styling, the page exposes `.schedule-page`, `.schedule-content`, `.schedule-heading`, `.schedule-date`, `.schedule-table`, `.schedule-columns`, `.schedule-zone`, `.schedule-zone-name`, `.schedule-times`, `.schedule-time`, and `.schedule-status`. Styles must be applied inside the schedule page; CSS in a parent dashboard does not cross into an iframe.
+
 The page refreshes every 60 seconds and follows the browser's light/dark preference. End times use current Smart Watering durations, with zero-duration adjustments marked as skipped. Times are estimates rather than run history: rain, wind, pauses and other delays can change actual watering. An end after midnight includes its date. An unsynchronized controller shows a waiting message.
 
 For a Home Assistant [Webpage card](https://www.home-assistant.io/dashboards/iframe/):

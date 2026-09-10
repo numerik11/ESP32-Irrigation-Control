@@ -166,7 +166,7 @@
 <body>
   <main>
     <h1>ESP32 Irrigation Firmware Update</h1>
-    <p>Version 3.0.0 adds an embeddable Today's Schedule page at /schedule-html, with zone names, both daily starts, and Smart Watering end times. Includes the simplified Setup page.</p>
+    <p>Version 3.1 removes the explanatory footer from Today's Schedule and adds CSS classes for customization. Both enabled daily start/end times remain displayed for each zone.</p>
 
     <label for="board">Board</label>
     <select id="board">
@@ -191,7 +191,7 @@
       <esp-web-install-button id="installer"></esp-web-install-button>
     </div>
 
-    <p><a id="firmwareDownload" href="esp32-dev/firmware.bin?v=3.0.0" download>Download application .bin for Browser OTA</a></p>
+    <p><a id="firmwareDownload" href="esp32-dev/firmware.bin?v=3.1" download>Download application .bin for Browser OTA</a></p>
     <label for="firmwareLink">GitHub URL for Browser OTA</label>
     <input id="firmwareLink" type="url" readonly style="width:100%;padding:10px" aria-label="GitHub firmware URL for selected board">
     <p>Copy this URL into the controller's Browser OTA page, or download the .bin and upload it there.</p>
@@ -205,7 +205,7 @@
   </main>
 
   <script>
-    const updaterVersion = "3.0.0";
+    const updaterVersion = "3.1";
     const counterUrl = "https://irrigation-update-counter.beaukacz86.workers.dev";
     const board = document.getElementById("board");
     const installer = document.getElementById("installer");
